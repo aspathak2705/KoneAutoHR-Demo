@@ -1,26 +1,17 @@
-import os
-from fastapi import UploadFile, HTTPException, status
+from fastapi import UploadFile
 from sqlalchemy.orm import Session as DBSession
 from app.repositories.upload_repository import upload_repository
 from app.models.upload import Upload
 from app.core.constants import UploadType
 from app.services.storage_service import storage_service
+from app.utils.validators import validate_presentation_file, validate_employee_list_file
 
 class UploadService:
     def validate_file(self, filename: str, upload_type: UploadType):
-        ext = os.path.splitext(filename)[1].lower()
         if upload_type == UploadType.PRESENTATION:
-            if ext not in [".ppt", ".pptx"]:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid file format for presentation. Only .ppt and .pptx allowed."
-                )
-        elif upload_type == UploadType.EMPLOYEES:
-            if ext not in [".xls", ".xlsx"]:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid file format for employees list. Only .xls and .xlsx allowed."
-                )
+            validate_presentation_file(filename)
+        elif upload_type == UploadType.EMPLOYEE_LIST:
+            validate_employee_list_file(filename)
 
     async def upload_file(
         self,

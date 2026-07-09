@@ -9,6 +9,8 @@ from app.services.storage_service import storage_service
 class SessionService:
     def create_session(self, db: DBSession, session_in: SessionCreate) -> Session:
         session = session_repository.create(db, session_in)
+        # Create uploads directories immediately
+        storage_service.create_session_directories(session.id)
         # Automatically initialize presentation job
         presentation_job_service.create_job(db, session.id)
         return session

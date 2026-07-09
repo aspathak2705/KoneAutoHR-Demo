@@ -8,7 +8,10 @@ class SessionStatus(str, Enum):
 
 class UploadType(str, Enum):
     PRESENTATION = "PRESENTATION"
-    EMPLOYEES = "EMPLOYEES"
+    EMPLOYEE_LIST = "EMPLOYEE_LIST"
+    REPORT = "REPORT"
+    AUDIO = "AUDIO"
+    IMAGE = "IMAGE"
     VIDEO = "VIDEO"
 
 class JobStatus(str, Enum):
