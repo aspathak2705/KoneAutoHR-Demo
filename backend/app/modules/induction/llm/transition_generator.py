@@ -8,13 +8,11 @@ def load_template(name: str) -> Template:
     with open(template_path, "r", encoding="utf-8") as f:
         return Template(f.read())
 
-async def generate_transition(
-    current_slide: dict,
-    next_slide: dict
-) -> dict:
+async def generate_transition(context: dict, current_slide: dict, next_slide: dict) -> dict:
     template = load_template("transition")
     prompt = template.render(
         current_slide=current_slide,
-        next_slide=next_slide
+        next_slide=next_slide,
+        ai_persona=context.get("ai_persona")
     )
     return await llm_client.generate_json(prompt)

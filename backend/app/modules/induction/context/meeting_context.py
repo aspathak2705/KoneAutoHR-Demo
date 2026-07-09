@@ -30,6 +30,7 @@ def build_meeting_context(session) -> dict:
             greeting = "Good evening"
 
     company_name = getattr(session, "company_name", "KONE") or "KONE"
+    company_domain = getattr(session, "company_domain", "kone.com") or "kone.com"
     department = getattr(session, "department", "General") or "General"
     language = getattr(session, "language", "English") or "English"
     session_type = getattr(session, "session_type", "General") or "General"
@@ -38,6 +39,7 @@ def build_meeting_context(session) -> dict:
         "greeting": greeting,
         "time_of_day": time_of_day,
         "company_name": company_name,
+        "company_domain": company_domain,
         "department": department,
         "language": language,
         "session_type": session_type,

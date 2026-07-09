@@ -1,13 +1,17 @@
 import json
+import datetime
 from pathlib import Path
 from app.modules.induction.package.schema import (
     InductionPackage,
     SessionMetadataSchema,
+    AIPersonaSchema,
     EmployeeProfileSchema,
     AudienceSummarySchema,
     WelcomeFlowSchema,
     SlideKnowledgeSchema,
     SlideNarrationSchema,
+    VideoScriptSchema,
+    QuestionSchema,
     ClosingScriptSchema,
     SessionStateSchema
 )
@@ -25,7 +29,17 @@ def build_and_save_package(
     """
     Builds the Pydantic InductionPackage structure, validates it, and saves it.
     """
-    # 1. Construct Schema Components
+    # 1. AI Persona Schema
+    ai_persona_schema = AIPersonaSchema(
+        name=scripts["ai_persona"]["name"],
+        role=scripts["ai_persona"]["role"],
+        tone=scripts["ai_persona"]["tone"],
+        communication_style=scripts["ai_persona"]["communication_style"],
+        company=scripts["ai_persona"]["company"]
+    )
+
+    # 2. Metadata Schema
+    prepared_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     meta_schema = SessionMetadataSchema(
         session_id=session_id,
         name=session_metadata["name"],
@@ -33,9 +47,15 @@ def build_and_save_package(
         department=meeting_context["department"],
         scheduled_at=session_metadata.get("scheduled_at"),
         language=meeting_context["language"],
-        session_type=meeting_context["session_type"]
+        session_type=meeting_context["session_type"],
+        meeting_duration=60,
+        timezone="UTC",
+        company_domain=meeting_context["company_domain"] if "company_domain" in meeting_context else "kone.com",
+        prepared_at=prepared_at,
+        prepared_by_version="1.0.0"
     )
 
+    # 3. Profiles & Audience Summary
     profiles_schema = [EmployeeProfileSchema(**p) for p in employee_profiles]
 
     audience_schema = AudienceSummarySchema(
@@ -46,42 +66,79 @@ def build_and_save_package(
         technical_level=audience_summary["technical_level"]
     )
 
+    # 4. Welcome Flow Schema
     welcome_schema = WelcomeFlowSchema(
         greeting=scripts["welcome_flow"]["greeting"],
         wait_message=scripts["welcome_flow"]["wait_message"],
         audio_check=scripts["welcome_flow"]["audio_check"],
         ice_breaker=scripts["welcome_flow"]["ice_breaker"],
-        agenda=scripts["welcome_flow"]["agenda"]
+        agenda=scripts["welcome_flow"]["agenda"],
+        meeting_join_message=scripts["welcome_flow"]["meeting_join_message"],
+        participant_wait_timeout=scripts["welcome_flow"].get("participant_wait_timeout", 60),
+        late_joiner_message=scripts["welcome_flow"]["late_joiner_message"],
+        start_confirmation=scripts["welcome_flow"]["start_confirmation"]
     )
 
+    # 5. Slide Knowledge Schema
     slide_knowledge_schema = [SlideKnowledgeSchema(**s) for s in slide_knowledge]
 
+    # 6. Slide Narrations & expected Q&A
     slide_narrations_schema = {}
     for slide_num, narr_data in scripts["slide_narrations"].items():
+        # Map questions
+        q_schema_list = []
+        for q in narr_data.get("expected_questions", []):
+            q_schema_list.append(QuestionSchema(
+                question=q["question"],
+                answer=q["answer"],
+                confidence=q.get("confidence", 1.0),
+                reference_slide=q.get("reference_slide", int(slide_num)),
+                follow_up_questions=q.get("follow_up_questions", [])
+            ))
+
+        # Map video script if exists
+        video_schema = None
+        if narr_data.get("video_script"):
+            video_schema = VideoScriptSchema(
+                before_video=narr_data["video_script"]["before_video"],
+                after_video=narr_data["video_script"]["after_video"],
+                pause_after_video=narr_data["video_script"].get("pause_after_video", True),
+                resume_message=narr_data["video_script"]["resume_message"]
+            )
+
         slide_narrations_schema[str(slide_num)] = SlideNarrationSchema(
             slide_number=narr_data["slide_number"],
             narration=narr_data["narration"],
             transition=narr_data.get("transition"),
             interactive_prompt=narr_data.get("interactive_prompt"),
-            expected_questions=narr_data.get("expected_questions", [])
+            learning_objective=narr_data["learning_objective"],
+            key_takeaways=narr_data["key_takeaways"],
+            story_example=narr_data.get("story_example"),
+            video_script=video_schema,
+            expected_questions=q_schema_list
         )
 
+    # 7. Closing Script Schema
     closing_schema = ClosingScriptSchema(
         summary=scripts["closing_script"]["summary"],
         congratulations=scripts["closing_script"]["congratulations"],
         next_steps=scripts["closing_script"]["next_steps"]
     )
 
+    # 8. Session State Schema
     state_schema = SessionStateSchema(
         current_slide=1,
         status="prepared",
         progress=0.0
     )
 
-    # 2. Build final Package
+    # 9. Build final package
     package = InductionPackage(
+        schema_version="1.0",
+        package_version="1.0",
         session_metadata=meta_schema,
         meeting_context=meeting_context,
+        ai_persona=ai_persona_schema,
         employee_profiles=profiles_schema,
         audience_summary=audience_schema,
         welcome_flow=welcome_schema,
@@ -91,7 +148,7 @@ def build_and_save_package(
         session_state=state_schema
     )
 
-    # 3. Save to disk
+    # 10. Save to disk
     package_path = session_dir / "induction_package.json"
     with open(package_path, "w", encoding="utf-8") as f:
         f.write(package.model_dump_json(indent=2))

@@ -18,7 +18,7 @@ from app.modules.induction.employees.validator import validate_employee_rows
 from app.modules.induction.employees.profiler import profile_employees
 from app.modules.induction.employees.audience_builder import build_audience_summary
 from app.modules.induction.context.meeting_context import build_meeting_context
-from app.modules.induction.llm.induction_generator import generate_induction_package_scripts
+from app.modules.induction.llm.preparation_orchestrator import generate_induction_package_scripts
 from app.modules.induction.package.package_builder import build_and_save_package
 
 class InductionService:

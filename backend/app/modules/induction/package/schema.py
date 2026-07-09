@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import List, Dict, Optional
+from pydantic import BaseModel, Field
+from typing import List, Dict, Optional, Any
 
 class SessionMetadataSchema(BaseModel):
     session_id: str
@@ -9,6 +9,18 @@ class SessionMetadataSchema(BaseModel):
     scheduled_at: Optional[str] = None
     language: str
     session_type: str
+    meeting_duration: int = 60
+    timezone: str = "UTC"
+    company_domain: str = "kone.com"
+    prepared_at: str
+    prepared_by_version: str = "1.0.0"
+
+class AIPersonaSchema(BaseModel):
+    name: str = "KONE AI Induction Officer"
+    role: str = "HR Induction Officer"
+    tone: str = "Professional, Friendly"
+    communication_style: str = "Conversational"
+    company: str = "KONE"
 
 class EmployeeProfileSchema(BaseModel):
     name: str
@@ -30,6 +42,10 @@ class WelcomeFlowSchema(BaseModel):
     audio_check: str
     ice_breaker: str
     agenda: List[str]
+    meeting_join_message: str
+    participant_wait_timeout: int = 60
+    late_joiner_message: str
+    start_confirmation: str
 
 class SlideKnowledgeSchema(BaseModel):
     slide_number: int
@@ -39,12 +55,29 @@ class SlideKnowledgeSchema(BaseModel):
     images: List[str]
     videos: List[str]
 
+class VideoScriptSchema(BaseModel):
+    before_video: str
+    after_video: str
+    pause_after_video: bool = True
+    resume_message: str
+
+class QuestionSchema(BaseModel):
+    question: str
+    answer: str
+    confidence: float = 1.0
+    reference_slide: int
+    follow_up_questions: List[str] = []
+
 class SlideNarrationSchema(BaseModel):
     slide_number: int
     narration: str
     transition: Optional[str] = None
     interactive_prompt: Optional[str] = None
-    expected_questions: List[Dict[str, str]]
+    learning_objective: str
+    key_takeaways: List[str]
+    story_example: Optional[str] = None
+    video_script: Optional[VideoScriptSchema] = None
+    expected_questions: List[QuestionSchema]
 
 class ClosingScriptSchema(BaseModel):
     summary: str
@@ -57,8 +90,11 @@ class SessionStateSchema(BaseModel):
     progress: float = 0.0
 
 class InductionPackage(BaseModel):
+    schema_version: str = "1.0"
+    package_version: str = "1.0"
     session_metadata: SessionMetadataSchema
     meeting_context: Dict[str, str]
+    ai_persona: AIPersonaSchema
     employee_profiles: List[EmployeeProfileSchema]
     audience_summary: AudienceSummarySchema
     welcome_flow: WelcomeFlowSchema

@@ -8,15 +8,12 @@ def load_template(name: str) -> Template:
     with open(template_path, "r", encoding="utf-8") as f:
         return Template(f.read())
 
-async def generate_expected_questions(
-    slide: dict,
-    audience_summary: dict,
-    meeting_context: dict
-) -> dict:
+async def generate_expected_questions(context: dict) -> dict:
     template = load_template("question")
     prompt = template.render(
-        slide=slide,
-        audience_summary=audience_summary,
-        meeting_context=meeting_context
+        slide=context.get("slide"),
+        audience_summary=context.get("audience_summary"),
+        meeting_context=context.get("meeting_context"),
+        ai_persona=context.get("ai_persona")
     )
     return await llm_client.generate_json(prompt)
