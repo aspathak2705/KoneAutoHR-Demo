@@ -9,10 +9,9 @@ def load_template(name: str) -> Template:
         return Template(f.read())
 
 async def generate_closing(context: dict) -> dict:
+    """
+    Generates closing scripts using the Master Context Contract.
+    """
     template = load_template("closing")
-    prompt = template.render(
-        meeting_context=context.get("meeting_context"),
-        audience_summary=context.get("audience_summary"),
-        ai_persona=context.get("ai_persona")
-    )
+    prompt = template.render(**context)
     return await llm_client.generate_json(prompt)

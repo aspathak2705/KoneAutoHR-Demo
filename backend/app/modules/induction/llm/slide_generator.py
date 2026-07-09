@@ -8,13 +8,11 @@ def load_template(name: str) -> Template:
     with open(template_path, "r", encoding="utf-8") as f:
         return Template(f.read())
 
-async def generate_narration(context: dict) -> dict:
-    template = load_template("narration")
-    # context already contains the merged slide data if passed through context_builder
-    prompt = template.render(
-        slide=context.get("slide"),
-        audience_summary=context.get("audience_summary"),
-        meeting_context=context.get("meeting_context"),
-        ai_persona=context.get("ai_persona")
-    )
+async def generate_slide_elements(context: dict) -> dict:
+    """
+    Calls the LLM exactly once per slide to generate all narration, transitions,
+    and predicted Q&As using the Master Context Contract.
+    """
+    template = load_template("slide_generation")
+    prompt = template.render(**context)
     return await llm_client.generate_json(prompt)

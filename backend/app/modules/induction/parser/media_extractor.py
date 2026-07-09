@@ -36,8 +36,8 @@ def extract_slide_media(slide: Slide, slide_number: int, session_dir: Path) -> t
                 # Silently skip if image extraction fails
                 pass
 
-        # 2. Video shape detection (MEDIA = 26, MOVIE = 16)
-        elif shape.shape_type in [MSO_SHAPE_TYPE.MEDIA, MSO_SHAPE_TYPE.MOVIE]:
+        # 2. Video shape detection (MEDIA = 16 or 26)
+        elif shape.shape_type == MSO_SHAPE_TYPE.MEDIA:
             video_name = getattr(shape, "name", f"video_slide_{slide_number}") or "video"
             video_meta = {
                 "filename": f"{video_name}.mp4",

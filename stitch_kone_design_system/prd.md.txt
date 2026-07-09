@@ -1,0 +1,517 @@
+prd.md
+
+# Product Requirements Document (PRD)
+# AutoHR – HR Dashboard (Phase 0)
+
+**Project:** KONE AutoHR Demo
+
+**Module:** HR Dashboard
+
+**Phase:** Phase 0 – Foundation
+
+**Status:** LOCKED
+
+---
+
+# 1. Overview
+
+The HR Dashboard is the landing page of AutoHR.
+
+It provides HR personnel with a centralized view of all induction sessions and allows them to quickly perform the primary tasks required for employee onboarding.
+
+The dashboard should feel like an enterprise internal application rather than a traditional website.
+
+This module serves as the entry point to the complete AutoHR workflow.
+
+---
+
+# 2. Goal
+
+Enable HR to:
+
+- View all induction sessions
+- Create new sessions
+- Track session status
+- Open session details
+- Monitor upload completion
+- Navigate quickly through the application
+
+No AI functionality exists in Phase 0.
+
+---
+
+# 3. Target Users
+
+Primary Users
+
+- HR Managers
+- HR Executives
+- Talent Acquisition Team
+- Learning & Development Team
+
+Secondary Users (Future)
+
+- Trainers
+- Department Managers
+
+---
+
+# 4. User Story
+
+As an HR Executive,
+
+I want to see all induction sessions in one place,
+
+so that I can quickly identify which sessions are ready and which still require preparation.
+
+---
+
+# 5. Success Criteria
+
+An HR user should be able to
+
+- understand the dashboard within 30 seconds
+- create a new session in less than one minute
+- locate any existing session within a few seconds
+- immediately identify session readiness
+
+---
+
+# 6. Navigation
+
+Sidebar
+
+- Company Logo
+- Dashboard
+- Sessions
+- Reports
+
+Future
+
+- Settings
+
+Top Header
+
+- User Profile
+
+Future
+
+- Search
+- Notifications
+
+---
+
+# 7. Dashboard Layout
+
+```
+--------------------------------------------------------
+
+Header
+
+--------------------------------------------------------
+
+Page Title
+
+Quick Actions
+
+--------------------------------------------------------
+
+Statistics Cards
+
+--------------------------------------------------------
+
+Sessions Table
+
+--------------------------------------------------------
+```
+
+---
+
+# 8. Page Header
+
+## Title
+
+Dashboard
+
+## Subtitle
+
+Overview of all employee induction sessions.
+
+---
+
+## Primary Action
+
+Button
+
+```
++ Create Session
+```
+
+Purpose
+
+Navigate to
+
+```
+/sessions/new
+```
+
+---
+
+# 9. Statistics Section
+
+Display four summary cards.
+
+## Card 1
+
+Title
+
+```
+Total Sessions
+```
+
+Displays
+
+Total number of sessions.
+
+---
+
+## Card 2
+
+Title
+
+```
+Upcoming
+```
+
+Displays
+
+Sessions scheduled for future dates.
+
+---
+
+## Card 3
+
+Title
+
+```
+Completed
+```
+
+Displays
+
+Completed sessions.
+
+---
+
+## Card 4
+
+Title
+
+```
+Pending
+```
+
+Displays
+
+Sessions still under preparation.
+
+---
+
+# 10. Sessions Table
+
+Purpose
+
+Display all induction sessions.
+
+Columns
+
+| Column | Description |
+|----------|-------------|
+| Session Name | Title of induction session |
+| Department | Department |
+| Trainer | Assigned trainer |
+| Date | Session date |
+| Status | Current status |
+| Presentation | Upload status |
+| Employees | Upload status |
+| Actions | Open, Edit, Delete |
+
+---
+
+# 11. Session Status
+
+Possible values
+
+```
+CREATED
+
+READY
+
+RUNNING
+
+COMPLETED
+```
+
+Status displayed using colored badges.
+
+---
+
+# 12. Upload Status
+
+Presentation
+
+```
+Uploaded
+
+Not Uploaded
+```
+
+Employee List
+
+```
+Uploaded
+
+Not Uploaded
+```
+
+Simple icons should indicate completion.
+
+---
+
+# 13. Actions
+
+Each session row contains
+
+### Open
+
+Navigates to
+
+```
+/sessions/{id}
+```
+
+---
+
+### Edit
+
+Allows HR to modify session details.
+
+---
+
+### Delete
+
+Deletes session after confirmation.
+
+---
+
+# 14. Empty State
+
+If no sessions exist
+
+Display
+
+```
+No induction sessions created yet.
+```
+
+Button
+
+```
+Create First Session
+```
+
+---
+
+# 15. Loading State
+
+Display skeleton loaders while fetching data.
+
+Avoid blank screens.
+
+---
+
+# 16. Error State
+
+Display
+
+```
+Unable to load sessions.
+
+Please try again.
+```
+
+Retry button.
+
+---
+
+# 17. Dashboard Workflow
+
+```
+Dashboard
+
+↓
+
+View Sessions
+
+↓
+
+Create Session
+
+↓
+
+Open Session
+
+↓
+
+Upload Files
+
+↓
+
+Invite Employees
+```
+
+---
+
+# 18. API Integration
+
+Dashboard consumes
+
+```
+GET /api/v1/sessions
+```
+
+Create Session
+
+```
+POST /api/v1/sessions
+```
+
+Delete
+
+```
+DELETE /api/v1/sessions/{id}
+```
+
+Update
+
+```
+PUT /api/v1/sessions/{id}
+```
+
+---
+
+# 19. Performance Requirements
+
+Dashboard should
+
+- load under 2 seconds
+- support at least 100 sessions
+- paginate in future phases
+
+---
+
+# 20. UX Requirements
+
+Dashboard should
+
+- require minimal clicks
+- provide clear visual hierarchy
+- prioritize readability
+- use whitespace generously
+- avoid unnecessary animations
+
+---
+
+# 21. Design Constraints
+
+Follow
+
+- Company branding
+- Minimal UI
+- Enterprise appearance
+- Card-based layout
+- Soft shadows
+- Rounded corners
+- Consistent spacing
+
+Do NOT
+
+- use bright gradients
+- add decorative graphics
+- overuse colors
+- clutter the interface
+
+---
+
+# 22. Future Expansion
+
+The dashboard should be designed so future features can be added without redesign.
+
+Future widgets include
+
+- AI Processing Status
+- Presentation Generation Progress
+- Employee Attendance
+- Live Session Monitoring
+- AI Report Status
+- Analytics Overview
+- Session Search
+- Filters
+- Sorting
+- Notifications
+
+---
+
+# 23. Out of Scope (Phase 0)
+
+The dashboard will NOT include
+
+- AI agents
+- Presentation generation
+- PPT parsing
+- Employee analytics
+- Attendance
+- Speech generation
+- Live monitoring
+- Reports
+- Search
+- Filters
+- Notifications
+
+These belong to later phases.
+
+---
+
+# 24. Acceptance Criteria
+
+The dashboard is considered complete when HR can:
+
+✅ View all induction sessions.
+
+✅ Create a new session.
+
+✅ Open an existing session.
+
+✅ View session status.
+
+✅ View presentation upload status.
+
+✅ View employee upload status.
+
+✅ Edit a session.
+
+✅ Delete a session.
+
+✅ Navigate to session details.
+
+✅ Access the Reports module.
+
+---
+
+# Final Vision
+
+The Dashboard should function as the operational control center for HR throughout the employee induction lifecycle.
+
+It should present only the information required to make decisions, minimize navigation effort, and provide a clean foundation for future AI-powered capabilities.
+
+The design must remain simple, scalable, and enterprise-ready, ensuring that additional modules introduced in later phases integrate seamlessly without requiring significant UI changes.

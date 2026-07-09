@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Create Session | AutoHR</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary": "#005991",
+                        "on-error-container": "#93000a",
+                        "surface-container-high": "#e7e8ea",
+                        "surface-variant": "#e1e2e4",
+                        "error-container": "#ffdad6",
+                        "surface-container": "#edeef0",
+                        "tertiary-fixed": "#ffdcc5",
+                        "tertiary-fixed-dim": "#ffb781",
+                        "status-completed": "#6C757D",
+                        "on-error": "#ffffff",
+                        "on-secondary": "#ffffff",
+                        "on-primary-fixed": "#001d34",
+                        "surface-border": "#E1E4E8",
+                        "outline-variant": "#c0c7d2",
+                        "secondary-container": "#e1dfdf",
+                        "on-primary": "#ffffff",
+                        "inverse-on-surface": "#f0f1f3",
+                        "on-tertiary-container": "#ffeee4",
+                        "on-surface": "#191c1e",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-bright": "#f8f9fb",
+                        "status-warning": "#D83B01",
+                        "outline": "#707882",
+                        "on-secondary-fixed-variant": "#464747",
+                        "status-ready": "#28A745",
+                        "primary-fixed": "#d0e4ff",
+                        "primary-fixed-dim": "#9bcbff",
+                        "on-tertiary-fixed": "#301400",
+                        "on-tertiary": "#ffffff",
+                        "on-surface-variant": "#404751",
+                        "error": "#ba1a1a",
+                        "tertiary-container": "#a95802",
+                        "tertiary": "#854400",
+                        "on-tertiary-fixed-variant": "#703800",
+                        "inverse-surface": "#2e3132",
+                        "surface-tint": "#00629f",
+                        "surface": "#f8f9fb",
+                        "surface-container-highest": "#e1e2e4",
+                        "status-error": "#A4262C",
+                        "status-info": "#0078D4",
+                        "status-running": "#FD7E14",
+                        "secondary-fixed-dim": "#c7c6c6",
+                        "on-primary-fixed-variant": "#004a79",
+                        "secondary-fixed": "#e4e2e2",
+                        "on-background": "#191c1e",
+                        "on-secondary-fixed": "#1b1c1c",
+                        "primary-container": "#0072b8",
+                        "on-primary-container": "#eaf2ff",
+                        "on-secondary-container": "#626262",
+                        "surface-container-low": "#f3f4f6",
+                        "inverse-primary": "#9bcbff",
+                        "surface-dim": "#d9dadc",
+                        "background": "#f8f9fb",
+                        "status-success": "#107C10",
+                        "secondary": "#5e5e5e"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "sidebar-width": "260px",
+                        "margin-page": "32px",
+                        "unit": "8px",
+                        "gutter": "24px",
+                        "container-max": "1440px"
+                    },
+                    "fontFamily": {
+                        "card-title": ["Inter"],
+                        "section-title": ["Inter"],
+                        "button": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "caption": ["Inter"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "card-title": ["16px", {"lineHeight": "24px", "fontWeight": "500"}],
+                        "section-title": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "button": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                        "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                        "caption": ["12px", {"lineHeight": "16px", "letterSpacing": "0.01em", "fontWeight": "500"}],
+                        "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #005991 !important;
+            box-shadow: 0 0 0 2px rgba(0, 89, 145, 0.1) !important;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface">
+<!-- SideNavBar Anchor -->
+<aside class="fixed left-0 top-0 h-screen w-sidebar-width bg-surface-container-lowest border-r border-surface-border flex flex-col p-4 z-50">
+<div class="flex items-center gap-3 mb-10 px-2">
+<img alt="KONE Logo" class="w-10 h-10 object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAi9jqwIIWGKtquXe1iYA6kXAZOXZ_c5Zj4VDvzdmAqL-4q3PC3r8Nwm6ZbT6ejPV44PkEQ5AhOqSx1PfwvepuzX4i_FGv5MOPf65ERkKD17Md6v06JAS86cBbHNJNj-2nlBK6_UziX0g03XWeLGFmd5uyuM78hvZQSJUpaKVvAtZIQAbfzaySlyWb7WRNpaLinu0_iY4J5ZwCtaFUW1abl5x5U9xRmkPeSYLRjkeCpYmqNdFl3PDy3ZyMxOnx0PaP6qRrMimGHICCm"/>
+<div class="flex flex-col">
+<span class="font-section-title text-section-title font-bold text-primary">AutoHR</span>
+<span class="font-caption text-caption text-outline">Enterprise Induction</span>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+                Dashboard
+            </a>
+<!-- Active Tab: Sessions -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-primary font-bold bg-surface-container font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined">event_repeat</span>
+                Sessions
+            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined">assessment</span>
+                Reports
+            </a>
+</nav>
+<div class="mt-auto pt-4 border-t border-surface-border space-y-1">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined">settings</span>
+                Settings
+            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined">help</span>
+                Support
+            </a>
+</div>
+</aside>
+<!-- TopAppBar Anchor -->
+<header class="sticky top-0 z-40 w-full flex items-center justify-between h-16 px-gutter ml-sidebar-width bg-surface border-b border-surface-border">
+<div class="flex items-center flex-1 max-w-xl">
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
+<input class="w-full bg-surface-container-low border-none rounded-lg pl-10 pr-4 py-2 text-body-sm focus:ring-1 focus:ring-primary" placeholder="Search sessions, trainers, or employees..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="w-10 h-10 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-low transition-all">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-low transition-all">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center overflow-hidden ml-2">
+<img class="w-full h-full object-cover" data-alt="Close up professional headshot of a smiling female HR specialist in business attire, clean corporate lighting, soft gray background, high resolution photography style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCILMguD_h0dyQQHWAV3x6czv2x-iKw0Fss45eTfFQarRe-QvJTMwQ7BkN6gU9FA8CwiL5j3CZ9LT0J92xrxnDA6a-F9Vz-9lWC_7cn12__ywCbfOmWucWxZdDv-skWzxw_M2ZkgyhkgCOx3ic0r5v_ZB2ifFfmjIiCIpgGfijMtuab3ZmxZl3NZ5mRH-6ZaRe3rXV_QTAteQKgN0fc5pz3gv6BVk7MBPz-lxJ7qujUJgZqUjn8KCRH5ODERu2cGNVfoyhOv6cJqbDJ"/>
+</div>
+</div>
+</header>
+<!-- Main Content Stage -->
+<main class="ml-sidebar-width min-h-[calc(100vh-64px)] p-margin-page bg-surface">
+<div class="max-w-container-max mx-auto">
+<!-- Breadcrumbs -->
+<nav class="flex items-center gap-2 mb-6">
+<a class="font-caption text-caption text-outline hover:text-primary" href="#">Sessions</a>
+<span class="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
+<span class="font-caption text-caption text-on-surface">Create New Session</span>
+</nav>
+<!-- Page Header -->
+<div class="mb-10">
+<h1 class="font-headline-lg text-headline-lg text-on-surface tracking-tight mb-2">Create Induction Session</h1>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-2xl">Set up a new training session for incoming employees. Ensure all mandatory department guidelines are attached before publishing.</p>
+</div>
+<!-- Form Bento Grid / Layout -->
+<div class="grid grid-cols-12 gap-8">
+<!-- Main Form Section -->
+<div class="col-span-12 lg:col-span-8">
+<section class="bg-surface-container-lowest border border-surface-border rounded-lg p-gutter">
+<form class="space-y-8" id="create-session-form">
+<div class="space-y-6">
+<!-- Session Title -->
+<div class="flex flex-col gap-2">
+<label class="font-caption text-caption text-on-surface-variant uppercase tracking-wider">Session Title</label>
+<input class="w-full border border-outline-variant rounded px-4 py-3 font-body-md text-body-md focus:border-primary transition-all" placeholder="e.g. Q4 Global Engineering Onboarding" type="text"/>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Department -->
+<div class="flex flex-col gap-2">
+<label class="font-caption text-caption text-on-surface-variant uppercase tracking-wider">Department</label>
+<select class="w-full border border-outline-variant rounded px-4 py-3 font-body-md text-body-md bg-white">
+<option value="">Select Department</option>
+<option value="engineering">Engineering</option>
+<option value="hr">Human Resources</option>
+<option value="sales">Sales &amp; Marketing</option>
+<option value="ops">Operations</option>
+</select>
+</div>
+<!-- Trainer -->
+<div class="flex flex-col gap-2">
+<label class="font-caption text-caption text-on-surface-variant uppercase tracking-wider">Trainer</label>
+<div class="relative">
+<input class="w-full border border-outline-variant rounded px-4 py-3 font-body-md text-body-md pr-10" placeholder="Search trainer name..." type="text"/>
+<span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-outline">person_search</span>
+</div>
+</div>
+</div>
+<!-- Session Date -->
+<div class="flex flex-col gap-2 max-w-xs">
+<label class="font-caption text-caption text-on-surface-variant uppercase tracking-wider">Session Date</label>
+<div class="relative">
+<input class="w-full border border-outline-variant rounded px-4 py-3 font-body-md text-body-md" type="date"/>
+</div>
+</div>
+<!-- Description -->
+<div class="flex flex-col gap-2">
+<label class="font-caption text-caption text-on-surface-variant uppercase tracking-wider">Description</label>
+<textarea class="w-full border border-outline-variant rounded px-4 py-3 font-body-md text-body-md resize-none" placeholder="Provide a detailed overview of the session goals and required materials..." rows="6"></textarea>
+</div>
+</div>
+<!-- Form Actions -->
+<div class="pt-8 border-t border-surface-border flex items-center justify-end gap-4">
+<button class="px-6 py-2.5 rounded font-button text-button border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-all active:scale-95" type="button">
+                                    Cancel
+                                </button>
+<button class="px-8 py-2.5 rounded font-button text-button bg-primary text-on-primary hover:bg-primary-container shadow-sm transition-all active:scale-95" type="submit">
+                                    Create Session
+                                </button>
+</div>
+</form>
+</section>
+</div>
+<!-- Auxiliary Context Column -->
+<div class="col-span-12 lg:col-span-4 space-y-8">
+<!-- Guidelines Card -->
+<div class="bg-surface-container-low rounded-lg p-6 border border-surface-border">
+<h3 class="font-card-title text-card-title text-on-surface mb-4">Induction Standards</h3>
+<ul class="space-y-4">
+<li class="flex gap-3">
+<span class="material-symbols-outlined text-status-success text-[20px]">check_circle</span>
+<div class="flex flex-col">
+<span class="font-body-sm text-body-sm font-medium">Compliance Review</span>
+<span class="font-caption text-caption text-on-surface-variant">Ensure ISO 9001 standards are met.</span>
+</div>
+</li>
+<li class="flex gap-3">
+<span class="material-symbols-outlined text-status-success text-[20px]">check_circle</span>
+<div class="flex flex-col">
+<span class="font-body-sm text-body-sm font-medium">Safety Briefing</span>
+<span class="font-caption text-caption text-on-surface-variant">Mandatory for all technical sessions.</span>
+</div>
+</li>
+<li class="flex gap-3">
+<span class="material-symbols-outlined text-outline text-[20px]">info</span>
+<div class="flex flex-col">
+<span class="font-body-sm text-body-sm font-medium">Documentation</span>
+<span class="font-caption text-caption text-on-surface-variant">Attachments cannot exceed 25MB total.</span>
+</div>
+</li>
+</ul>
+</div>
+<!-- Helpful Tip Card -->
+<div class="bg-primary/5 rounded-lg p-6 border border-primary/10 relative overflow-hidden">
+<div class="relative z-10">
+<span class="material-symbols-outlined text-primary mb-3">lightbulb</span>
+<p class="font-body-sm text-body-sm text-on-surface-variant italic">
+                                "Tip: Grouping engineering sessions by region can reduce travel overhead for senior trainers."
+                            </p>
+</div>
+<div class="absolute -right-4 -bottom-4 opacity-10">
+<span class="material-symbols-outlined text-primary text-[80px]">groups</span>
+</div>
+</div>
+<!-- Preview Visual -->
+<div class="rounded-lg overflow-hidden border border-surface-border">
+<div class="w-full h-48 bg-cover bg-center" data-alt="A clean, minimalist corporate office interior with architectural details, soft natural light streaming through large windows, white walls, and a large blue wall detail that matches the KONE primary color. Professional atmosphere, 8k resolution, minimalist architectural photography style." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBAWkzT4ahgIWDgFcXZMmDI60Xa7tsVWSZxdQAkt8jvnm_qznfO8q0wnJqdNJNXWshDmWbwPW1G1q9ab0MWK54o3604gHbwMukmXaoegnXoAtMdg6U_ylHdEGFNJiR78Vji6t-gEiN2qYRh60ushmIH-ovJk9nfmakXlXyFB6SzyPLdmccXPNXqUvj3PPUV3giEzmmqBxskEXBzLxaoHTxh8thjifwzu7cYPhIDbECWq3ltlZx-Wfjv5FXT6lJ030-94UNHGAsm38x9')"></div>
+<div class="p-4 bg-surface-container-lowest">
+<p class="font-caption text-caption text-on-surface-variant">Training Venue Preview</p>
+<p class="font-body-sm text-body-sm font-semibold">Central Hub - Meeting Room A</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Simple Notification Toast (Hidden by default) -->
+<div class="fixed bottom-8 right-8 bg-inverse-surface text-inverse-on-surface px-6 py-4 rounded-lg shadow-xl translate-y-20 opacity-0 transition-all duration-500 flex items-center gap-3" id="success-toast">
+<span class="material-symbols-outlined text-status-success">check_circle</span>
+<span class="font-body-md text-body-md">Session created successfully!</span>
+</div>
+<script>
+        // Micro-interactions
+        const form = document.getElementById('create-session-form');
+        const toast = document.getElementById('success-toast');
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            // Show toast animation
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            toast.classList.add('translate-y-0', 'opacity-100');
+
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+                toast.classList.remove('translate-y-0', 'opacity-100');
+            }, 3000);
+        });
+
+        // Hover scale effects logic
+        const buttons = document.querySelectorAll('button');
+        buttons.forEach(btn => {
+            btn.addEventListener('mousedown', () => btn.classList.add('scale-95'));
+            btn.addEventListener('mouseup', () => btn.classList.remove('scale-95'));
+            btn.addEventListener('mouseleave', () => btn.classList.remove('scale-95'));
+        });
+    </script>
+</body></html>

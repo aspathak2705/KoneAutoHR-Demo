@@ -19,8 +19,8 @@ class Settings(BaseSettings):
 
     # LLM config
     LLM_PROVIDER: Literal["mock", "nvidia", "openai", "ollama"] = "mock"
-    LLM_MODEL: str = "nvidia/nemotron-4-340b-instruct"
-    LLM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    LLM_MODEL: str = "nvidia/nemotron-3-super-120b-a12b:free"
+    LLM_BASE_URL: str = "https://openrouter.ai/api/v1"
     LLM_API_KEY: Optional[str] = None
 
 settings = Settings()

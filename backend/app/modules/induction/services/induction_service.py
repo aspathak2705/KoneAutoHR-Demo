@@ -103,6 +103,7 @@ class InductionService:
             scripts = await generate_induction_package_scripts(
                 session_metadata=session_metadata,
                 meeting_context=meeting_context,
+                employee_profiles=employee_profiles,
                 audience_summary=audience_summary,
                 slide_knowledge=slide_knowledge
             )
@@ -127,13 +128,12 @@ class InductionService:
 
         except Exception as e:
             logger.exception(f"Pipeline crashed for session {session_id}.")
-            # Save error state
-            db = SessionLocal() # Re-open just in case
+            error_db = SessionLocal()
             try:
-                job = presentation_job_repository.get(db, job_id)
+                job = presentation_job_repository.get(error_db, job_id)
                 if job:
                     presentation_job_repository.update(
-                        db,
+                        error_db,
                         job,
                         status=JobStatus.FAILED,
                         progress=0.0,
@@ -141,6 +141,8 @@ class InductionService:
                     )
             except Exception as inner_e:
                 logger.error(f"Failed to save error status to database: {inner_e}")
+            finally:
+                error_db.close()
         finally:
             db.close()
 

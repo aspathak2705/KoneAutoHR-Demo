@@ -25,12 +25,12 @@ def parse_employees_excel(excel_path: str) -> list[dict]:
     header_mapping = {}
 
     target_headers = {
-        "name": ["name", "employee name", "emp name", "fullname"],
-        "email": ["email", "email address", "mail", "emp email"],
+        "name": ["name", "employee name", "emp name", "fullname", "full name"],
+        "email": ["email", "email address", "mail", "emp email", "email_address"],
         "department": ["department", "dept", "function", "division"],
         "designation": ["designation", "role", "title", "job title", "position"],
         "location": ["location", "office", "city", "site"],
-        "joining_date": ["joining date", "join date", "doj", "start date"]
+        "joining_date": ["joining date", "join date", "doj", "start date", "joining_date"]
     }
 
     for r_idx, row in enumerate(rows):
