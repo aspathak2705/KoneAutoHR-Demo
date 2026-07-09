@@ -19,7 +19,7 @@ Audience Profile:
 - Technical Focus: {{ audience_summary.technical_level }}
 - Company: {{ meeting_context.company_name }}
 
-Please generate the slide elements. Keep your response in structured JSON format with the following keys:
+Please generate the slide elements. Return ONLY a valid JSON object matching this schema:
 {
   "narration": "The full spoken text you will say to explain the slide concepts naturally and engagingly. Do NOT read slide text verbatim.",
   "interactive_prompt": "A conversational check-in question to prompt attendees for thoughts or agreement.",
@@ -48,4 +48,11 @@ Please generate the slide elements. Keep your response in structured JSON format
   ]
 }
 
-Ensure the scripts are written in a spoken, professional trainer tone. Output ONLY the JSON block.
+Strict Output Rules:
+1. Return ONLY valid JSON.
+2. Do NOT wrap JSON in markdown (e.g. do NOT use ```json or ```).
+3. Do NOT explain your answer or write conversational text before or after the JSON.
+4. Do NOT omit any required field.
+5. If a value is unavailable, return null.
+6. Every required key must exist.
+7. The response must be parseable using json.loads().

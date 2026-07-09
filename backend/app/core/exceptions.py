@@ -18,3 +18,19 @@ class StorageException(DomainException):
 class ValidationException(DomainException):
     """Generic business validation exception."""
     pass
+
+class LLMConnectionError(DomainException):
+    """Raised when the LLM provider fails to connect or returns an API error."""
+    pass
+
+class LLMResponseParseError(DomainException):
+    """Raised when the LLM response cannot be parsed as JSON."""
+    pass
+
+class LLMResponseValidationError(DomainException):
+    """Raised when the LLM response is missing required fields or has invalid types."""
+    pass
+
+class PromptRenderError(DomainException):
+    """Raised when rendering a Jinja prompt template fails."""
+    pass

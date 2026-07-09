@@ -28,6 +28,7 @@ def build_and_save_package(
 ) -> dict:
     """
     Builds the Pydantic InductionPackage structure, validates it, and saves it.
+    Assumes all scripts fields are fully validated and populated.
     """
     # 1. AI Persona Schema
     ai_persona_schema = AIPersonaSchema(
@@ -50,7 +51,7 @@ def build_and_save_package(
         session_type=meeting_context["session_type"],
         meeting_duration=60,
         timezone="UTC",
-        company_domain=meeting_context["company_domain"] if "company_domain" in meeting_context else "kone.com",
+        company_domain=meeting_context.get("company_domain", "kone.com"),
         prepared_at=prepared_at,
         prepared_by_version="1.0.0"
     )
@@ -74,7 +75,7 @@ def build_and_save_package(
         ice_breaker=scripts["welcome_flow"]["ice_breaker"],
         agenda=scripts["welcome_flow"]["agenda"],
         meeting_join_message=scripts["welcome_flow"]["meeting_join_message"],
-        participant_wait_timeout=scripts["welcome_flow"].get("participant_wait_timeout", 60),
+        participant_wait_timeout=scripts["welcome_flow"]["participant_wait_timeout"],
         late_joiner_message=scripts["welcome_flow"]["late_joiner_message"],
         start_confirmation=scripts["welcome_flow"]["start_confirmation"]
     )
@@ -87,7 +88,7 @@ def build_and_save_package(
     for slide_num, narr_data in scripts["slide_narrations"].items():
         # Map questions
         q_schema_list = []
-        for q in narr_data.get("expected_questions", []):
+        for q in narr_data["expected_questions"]:
             q_schema_list.append(QuestionSchema(
                 question=q["question"],
                 answer=q["answer"],
@@ -98,11 +99,11 @@ def build_and_save_package(
 
         # Map video script if exists
         video_schema = None
-        if narr_data.get("video_script"):
+        if narr_data.get("video_script") is not None:
             video_schema = VideoScriptSchema(
                 before_video=narr_data["video_script"]["before_video"],
                 after_video=narr_data["video_script"]["after_video"],
-                pause_after_video=narr_data["video_script"].get("pause_after_video", True),
+                pause_after_video=narr_data["video_script"]["pause_after_video"],
                 resume_message=narr_data["video_script"]["resume_message"]
             )
 
@@ -110,7 +111,7 @@ def build_and_save_package(
             slide_number=narr_data["slide_number"],
             narration=narr_data["narration"],
             transition=narr_data.get("transition"),
-            interactive_prompt=narr_data.get("interactive_prompt"),
+            interactive_prompt=narr_data["interactive_prompt"],
             learning_objective=narr_data["learning_objective"],
             key_takeaways=narr_data["key_takeaways"],
             story_example=narr_data.get("story_example"),

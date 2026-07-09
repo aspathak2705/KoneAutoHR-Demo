@@ -20,15 +20,26 @@ Induction Agenda Topics:
 - {{ slide.title }}
 {% endfor %}
 
-Please generate the welcome elements for this session. Keep your response in structured JSON format with the following keys:
+Please generate the welcome elements for this session. Return ONLY a valid JSON object matching this schema:
 {
   "greeting": "A warm, natural welcome message addressing the new hires and welcoming them to KONE.",
   "wait_message": "A friendly message asking attendees to hold on for a minute while late joiners connect.",
   "audio_check": "A natural, conversational check to confirm attendees can hear your voice clearly.",
-  "ice_breaker": "A brief, lighthearted ice-breaking question or remark tailored to the audience (technical, department-specific, or mixed).",
+  "ice_breaker": "A brief, lighthearted ice-breaking question or remark tailored to the audience.",
   "agenda": [
     "A list of key topics that will be discussed during the session, written in conversational spoken format."
-  ]
+  ],
+  "meeting_join_message": "A spoken greeting to play as participants join.",
+  "participant_wait_timeout": 60,
+  "late_joiner_message": "A spoken greeting specifically for late arrivals.",
+  "start_confirmation": "A spoken confirmation statement to signal that we are beginning the presentation."
 }
 
-Ensure the language is spoken, engaging, and professional. Avoid sounding like a document reader. Output ONLY the JSON block.
+Strict Output Rules:
+1. Return ONLY valid JSON.
+2. Do NOT wrap JSON in markdown (e.g. do NOT use ```json or ```).
+3. Do NOT explain your answer or write conversational text before or after the JSON.
+4. Do NOT omit any required field.
+5. If a value is unavailable, return null.
+6. Every required key must exist.
+7. The response must be parseable using json.loads().

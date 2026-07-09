@@ -13,6 +13,7 @@ async def generate_induction_package_scripts(
 ) -> dict:
     """
     Orchestrates introduction, slide details, and closing script generators using the Master Context Contract.
+    Assumes all generators return validated output structures.
     """
     # 1. Define AI Persona
     ai_persona = {
@@ -23,7 +24,7 @@ async def generate_induction_package_scripts(
         "company": "KONE"
     }
 
-    # 2. Build Base Context (using the unified Master Context Builder)
+    # 2. Build Base Context
     base_context = build_llm_context(
         session_metadata=session_metadata,
         meeting_context=meeting_context,
@@ -33,17 +34,16 @@ async def generate_induction_package_scripts(
         ai_persona=ai_persona
     )
 
-    # 3. Generate Welcome / Intro Flow (1 call passing full context)
+    # 3. Generate Welcome / Intro Flow (Validations run internally)
     welcome_data = await generate_introduction(base_context)
 
-    # 4. Generate all slides concurrently (1 call per slide) with a Semaphore
+    # 4. Generate all slides concurrently (1 call per slide with validations run internally)
     sem = asyncio.Semaphore(5)
     slide_narrations = {}
 
     async def process_slide(slide: dict, idx: int) -> tuple[int, dict]:
         async with sem:
             next_slide = slide_knowledge[idx + 1] if idx < len(slide_knowledge) - 1 else None
-            # Build slide-specific context using the unified Master Context Builder
             slide_context = build_llm_context(
                 session_metadata=session_metadata,
                 meeting_context=meeting_context,
@@ -61,30 +61,20 @@ async def generate_induction_package_scripts(
     results = await asyncio.gather(*tasks)
 
     for slide_number, res in results:
-        # Standardize video script structure if slide contains videos
-        video_script = res.get("video_script")
-        target_slide = next(s for s in slide_knowledge if s["slide_number"] == slide_number)
-        if target_slide.get("videos") and not video_script:
-            video_script = {
-                "before_video": f"Before we watch this video on '{target_slide['title']}', please take note of our core guidelines.",
-                "after_video": "I hope that video gave you a clearer understanding. Do you have any questions so far?",
-                "pause_after_video": True,
-                "resume_message": "Now, let's continue with the rest of the presentation."
-            }
-
+        # Access validated properties directly (Problem 8 - Package Builder Should Never Guess)
         slide_narrations[slide_number] = {
             "slide_number": slide_number,
-            "narration": res.get("narration", ""),
+            "narration": res["narration"],
             "transition": res.get("transition"),
-            "interactive_prompt": res.get("interactive_prompt"),
-            "learning_objective": res.get("learning_objective", f"Understand {target_slide['title']} and related KONE guidelines."),
-            "key_takeaways": res.get("key_takeaways", [f"Core requirements of {target_slide['title']}."]),
+            "interactive_prompt": res["interactive_prompt"],
+            "learning_objective": res["learning_objective"],
+            "key_takeaways": res["key_takeaways"],
             "story_example": res.get("story_example"),
-            "video_script": video_script,
-            "expected_questions": res.get("expected_questions", [])
+            "video_script": res.get("video_script"),
+            "expected_questions": res["expected_questions"]
         }
 
-    # 5. Closing script (1 call passing full context)
+    # 5. Closing script (Validations run internally)
     closing_data = await generate_closing(base_context)
 
     return {

@@ -1,6 +1,7 @@
 import os
 from jinja2 import Template
 from app.modules.induction.llm.client import llm_client
+from app.modules.induction.llm.response_validator import validate_introduction_response
 
 def load_template(name: str) -> Template:
     prompt_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "prompts")
@@ -10,8 +11,12 @@ def load_template(name: str) -> Template:
 
 async def generate_introduction(context: dict) -> dict:
     """
-    Generates welcome flows using the Master Context Contract.
+    Generates welcome flows using the Master Context Contract and validates response schema.
     """
     template = load_template("introduction")
     prompt = template.render(**context)
-    return await llm_client.generate_json(prompt)
+    data = await llm_client.generate_json(prompt)
+
+    # Perform immediate response validation
+    validate_introduction_response(data)
+    return data
