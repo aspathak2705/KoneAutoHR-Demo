@@ -16,4 +16,10 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"
     LOG_LEVEL: str = "INFO"
 
+    # LLM config
+    LLM_PROVIDER: str = "mock"
+    LLM_MODEL: str = "nvidia/nemotron-4-340b-instruct"
+    LLM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    LLM_API_KEY: str = ""
+
 settings = Settings()

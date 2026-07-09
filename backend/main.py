@@ -8,6 +8,7 @@ from app.core.logging import setup_logging
 from app.db.database import engine
 from app.db.base import Base
 from app.api.v1 import health, session, upload
+from app.modules.induction.router import router as induction_router
 from app.core.middleware import (
     RequestIDMiddleware,
     ProcessTimeMiddleware,
@@ -49,6 +50,7 @@ register_exception_handlers(app)
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(session.router, prefix="/api/v1")
 app.include_router(upload.router, prefix="/api/v1")
+app.include_router(induction_router, prefix="/api/v1")
 
 if __name__ == "__main__":
     import uvicorn

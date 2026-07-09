@@ -7,3 +7,6 @@ loguru
 python-multipart
 python-jose[cryptography]
 passlib[bcrypt]
+python-pptx
+openpyxl
+openai
