@@ -1,4 +1,5 @@
 import os
+from typing import Literal, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -17,9 +18,9 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # LLM config
-    LLM_PROVIDER: str = "mock"
+    LLM_PROVIDER: Literal["mock", "nvidia", "openai", "ollama"] = "mock"
     LLM_MODEL: str = "nvidia/nemotron-4-340b-instruct"
     LLM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
-    LLM_API_KEY: str = ""
+    LLM_API_KEY: Optional[str] = None
 
 settings = Settings()

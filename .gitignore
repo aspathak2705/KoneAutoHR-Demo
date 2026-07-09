@@ -1,4 +1,38 @@
+# Python virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Python compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment configuration
 .env
-__pycache__
+*.env
+.env.*
+!.env.example
+
+# Local SQLite databases
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Log files
+logs/
+*.log
+
+# Uploads directory
+backend/uploads/
+uploads/
+
+# IDE files
+.vscode/
+.idea/
+
+
 verify.py
 create_mock_assets.py
