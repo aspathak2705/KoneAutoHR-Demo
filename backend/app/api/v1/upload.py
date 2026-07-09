@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Form, UploadFile, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 from sqlalchemy.orm import Session as DBSession
 from app.db.database import get_db
 from app.schemas.upload import UploadResponse
@@ -15,8 +15,6 @@ async def upload_session_file(
     upload_type: UploadType = Form(...),
     db: DBSession = Depends(get_db)
 ):
-    session = session_service.get_session(db, session_id)
-    if not session:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-
+    # Raises SessionNotFoundException if not found
+    session_service.get_session(db, session_id)
     return await upload_service.upload_file(db, session_id, file, upload_type)

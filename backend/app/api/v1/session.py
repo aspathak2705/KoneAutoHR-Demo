@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session as DBSession
 from typing import List
 from app.db.database import get_db
@@ -17,21 +17,12 @@ def read_sessions(skip: int = 0, limit: int = 100, db: DBSession = Depends(get_d
 
 @router.get("/{id}", response_model=SessionDetailResponse)
 def read_session(id: str, db: DBSession = Depends(get_db)):
-    session = session_service.get_session(db, id)
-    if not session:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-    return session
+    return session_service.get_session(db, id)
 
 @router.put("/{id}", response_model=SessionResponse)
 def update_session(id: str, session_in: SessionUpdate, db: DBSession = Depends(get_db)):
-    session = session_service.update_session(db, id, session_in)
-    if not session:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-    return session
+    return session_service.update_session(db, id, session_in)
 
 @router.delete("/{id}", response_model=SessionResponse)
 def delete_session(id: str, db: DBSession = Depends(get_db)):
-    session = session_service.delete_session(db, id)
-    if not session:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-    return session
+    return session_service.delete_session(db, id)
