@@ -2,7 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from app.core.config import settings
 
-DATABASE_URL = settings.DATABASE_URL
+DATABASE_URL = settings.AUTOHR_DATABASE_URL
 
 # For SQLite, allow multi-thread access (FastAPI endpoints run on different threads)
 connect_args = {}

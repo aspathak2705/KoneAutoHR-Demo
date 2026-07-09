@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     HOST: str = "127.0.0.1"
     PORT: int = 8000
-    DATABASE_URL: str = "sqlite:///./autohr.db"
+    AUTOHR_DATABASE_URL: str = "sqlite:///./autohr.db"
     UPLOAD_DIR: str = "./uploads"
     LOG_LEVEL: str = "INFO"
 
