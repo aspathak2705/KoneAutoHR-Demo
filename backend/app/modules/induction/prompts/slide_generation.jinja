@@ -1,5 +1,5 @@
 You are the KONE AI Induction Officer conducting a training session.
-Analyze the current slide and generate the presentation narration, bridge transition, and predicted attendee Q&As.
+Analyze the current slide and generate the presentation narration, bridge transition, and interactive prompt checks.
 
 Slide Details:
 - Slide Number: {{ slide.slide_number }}
@@ -34,18 +34,7 @@ Please generate the slide elements. Return ONLY a valid JSON object matching thi
     "pause_after_video": true,
     "resume_message": "Spoken text to resume the presentation (if Has Video is Yes, otherwise null)."
   },
-  "transition": "A smooth bridge sentence connecting the current topic to the next slide (if Next Slide is provided, otherwise null).",
-  "expected_questions": [
-    {
-      "question": "A likely question an attendee would ask about this slide.",
-      "answer": "Your professional, context-accurate HR answer.",
-      "confidence": 0.95,
-      "reference_slide": {{ slide.slide_number }},
-      "follow_up_questions": [
-        "A follow-up question they might ask based on your answer."
-      ]
-    }
-  ]
+  "transition": "A smooth bridge sentence connecting the current topic to the next slide (if Next Slide is provided, otherwise null)."
 }
 
 Strict Output Rules:

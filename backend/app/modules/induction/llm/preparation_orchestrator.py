@@ -2,6 +2,7 @@ import asyncio
 from app.modules.induction.llm.context_builder import build_llm_context
 from app.modules.induction.llm.introduction_generator import generate_introduction
 from app.modules.induction.llm.slide_generator import generate_slide_elements
+from app.modules.induction.llm.faq_generator import generate_faq
 from app.modules.induction.llm.closing_generator import generate_closing
 
 async def generate_induction_package_scripts(
@@ -12,7 +13,7 @@ async def generate_induction_package_scripts(
     slide_knowledge: list[dict]
 ) -> dict:
     """
-    Orchestrates introduction, slide details, and closing script generators using the Master Context Contract.
+    Orchestrates welcome flow, slide narrations, FAQ, and closing script generators using the Master Context Contract.
     Assumes all generators return validated output structures.
     """
     # 1. Define AI Persona
@@ -34,10 +35,10 @@ async def generate_induction_package_scripts(
         ai_persona=ai_persona
     )
 
-    # 3. Generate Welcome / Intro Flow (Validations run internally)
+    # 3. Generate Welcome / Intro Flow (1 call)
     welcome_data = await generate_introduction(base_context)
 
-    # 4. Generate all slides concurrently (1 call per slide with validations run internally)
+    # 4. Generate all slides concurrently (1 call per slide) with a Semaphore
     sem = asyncio.Semaphore(5)
     slide_narrations = {}
 
@@ -61,7 +62,7 @@ async def generate_induction_package_scripts(
     results = await asyncio.gather(*tasks)
 
     for slide_number, res in results:
-        # Access validated properties directly (Problem 8 - Package Builder Should Never Guess)
+        # Access validated properties directly (expected_questions removed)
         slide_narrations[slide_number] = {
             "slide_number": slide_number,
             "narration": res["narration"],
@@ -70,16 +71,19 @@ async def generate_induction_package_scripts(
             "learning_objective": res["learning_objective"],
             "key_takeaways": res["key_takeaways"],
             "story_example": res.get("story_example"),
-            "video_script": res.get("video_script"),
-            "expected_questions": res["expected_questions"]
+            "video_script": res.get("video_script")
         }
 
-    # 5. Closing script (Validations run internally)
+    # 5. Generate Global FAQ (1 call)
+    faq_data = await generate_faq(base_context)
+
+    # 6. Closing script (1 call)
     closing_data = await generate_closing(base_context)
 
     return {
         "ai_persona": ai_persona,
         "welcome_flow": welcome_data,
         "slide_narrations": slide_narrations,
+        "faq": faq_data.get("faq", []),
         "closing_script": closing_data
     }

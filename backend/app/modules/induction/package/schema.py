@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Any
+from pydantic import BaseModel
+from typing import List, Dict, Optional
 
 class SessionMetadataSchema(BaseModel):
     session_id: str
@@ -61,13 +61,6 @@ class VideoScriptSchema(BaseModel):
     pause_after_video: bool = True
     resume_message: str
 
-class QuestionSchema(BaseModel):
-    question: str
-    answer: str
-    confidence: float = 1.0
-    reference_slide: int
-    follow_up_questions: List[str] = []
-
 class SlideNarrationSchema(BaseModel):
     slide_number: int
     narration: str
@@ -77,7 +70,12 @@ class SlideNarrationSchema(BaseModel):
     key_takeaways: List[str]
     story_example: Optional[str] = None
     video_script: Optional[VideoScriptSchema] = None
-    expected_questions: List[QuestionSchema]
+
+class FAQItemSchema(BaseModel):
+    question: str
+    answer: str
+    confidence: float = 1.0
+    references: List[int]
 
 class ClosingScriptSchema(BaseModel):
     summary: str
@@ -100,5 +98,6 @@ class InductionPackage(BaseModel):
     welcome_flow: WelcomeFlowSchema
     slide_knowledge: List[SlideKnowledgeSchema]
     slide_narrations: Dict[str, SlideNarrationSchema]
+    faq: List[FAQItemSchema]
     closing_script: ClosingScriptSchema
     session_state: SessionStateSchema

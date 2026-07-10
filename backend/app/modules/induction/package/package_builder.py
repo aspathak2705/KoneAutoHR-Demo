@@ -11,7 +11,7 @@ from app.modules.induction.package.schema import (
     SlideKnowledgeSchema,
     SlideNarrationSchema,
     VideoScriptSchema,
-    QuestionSchema,
+    FAQItemSchema,
     ClosingScriptSchema,
     SessionStateSchema
 )
@@ -83,20 +83,9 @@ def build_and_save_package(
     # 5. Slide Knowledge Schema
     slide_knowledge_schema = [SlideKnowledgeSchema(**s) for s in slide_knowledge]
 
-    # 6. Slide Narrations & expected Q&A
+    # 6. Slide Narrations (Q&A Removed from individual slides)
     slide_narrations_schema = {}
     for slide_num, narr_data in scripts["slide_narrations"].items():
-        # Map questions
-        q_schema_list = []
-        for q in narr_data["expected_questions"]:
-            q_schema_list.append(QuestionSchema(
-                question=q["question"],
-                answer=q["answer"],
-                confidence=q.get("confidence", 1.0),
-                reference_slide=q.get("reference_slide", int(slide_num)),
-                follow_up_questions=q.get("follow_up_questions", [])
-            ))
-
         # Map video script if exists
         video_schema = None
         if narr_data.get("video_script") is not None:
@@ -115,25 +104,34 @@ def build_and_save_package(
             learning_objective=narr_data["learning_objective"],
             key_takeaways=narr_data["key_takeaways"],
             story_example=narr_data.get("story_example"),
-            video_script=video_schema,
-            expected_questions=q_schema_list
+            video_script=video_schema
         )
 
-    # 7. Closing Script Schema
+    # 7. Global FAQ Schema
+    faq_schema = []
+    for q in scripts.get("faq", []):
+        faq_schema.append(FAQItemSchema(
+            question=q["question"],
+            answer=q["answer"],
+            confidence=q.get("confidence", 1.0),
+            references=q.get("references", [])
+        ))
+
+    # 8. Closing Script Schema
     closing_schema = ClosingScriptSchema(
         summary=scripts["closing_script"]["summary"],
         congratulations=scripts["closing_script"]["congratulations"],
         next_steps=scripts["closing_script"]["next_steps"]
     )
 
-    # 8. Session State Schema
+    # 9. Session State Schema
     state_schema = SessionStateSchema(
         current_slide=1,
         status="prepared",
         progress=0.0
     )
 
-    # 9. Build final package
+    # 10. Build final package
     package = InductionPackage(
         schema_version="1.0",
         package_version="1.0",
@@ -145,11 +143,12 @@ def build_and_save_package(
         welcome_flow=welcome_schema,
         slide_knowledge=slide_knowledge_schema,
         slide_narrations=slide_narrations_schema,
+        faq=faq_schema,
         closing_script=closing_schema,
         session_state=state_schema
     )
 
-    # 10. Save to disk
+    # 11. Save to disk
     package_path = session_dir / "induction_package.json"
     with open(package_path, "w", encoding="utf-8") as f:
         f.write(package.model_dump_json(indent=2))

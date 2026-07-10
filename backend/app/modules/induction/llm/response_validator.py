@@ -29,7 +29,7 @@ def validate_introduction_response(data: dict):
 
 def validate_slide_response(data: dict):
     """
-    Validates slide scripts, transitions, and predicted Q&A arrays.
+    Validates slide scripts, transitions, and properties.
     """
     required_strings = ["narration", "interactive_prompt", "learning_objective"]
     for key in required_strings:
@@ -50,38 +50,6 @@ def validate_slide_response(data: dict):
                 f"Element at key_takeaways[{idx}] must be a non-empty string."
             )
 
-    questions = data.get("expected_questions")
-    if questions is None or not isinstance(questions, list):
-        raise LLMResponseValidationError(
-            "Required field 'expected_questions' is missing or is not a list in slide response."
-        )
-    for idx, q in enumerate(questions):
-        if not isinstance(q, dict):
-            raise LLMResponseValidationError(
-                f"Element at expected_questions[{idx}] must be a JSON object."
-            )
-        for field in ["question", "answer"]:
-            q_val = q.get(field)
-            if not q_val or not isinstance(q_val, str) or not q_val.strip():
-                raise LLMResponseValidationError(
-                    f"Required field '{field}' inside expected_questions[{idx}] is missing or empty."
-                )
-        if "confidence" in q and q["confidence"] is not None:
-            if not isinstance(q["confidence"], (int, float)):
-                raise LLMResponseValidationError(
-                    f"Field 'confidence' inside expected_questions[{idx}] must be a float."
-                )
-        if "reference_slide" in q and q["reference_slide"] is not None:
-            if not isinstance(q["reference_slide"], int):
-                raise LLMResponseValidationError(
-                    f"Field 'reference_slide' inside expected_questions[{idx}] must be an integer."
-                )
-        if "follow_up_questions" in q and q["follow_up_questions"] is not None:
-            if not isinstance(q["follow_up_questions"], list):
-                raise LLMResponseValidationError(
-                    f"Field 'follow_up_questions' inside expected_questions[{idx}] must be a list."
-                )
-
     # Validate video_script sub-schema if present
     vs = data.get("video_script")
     if vs is not None:
@@ -93,6 +61,42 @@ def validate_slide_response(data: dict):
                 raise LLMResponseValidationError(
                     f"Required field '{field}' inside video_script is missing or empty."
                 )
+
+def validate_faq_response(data: dict):
+    """
+    Validates global FAQ payload structure.
+    """
+    faq = data.get("faq")
+    if faq is None or not isinstance(faq, list):
+        raise LLMResponseValidationError(
+            "Required field 'faq' is missing or is not a list in FAQ response."
+        )
+    for idx, item in enumerate(faq):
+        if not isinstance(item, dict):
+            raise LLMResponseValidationError(
+                f"Element at faq[{idx}] must be a JSON object."
+            )
+        for field in ["question", "answer"]:
+            f_val = item.get(field)
+            if not f_val or not isinstance(f_val, str) or not f_val.strip():
+                raise LLMResponseValidationError(
+                    f"Required field '{field}' inside faq[{idx}] is missing or empty."
+                )
+        if "confidence" in item and item["confidence"] is not None:
+            if not isinstance(item["confidence"], (int, float)):
+                raise LLMResponseValidationError(
+                    f"Field 'confidence' inside faq[{idx}] must be a float."
+                )
+        if "references" in item:
+            if not isinstance(item["references"], list):
+                raise LLMResponseValidationError(
+                    f"Field 'references' inside faq[{idx}] must be a list."
+                )
+            for r_idx, ref in enumerate(item["references"]):
+                if not isinstance(ref, int):
+                    raise LLMResponseValidationError(
+                        f"Element at faq[{idx}].references[{r_idx}] must be an integer."
+                    )
 
 def validate_closing_response(data: dict):
     """

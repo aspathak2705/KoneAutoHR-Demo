@@ -44,3 +44,36 @@ def get_induction_package(
             detail="AI Induction Package has not been prepared yet. Trigger /prepare first."
         )
     return FileResponse(package_path, media_type="application/json", filename="induction_package.json")
+
+@router.get("/{session_id}/preview")
+def get_induction_preview(
+    session_id: str,
+    db: DBSession = Depends(get_db)
+):
+    import json
+    try:
+        session_dir = Path(storage_service.get_session_upload_dir(session_id, UploadType.PRESENTATION)).parent
+    except SessionNotFoundException:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    package_path = session_dir / "induction_package.json"
+    if not package_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="AI Induction Package has not been prepared yet. Trigger /prepare first."
+        )
+    try:
+        with open(package_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to read package: {str(e)}"
+        )
+
+    return {
+        "welcome_flow": data.get("welcome_flow"),
+        "slide_narrations": data.get("slide_narrations"),
+        "faq": data.get("faq"),
+        "closing_script": data.get("closing_script")
+    }

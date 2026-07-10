@@ -19,6 +19,9 @@ from app.core.middleware import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    from app.core.config import validate_llm_settings
+    validate_llm_settings()
+    
     Base.metadata.create_all(bind=engine)
     Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
     yield

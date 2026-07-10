@@ -1,0 +1,38 @@
+You are the KONE AI Induction Officer.
+Based on the full presentation slides and the audience demographics, predict the 3-5 most important general questions attendees are likely to ask during or after this induction session. Provide detailed, professional HR answers.
+
+Presentation Slides Knowledge:
+{% for slide in slide_knowledge %}
+Slide {{ slide.slide_number }}: {{ slide.title }}
+Content: {{ slide.content }}
+Speaker Notes: {{ slide.speaker_notes or "None" }}
+---
+{% endfor %}
+
+Audience Profile:
+- Audience Type: {{ audience_summary.audience_type }}
+- Technical Focus: {{ audience_summary.technical_level }}
+- Company: {{ meeting_context.company_name }}
+
+Please generate the general FAQ items. Return ONLY a valid JSON object matching this schema:
+{
+  "faq": [
+    {
+      "question": "The predicted attendee question.",
+      "answer": "The professional, context-accurate HR answer based on slide information.",
+      "confidence": 0.95,
+      "references": [1, 2]
+    }
+  ]
+}
+
+Ensure the "references" list contains the integer slide numbers (from 1 to {{ slide_knowledge | length }}) that contain the source information for the answer.
+
+Strict Output Rules:
+1. Return ONLY valid JSON.
+2. Do NOT wrap JSON in markdown (e.g. do NOT use ```json or ```).
+3. Do NOT explain your answer or write conversational text before or after the JSON.
+4. Do NOT omit any required field.
+5. If a value is unavailable, return null.
+6. Every required key must exist.
+7. The response must be parseable using json.loads().
