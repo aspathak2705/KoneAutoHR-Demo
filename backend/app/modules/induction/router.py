@@ -33,7 +33,7 @@ def get_induction_package(
     db: DBSession = Depends(get_db)
 ):
     try:
-        session_dir = Path(storage_service.get_session_upload_dir(session_id, UploadType.PRESENTATION)).parent
+        session_dir = storage_service.get_session_dir(session_id)
     except SessionNotFoundException:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -52,7 +52,7 @@ def get_induction_preview(
 ):
     import json
     try:
-        session_dir = Path(storage_service.get_session_upload_dir(session_id, UploadType.PRESENTATION)).parent
+        session_dir = storage_service.get_session_dir(session_id)
     except SessionNotFoundException:
         raise HTTPException(status_code=404, detail="Session not found")
 
