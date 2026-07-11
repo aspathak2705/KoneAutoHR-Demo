@@ -149,7 +149,8 @@ def build_and_save_package(
     )
 
     # 11. Save to disk
-    package_path = session_dir / "induction_package.json"
+    from app.services.storage_service import storage_service
+    package_path = storage_service.get_induction_package_path(session_id)
     with open(package_path, "w", encoding="utf-8") as f:
         f.write(package.model_dump_json(indent=2))
 
