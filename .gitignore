@@ -36,3 +36,6 @@ uploads/
 
 verify.py
 create_mock_assets.py
+
+mock_employees.xlsx
+mock_presentation.pptx
