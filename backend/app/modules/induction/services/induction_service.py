@@ -18,7 +18,7 @@ from app.modules.induction.employees.audience_builder import build_audience_summ
 from app.modules.induction.context.meeting_context import build_meeting_context
 from app.modules.induction.llm.preparation_orchestrator import generate_induction_package_scripts
 from app.modules.induction.package.package_builder import build_and_save_package
-from app.modules.induction.parser.media_extractor import storage_service
+from app.services.storage_service import storage_service
 
 class InductionService:
     def __init__(self):
@@ -70,7 +70,7 @@ class InductionService:
             # Step 2: PPT Intelligence (30%)
             logger.info("Pipeline Step 2: Extracting PowerPoint contents...")
             t0 = time.perf_counter()
-            session_dir = Path(storage_service.get_session_upload_dir(session_id, UploadType.PRESENTATION)).parent
+            session_dir = storage_service.get_session_dir(session_id)
             slide_knowledge = parse_presentation(ppt_path, session_dir)
             self.last_run_timings["PPT Parser"] = time.perf_counter() - t0
             presentation_job_repository.update(db, job, progress=0.3)
