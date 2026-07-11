@@ -15,7 +15,7 @@ async def generate_introduction(context: dict) -> dict:
     """
     template = load_template("introduction")
     prompt = template.render(**context)
-    data = await llm_client.generate_json(prompt)
+    data = await llm_client.generate_json(prompt, name="welcome")
 
     # Perform immediate response validation
     validate_introduction_response(data)

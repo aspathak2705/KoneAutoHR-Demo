@@ -15,7 +15,7 @@ async def generate_closing(context: dict) -> dict:
     """
     template = load_template("closing")
     prompt = template.render(**context)
-    data = await llm_client.generate_json(prompt)
+    data = await llm_client.generate_json(prompt, name="closing")
 
     # Perform immediate response validation
     validate_closing_response(data)

@@ -15,7 +15,7 @@ async def generate_faq(context: dict) -> dict:
     """
     template = load_template("faq_generation")
     prompt = template.render(**context)
-    data = await llm_client.generate_json(prompt)
+    data = await llm_client.generate_json(prompt, name="faq")
 
     # Perform validation
     validate_faq_response(data)

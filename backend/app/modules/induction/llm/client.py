@@ -1,3 +1,4 @@
+import time
 from loguru import logger
 from app.core.config import settings
 from app.core.exceptions import LLMConnectionError
@@ -9,16 +10,18 @@ class LLMClient:
         self.model = settings.LLM_MODEL
         self.base_url = settings.LLM_BASE_URL
         self.api_key = settings.LLM_API_KEY
+        self.audit_logs = []  # Task 6: Audit log collector
         logger.info(f"Initialized LLMClient with provider: {self.provider}, model: {self.model}")
 
-    async def generate_json(self, prompt: str) -> dict:
+    async def generate_json(self, prompt: str, name: str = "llm_call") -> dict:
         """
         Sends prompt to configured LLM provider and returns parsed JSON dictionary.
-        Raises LLMConnectionError if the connection fails.
+        Logs tokens, latency, and raw outputs for analysis (Task 6, 7, 8).
         """
         if not self.api_key:
             raise LLMConnectionError("LLM API Key is not configured. A valid API Key is required for execution.")
 
+        t0 = time.perf_counter()
         try:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
@@ -33,15 +36,40 @@ class LLMClient:
                 temperature=0.2
             )
             content = response.choices[0].message.content
+            latency = time.perf_counter() - t0
 
-            # Problem 6 - Log raw response before parsing
-            logger.debug(f"Raw LLM Response content: {content}")
+            prompt_tokens = 0
+            completion_tokens = 0
+            if hasattr(response, "usage") and response.usage:
+                prompt_tokens = response.usage.prompt_tokens
+                completion_tokens = response.usage.completion_tokens
 
-            # Problem 5 - Clean and parse raw content into JSON dict
+            # Append transaction to audit log (Task 6 & 8)
+            self.audit_logs.append({
+                "name": name,
+                "prompt": prompt,
+                "response": content,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "latency": latency,
+                "status": "success"
+            })
+
+            logger.debug(f"Raw LLM Response [{name}]: {content}")
             return parse_llm_json(content)
 
         except Exception as e:
-            logger.error(f"LLM API connection failed or threw error: {str(e)}")
-            raise LLMConnectionError(f"Failed to communicate with LLM provider: {str(e)}")
+            latency = time.perf_counter() - t0
+            self.audit_logs.append({
+                "name": name,
+                "prompt": prompt,
+                "response": None,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "latency": latency,
+                "status": f"failed: {str(e)}"
+            })
+            logger.error(f"LLM API connection failed or threw error for [{name}]: {str(e)}")
+            raise LLMConnectionError(f"Failed to communicate with LLM provider for {name}: {str(e)}")
 
 llm_client = LLMClient()

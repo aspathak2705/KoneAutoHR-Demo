@@ -12,12 +12,19 @@ def load_template(name: str) -> Template:
 async def generate_slide_elements(context: dict) -> dict:
     """
     Calls the LLM exactly once per slide to generate all narration, transitions,
-    and predicted Q&As using the Master Context Contract. Validates the output response.
+    and interactive prompt checks. Validates the output response conditionally.
     """
     template = load_template("slide_generation")
     prompt = template.render(**context)
-    data = await llm_client.generate_json(prompt)
 
-    # Perform immediate response validation
-    validate_slide_response(data)
+    # Task 6 - Provide custom slide transaction names for logging
+    slide_data = context.get("slide", {})
+    slide_num = slide_data.get("slide_number", 1)
+    data = await llm_client.generate_json(prompt, name=f"slide_{slide_num}")
+
+    # Determine if slide actually has videos (v1.6 context awareness)
+    has_video = slide_data.get("has_video", False)
+
+    # Perform immediate context-aware response validation
+    validate_slide_response(data, has_video)
     return data

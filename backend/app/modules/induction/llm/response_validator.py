@@ -27,11 +27,13 @@ def validate_introduction_response(data: dict):
                 f"Element at agenda[{idx}] must be a non-empty string."
             )
 
-def validate_slide_response(data: dict):
+def validate_slide_response(data: dict, has_video: bool):
     """
     Validates slide scripts, transitions, and properties.
+    Ensures video_script is conditionally required only if the slide has videos (v1.6).
     """
-    required_strings = ["narration", "interactive_prompt", "learning_objective"]
+    # 1. Enforce required fields: narration and learning_objective
+    required_strings = ["narration", "learning_objective"]
     for key in required_strings:
         val = data.get(key)
         if not val or not isinstance(val, str) or not val.strip():
@@ -50,17 +52,32 @@ def validate_slide_response(data: dict):
                 f"Element at key_takeaways[{idx}] must be a non-empty string."
             )
 
-    # Validate video_script sub-schema if present
+    # 2. Enforce conditional rules for video_script
     vs = data.get("video_script")
-    if vs is not None:
-        if not isinstance(vs, dict):
-            raise LLMResponseValidationError("Field 'video_script' must be a JSON object.")
+    if has_video:
+        if vs is None or not isinstance(vs, dict):
+            raise LLMResponseValidationError(
+                "Required field 'video_script' is missing or not a JSON object for a slide with videos."
+            )
         for field in ["before_video", "after_video", "resume_message"]:
             vs_val = vs.get(field)
             if not vs_val or not isinstance(vs_val, str) or not vs_val.strip():
                 raise LLMResponseValidationError(
                     f"Required field '{field}' inside video_script is missing or empty."
                 )
+    else:
+        # If no video is present, video_script can be null/None or a dictionary with only empty/null values
+        if vs is not None:
+            if not isinstance(vs, dict):
+                raise LLMResponseValidationError(
+                    "Field 'video_script' must be null or a JSON object."
+                )
+            for field in ["before_video", "after_video", "resume_message"]:
+                val = vs.get(field)
+                if val is not None and isinstance(val, str) and val.strip():
+                    raise LLMResponseValidationError(
+                        f"Field 'video_script.{field}' contains non-empty text '{val}' on a slide without videos."
+                    )
 
 def validate_faq_response(data: dict):
     """
