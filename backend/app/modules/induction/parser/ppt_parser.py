@@ -23,7 +23,8 @@ def parse_presentation(ppt_path: str, session_dir: Path) -> list[dict]:
             "content": content,
             "speaker_notes": notes or None,
             "images": images,
-            "videos": [v["filename"] for v in videos]  # Just keep list of filenames for schema
+            "videos": [v["filename"] for v in videos],  # Just keep list of filenames for schema
+            "has_video": len(videos) > 0
         })
 
     return slides_knowledge
