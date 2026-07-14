@@ -9,6 +9,10 @@ class StorageService:
     def __init__(self):
         # Base folder is uploads/sessions
         self.base_dir = Path(settings.UPLOAD_DIR) / "sessions"
+        self.presentations_dir = Path(settings.UPLOAD_DIR) / "presentations"
+        self.employee_lists_dir = Path(settings.UPLOAD_DIR) / "employee_lists"
+        self.presentations_dir.mkdir(parents=True, exist_ok=True)
+        self.employee_lists_dir.mkdir(parents=True, exist_ok=True)
 
     def get_session_dir(self, session_id: str) -> Path:
         p = self.base_dir / session_id
@@ -84,6 +88,26 @@ class StorageService:
                 size += len(chunk)
 
         return sanitized_filename, str(target_path.resolve()), size
+
+    async def save_presentation_file(self, file: UploadFile) -> tuple[str, str, int]:
+        sanitized = sanitize_filename(file.filename)
+        target_path = self.presentations_dir / sanitized
+        size = 0
+        with target_path.open("wb") as buffer:
+            while chunk := await file.read(1024 * 1024):
+                buffer.write(chunk)
+                size += len(chunk)
+        return sanitized, str(target_path.resolve()), size
+
+    async def save_employee_list_file(self, file: UploadFile) -> tuple[str, str, int]:
+        sanitized = sanitize_filename(file.filename)
+        target_path = self.employee_lists_dir / sanitized
+        size = 0
+        with target_path.open("wb") as buffer:
+            while chunk := await file.read(1024 * 1024):
+                buffer.write(chunk)
+                size += len(chunk)
+        return sanitized, str(target_path.resolve()), size
 
     def delete_session_files(self, session_id: str):
         session_dir = self.get_session_dir(session_id)

@@ -86,15 +86,22 @@ def build_and_save_package(
     # 6. Slide Narrations (Q&A Removed from individual slides)
     slide_narrations_schema = {}
     for slide_num, narr_data in scripts["slide_narrations"].items():
-        # Map video script if exists
+        # Map video script if exists and contains actual script content (v2.0)
         video_schema = None
-        if narr_data.get("video_script") is not None:
-            video_schema = VideoScriptSchema(
-                before_video=narr_data["video_script"]["before_video"],
-                after_video=narr_data["video_script"]["after_video"],
-                pause_after_video=narr_data["video_script"]["pause_after_video"],
-                resume_message=narr_data["video_script"]["resume_message"]
-            )
+        v_data = narr_data.get("video_script")
+        if isinstance(v_data, dict):
+            before = v_data.get("before_video")
+            after = v_data.get("after_video")
+            resume = v_data.get("resume_message")
+            if (before and isinstance(before, str) and before.strip() and
+                after and isinstance(after, str) and after.strip() and
+                resume and isinstance(resume, str) and resume.strip()):
+                video_schema = VideoScriptSchema(
+                    before_video=before,
+                    after_video=after,
+                    pause_after_video=v_data.get("pause_after_video", True),
+                    resume_message=resume
+                )
 
         slide_narrations_schema[str(slide_num)] = SlideNarrationSchema(
             slide_number=narr_data["slide_number"],

@@ -28,12 +28,12 @@ Please generate the slide elements. Return ONLY a valid JSON object matching thi
     "A list of 1-3 key takeaways from this slide."
   ],
   "story_example": "An illustrative real-world story or example related to the topic (optional, otherwise null).",
-  "video_script": {
-    "before_video": "Spoken text to introduce the video (if Has Video is Yes, otherwise null).",
-    "after_video": "Spoken text to transition out of the video (if Has Video is Yes, otherwise null).",
+  "video_script": {% if slide.videos %}{
+    "before_video": "Spoken text to introduce the video. Must be a non-empty string.",
+    "after_video": "Spoken text to transition out of the video. Must be a non-empty string.",
     "pause_after_video": true,
-    "resume_message": "Spoken text to resume the presentation (if Has Video is Yes, otherwise null)."
-  },
+    "resume_message": "Spoken text to resume the presentation. Must be a non-empty string."
+  }{% else %}null{% endif %},
   "transition": "A smooth bridge sentence connecting the current topic to the next slide (if Next Slide is provided, otherwise null)."
 }
 

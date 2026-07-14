@@ -51,6 +51,28 @@ def get_induction_preview(
     db: DBSession = Depends(get_db)
 ):
     import json
+    from app.repositories.session_repository import session_repository
+    from app.repositories.presentation_script_repository import presentation_script_repository
+    from app.repositories.presentation_question_repository import presentation_question_repository
+    
+    session = session_repository.get(db, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    if session.presentation_id:
+        script = presentation_script_repository.get_active(db, session.presentation_id)
+        questions = presentation_question_repository.get_active(db, session.presentation_id)
+        
+        script_data = json.loads(script.script_content) if script else {}
+        faq_data = json.loads(questions.questions_content) if questions else []
+        
+        return {
+            "welcome_flow": script_data.get("welcome_flow"),
+            "slide_narrations": script_data.get("slide_narrations"),
+            "faq": faq_data,
+            "closing_script": script_data.get("closing_script")
+        }
+        
     try:
         session_dir = storage_service.get_session_dir(session_id)
     except SessionNotFoundException:

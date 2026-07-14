@@ -30,7 +30,7 @@ def validate_llm_settings():
     """
     Validates that the required LLM environment configuration is loaded
     and pings the configured endpoint to verify connectivity.
-    Raises ValueError on failure.
+    Raises ValueError on fatal failures.
     """
     if not settings.LLM_API_KEY:
         raise ValueError("CRITICAL CONFIGURATION ERROR: LLM_API_KEY environment variable is not set or empty.")
@@ -45,7 +45,10 @@ def validate_llm_settings():
     if settings.LLM_API_KEY == "mock_api_key_for_verification_tests":
         return
 
-    # Problem 5 (v1.3) - Ping endpoint to verify credentials and connection
+    import logging
+    logger = logging.getLogger("app.core.config")
+
+    # Ping endpoint to verify credentials and connection
     try:
         headers = {"Authorization": f"Bearer {settings.LLM_API_KEY}"}
         payload = {
@@ -58,7 +61,9 @@ def validate_llm_settings():
             response = client.post(url, headers=headers, json=payload)
             if response.status_code == 401:
                 raise ValueError("CRITICAL: LLM connection test failed with status 401 (Unauthorized). Check API Key.")
+            elif response.status_code == 429:
+                logger.warning(f"WARNING: LLM connection test returned status 429 (Rate Limit Exceeded). Server starting, but LLM calls may fail. Details: {response.text}")
             elif response.status_code >= 400:
-                raise ValueError(f"CRITICAL: LLM connection test failed with status {response.status_code}. Details: {response.text}")
+                logger.warning(f"WARNING: LLM connection test failed with status {response.status_code}. Server starting, but LLM calls may fail. Details: {response.text}")
     except httpx.RequestError as e:
-        raise ValueError(f"CRITICAL: Failed to connect to LLM endpoint at {settings.LLM_BASE_URL}. Connection Error: {str(e)}")
+        logger.warning(f"WARNING: Failed to connect to LLM endpoint at {settings.LLM_BASE_URL} during startup check. Connection Error: {str(e)}")

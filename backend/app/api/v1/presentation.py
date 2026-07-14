@@ -1,0 +1,37 @@
+from fastapi import APIRouter, Depends, UploadFile, File, Form, status, HTTPException
+from sqlalchemy.orm import Session as DBSession
+from typing import List
+from app.db.database import get_db
+from app.schemas.presentation import PresentationResponse
+from app.services.presentation_service import presentation_service
+
+router = APIRouter(prefix="/presentations", tags=["Saved Presentations"])
+
+@router.get("", response_model=List[PresentationResponse])
+def get_presentations(skip: int = 0, limit: int = 100, db: DBSession = Depends(get_db)):
+    return presentation_service.get_all(db, skip, limit)
+
+@router.post("", response_model=PresentationResponse, status_code=status.HTTP_201_CREATED)
+async def upload_presentation(
+    name: str = Form(...),
+    file: UploadFile = File(...),
+    db: DBSession = Depends(get_db)
+):
+    try:
+        return await presentation_service.create_presentation(db, name, file)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/{id}", response_model=PresentationResponse)
+def get_presentation(id: str, db: DBSession = Depends(get_db)):
+    pres = presentation_service.get(db, id)
+    if not pres:
+        raise HTTPException(status_code=404, detail="Presentation not found")
+    return pres
+
+@router.delete("/{id}", response_model=PresentationResponse)
+def delete_presentation(id: str, db: DBSession = Depends(get_db)):
+    pres = presentation_service.delete(db, id)
+    if not pres:
+        raise HTTPException(status_code=404, detail="Presentation not found")
+    return pres

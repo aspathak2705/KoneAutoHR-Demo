@@ -10,13 +10,15 @@ class SessionRepository:
         return db.scalars(stmt).first()
 
     def get_all(self, db: DBSession, skip: int = 0, limit: int = 100) -> List[Session]:
-        stmt = select(Session).offset(skip).limit(limit)
+        stmt = select(Session).order_by(Session.created_at.desc()).offset(skip).limit(limit)
         return list(db.scalars(stmt).all())
 
     def create(self, db: DBSession, obj_in: SessionCreate) -> Session:
         db_obj = Session(
             name=obj_in.name,
-            scheduled_at=obj_in.scheduled_at
+            scheduled_at=obj_in.scheduled_at,
+            presentation_id=obj_in.presentation_id,
+            employee_list_id=obj_in.employee_list_id
         )
         db.add(db_obj)
         db.commit()
