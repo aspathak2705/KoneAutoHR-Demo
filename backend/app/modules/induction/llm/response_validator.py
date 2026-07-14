@@ -66,18 +66,8 @@ def validate_slide_response(data: dict, has_video: bool):
                     f"Required field '{field}' inside video_script is missing or empty."
                 )
     else:
-        # If no video is present, video_script can be null/None or a dictionary with only empty/null values
-        if vs is not None:
-            if not isinstance(vs, dict):
-                raise LLMResponseValidationError(
-                    "Field 'video_script' must be null or a JSON object."
-                )
-            for field in ["before_video", "after_video", "resume_message"]:
-                val = vs.get(field)
-                if val is not None and isinstance(val, str) and val.strip():
-                    raise LLMResponseValidationError(
-                        f"Field 'video_script.{field}' contains non-empty text '{val}' on a slide without videos."
-                    )
+        # If no video is present, video_script MUST be None
+        data["video_script"] = None
 
 def validate_faq_response(data: dict):
     """

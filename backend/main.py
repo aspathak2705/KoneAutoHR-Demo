@@ -30,10 +30,28 @@ async def lifespan(app: FastAPI):
         try:
             conn = sqlite3.connect(db_file)
             cursor = conn.cursor()
+            
+            # Check sessions table
             cursor.execute("PRAGMA table_info(sessions)")
-            columns = [row[1] for row in cursor.fetchall()]
+            session_cols = [row[1] for row in cursor.fetchall()]
+            
+            # Check presentation_scripts table
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='presentation_scripts'")
+            has_scripts_table = cursor.fetchone()
+            script_cols = []
+            if has_scripts_table:
+                cursor.execute("PRAGMA table_info(presentation_scripts)")
+                script_cols = [row[1] for row in cursor.fetchall()]
+                
             conn.close()
-            if columns and "presentation_id" not in columns:
+            
+            needs_reset = False
+            if session_cols and "presentation_id" not in session_cols:
+                needs_reset = True
+            if script_cols and "status" not in script_cols:
+                needs_reset = True
+                
+            if needs_reset:
                 os.remove(db_file)
                 logger.info("Schema mismatch detected: Deleted old autohr.db for clean recreation.")
         except Exception as e:

@@ -15,18 +15,21 @@ class PresentationScriptRepository:
     def get_active(self, db: DBSession, presentation_id: str) -> Optional[PresentationScript]:
         stmt = select(PresentationScript).where(
             PresentationScript.presentation_id == presentation_id,
-            PresentationScript.is_active == True
+            PresentationScript.status == "ACTIVE"
         ).order_by(PresentationScript.generated_at.desc())
         return db.scalars(stmt).first()
 
     def create(self, db: DBSession, presentation_id: str, script_content: str, llm_model: str) -> PresentationScript:
-        # Mark other scripts for this presentation as inactive
-        db.query(PresentationScript).filter(PresentationScript.presentation_id == presentation_id).update({"is_active": False})
+        # Mark other scripts for this presentation as archived
+        db.query(PresentationScript).filter(
+            PresentationScript.presentation_id == presentation_id,
+            PresentationScript.status == "ACTIVE"
+        ).update({"status": "ARCHIVED"})
         db_obj = PresentationScript(
             presentation_id=presentation_id,
             script_content=script_content,
             llm_model=llm_model,
-            is_active=True
+            status="ACTIVE"
         )
         db.add(db_obj)
         db.commit()

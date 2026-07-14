@@ -15,17 +15,20 @@ class PresentationQuestionRepository:
     def get_active(self, db: DBSession, presentation_id: str) -> Optional[PresentationQuestion]:
         stmt = select(PresentationQuestion).where(
             PresentationQuestion.presentation_id == presentation_id,
-            PresentationQuestion.is_active == True
+            PresentationQuestion.status == "ACTIVE"
         ).order_by(PresentationQuestion.generated_at.desc())
         return db.scalars(stmt).first()
 
     def create(self, db: DBSession, presentation_id: str, questions_content: str) -> PresentationQuestion:
-        # Mark other questions for this presentation as inactive
-        db.query(PresentationQuestion).filter(PresentationQuestion.presentation_id == presentation_id).update({"is_active": False})
+        # Mark other questions for this presentation as archived
+        db.query(PresentationQuestion).filter(
+            PresentationQuestion.presentation_id == presentation_id,
+            PresentationQuestion.status == "ACTIVE"
+        ).update({"status": "ARCHIVED"})
         db_obj = PresentationQuestion(
             presentation_id=presentation_id,
             questions_content=questions_content,
-            is_active=True
+            status="ACTIVE"
         )
         db.add(db_obj)
         db.commit()

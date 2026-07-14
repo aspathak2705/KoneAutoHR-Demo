@@ -35,3 +35,22 @@ def delete_presentation(id: str, db: DBSession = Depends(get_db)):
     if not pres:
         raise HTTPException(status_code=404, detail="Presentation not found")
     return pres
+
+from app.schemas.presentation_script import PresentationScriptResponse
+from app.schemas.presentation_question import PresentationQuestionResponse
+
+@router.get("/{id}/script", response_model=PresentationScriptResponse)
+def get_presentation_script_nested(id: str, db: DBSession = Depends(get_db)):
+    from app.services.presentation_script_service import presentation_script_service
+    script = presentation_script_service.get_active_script(db, id)
+    if not script:
+        raise HTTPException(status_code=404, detail="No active script found for this presentation")
+    return script
+
+@router.get("/{id}/questions", response_model=PresentationQuestionResponse)
+def get_presentation_questions_nested(id: str, db: DBSession = Depends(get_db)):
+    from app.services.presentation_question_service import presentation_question_service
+    questions = presentation_question_service.get_active_questions(db, id)
+    if not questions:
+        raise HTTPException(status_code=404, detail="No active questions found for this presentation")
+    return questions

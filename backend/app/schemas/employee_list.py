@@ -10,10 +10,11 @@ class EmployeeListBase(BaseSchema):
 class EmployeeListCreate(EmployeeListBase):
     employee_count: int = 0
 
-class EmployeeListResponse(TimestampedSchema):
+class EmployeeListResponse(BaseSchema):
     id: str
     name: str
     original_filename: str
     storage_path: str
     employee_count: int
+    uploaded_at: datetime.datetime
     last_used: datetime.datetime

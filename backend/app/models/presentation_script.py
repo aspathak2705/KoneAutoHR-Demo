@@ -13,7 +13,7 @@ class PresentationScript(Base):
     generated_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now())
     llm_model: Mapped[str] = mapped_column(String)
     editable: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String, default="ACTIVE") # ACTIVE, ARCHIVED, DRAFT
 
     # Relationship
     presentation: Mapped["Presentation"] = relationship(back_populates="scripts")

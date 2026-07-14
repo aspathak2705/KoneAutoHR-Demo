@@ -12,7 +12,7 @@ class PresentationQuestion(Base):
     questions_content: Mapped[str] = mapped_column(Text) # Stored JSON payload containing FAQ list
     generated_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now())
     editable: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String, default="ACTIVE") # ACTIVE, ARCHIVED, DRAFT
 
     # Relationship
     presentation: Mapped["Presentation"] = relationship(back_populates="questions")

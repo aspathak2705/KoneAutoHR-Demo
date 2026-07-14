@@ -12,11 +12,12 @@ class PresentationBase(BaseSchema):
 class PresentationCreate(PresentationBase):
     pass
 
-class PresentationResponse(TimestampedSchema):
+class PresentationResponse(BaseSchema):
     id: str
     name: str
     original_filename: str
     storage_path: str
     uploaded_by: Optional[str] = None
+    uploaded_at: datetime.datetime
     last_used: datetime.datetime
     session_count: int
