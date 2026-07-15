@@ -19,10 +19,10 @@ async def generate_induction_package_scripts(
     # 1. Define AI Persona
     company_name = meeting_context.get("company_name", "KONE")
     ai_persona = {
-        "name": f"{company_name} AI Induction Officer",
-        "role": "HR Induction Officer",
-        "tone": "Professional, Friendly",
-        "communication_style": "Conversational",
+        "name": meeting_context.get("ai_officer_name", f"{company_name} AI Induction Officer"),
+        "role": meeting_context.get("ai_role_description", "HR Induction Officer"),
+        "tone": meeting_context.get("vocal_tone", "Professional, Friendly"),
+        "communication_style": meeting_context.get("communication_style", "Conversational"),
         "company": company_name
     }
 

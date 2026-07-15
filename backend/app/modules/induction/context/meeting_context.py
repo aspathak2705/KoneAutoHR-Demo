@@ -29,8 +29,17 @@ def build_meeting_context(session) -> dict:
             time_of_day = "evening"
             greeting = "Good evening"
 
-    company_name = getattr(session, "company_name", "KONE") or "KONE"
-    company_domain = getattr(session, "company_domain", "kone.com") or "kone.com"
+    from app.db.database import SessionLocal
+    from app.modules.configuration.configuration_service import configuration_service
+
+    with SessionLocal() as db:
+        config = configuration_service.get_active_config(db)
+
+    if not config:
+        raise ValueError("Organization profile is not configured yet. Please complete the Profile page before preparing AI content.")
+
+    company_name = config.company_name
+    company_domain = config.company_domain
     department = getattr(session, "department", "General") or "General"
     language = getattr(session, "language", "English") or "English"
     session_type = getattr(session, "session_type", "General") or "General"
@@ -43,5 +52,10 @@ def build_meeting_context(session) -> dict:
         "department": department,
         "language": language,
         "session_type": session_type,
-        "objective": f"Introduce new hires to {company_name} policies, culture, and guidelines."
+        "objective": f"Introduce new hires to {company_name} policies, culture, and guidelines.",
+        "ai_officer_name": config.ai_officer_name,
+        "ai_trainer_name": config.ai_trainer_name,
+        "ai_role_description": config.ai_role_description,
+        "vocal_tone": config.vocal_tone,
+        "communication_style": config.communication_style,
     }

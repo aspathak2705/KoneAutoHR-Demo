@@ -8,3 +8,4 @@ from app.models.presentation_metadata import PresentationMetadata # noqa
 from app.models.presentation_script import PresentationScript # noqa
 from app.models.presentation_question import PresentationQuestion # noqa
 from app.models.employee_list import EmployeeList # noqa
+from app.models.organization_config import OrganizationConfig # noqa

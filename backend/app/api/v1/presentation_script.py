@@ -11,7 +11,6 @@ router = APIRouter(prefix="/presentation-script", tags=["Saved Presentation Scri
 class ScriptRegenerateRequest(BaseModel):
     presentation_id: str
     employee_list_id: str
-    company_name: Optional[str] = "KONE"
 
 @router.get("/{presentation_id}", response_model=PresentationScriptResponse)
 def get_presentation_script(presentation_id: str, db: DBSession = Depends(get_db)):
@@ -42,8 +41,7 @@ async def regenerate_presentation_script(
         return await presentation_script_service.generate_script_and_questions(
             db, 
             payload.presentation_id, 
-            payload.employee_list_id, 
-            payload.company_name
+            payload.employee_list_id
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

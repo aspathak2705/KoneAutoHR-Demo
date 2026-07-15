@@ -43,12 +43,18 @@ async def lifespan(app: FastAPI):
                 cursor.execute("PRAGMA table_info(presentation_scripts)")
                 script_cols = [row[1] for row in cursor.fetchall()]
                 
+            # Check organization_config table
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='organization_config'")
+            has_config_table = cursor.fetchone()
+            
             conn.close()
             
             needs_reset = False
             if session_cols and "presentation_id" not in session_cols:
                 needs_reset = True
             if script_cols and "status" not in script_cols:
+                needs_reset = True
+            if not has_config_table:
                 needs_reset = True
                 
             if needs_reset:
@@ -84,6 +90,9 @@ app.add_middleware(RequestIDMiddleware)
 # Global Exceptions Mapper
 register_exception_handlers(app)
 
+from app.modules.configuration.configuration_router import router as configuration_router
+from app.modules.analytics.analytics_router import router as analytics_router
+
 # Include v1 versioned routers
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(session.router, prefix="/api/v1")
@@ -93,6 +102,8 @@ app.include_router(presentation.router, prefix="/api/v1")
 app.include_router(employee_list.router, prefix="/api/v1")
 app.include_router(presentation_script.router, prefix="/api/v1")
 app.include_router(presentation_questions.router, prefix="/api/v1")
+app.include_router(configuration_router, prefix="/api/v1")
+app.include_router(analytics_router, prefix="/api/v1")
 
 if __name__ == "__main__":
     import uvicorn

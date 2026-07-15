@@ -16,7 +16,7 @@ from app.core.config import settings
 
 class PresentationScriptService:
     async def generate_script_and_questions(
-        self, db: DBSession, presentation_id: str, employee_list_id: str, company_name: str = "KONE"
+        self, db: DBSession, presentation_id: str, employee_list_id: str
     ) -> PresentationScript:
         pres = presentation_repository.get(db, presentation_id)
         if not pres:
@@ -24,6 +24,13 @@ class PresentationScriptService:
         emp = employee_list_repository.get(db, employee_list_id)
         if not emp:
             raise ValueError("Employee list not found")
+
+        from app.modules.configuration.configuration_service import configuration_service
+        config = configuration_service.get_active_config(db)
+        if not config:
+            raise ValueError("Organization profile is not configured yet. Please complete the Profile page before preparing AI content.")
+
+        company_name = config.company_name
 
         import tempfile
         from pathlib import Path
@@ -45,7 +52,11 @@ class PresentationScriptService:
                 "company_name": company_name,
                 "department": "HR",
                 "trainer_name": f"{company_name} AI Trainer",
-                "objectives": f"New Hire Induction for {pres.name}"
+                "objectives": f"New Hire Induction for {pres.name}",
+                "ai_officer_name": config.ai_officer_name,
+                "ai_role_description": config.ai_role_description,
+                "vocal_tone": config.vocal_tone,
+                "communication_style": config.communication_style
             }
             
             from app.modules.induction.llm.preparation_orchestrator import generate_induction_package_scripts

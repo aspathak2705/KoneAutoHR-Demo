@@ -11,7 +11,6 @@ router = APIRouter(prefix="/presentation-questions", tags=["Saved Employee Quest
 class QuestionsRegenerateRequest(BaseModel):
     presentation_id: str
     employee_list_id: str
-    company_name: Optional[str] = "KONE"
 
 @router.get("/{presentation_id}", response_model=PresentationQuestionResponse)
 def get_presentation_questions(presentation_id: str, db: DBSession = Depends(get_db)):
@@ -42,8 +41,7 @@ async def regenerate_presentation_questions(
         return await presentation_question_service.generate_questions_only(
             db, 
             payload.presentation_id, 
-            payload.employee_list_id, 
-            payload.company_name
+            payload.employee_list_id
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

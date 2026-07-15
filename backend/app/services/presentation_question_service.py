@@ -13,7 +13,7 @@ from app.modules.induction.employees.audience_builder import build_audience_summ
 
 class PresentationQuestionService:
     async def generate_questions_only(
-        self, db: DBSession, presentation_id: str, employee_list_id: str, company_name: str = "KONE"
+        self, db: DBSession, presentation_id: str, employee_list_id: str
     ) -> PresentationQuestion:
         pres = presentation_repository.get(db, presentation_id)
         if not pres:
@@ -21,6 +21,13 @@ class PresentationQuestionService:
         emp = employee_list_repository.get(db, employee_list_id)
         if not emp:
             raise ValueError("Employee list not found")
+
+        from app.modules.configuration.configuration_service import configuration_service
+        config = configuration_service.get_active_config(db)
+        if not config:
+            raise ValueError("Organization profile is not configured yet. Please complete the Profile page before preparing AI content.")
+
+        company_name = config.company_name
 
         import tempfile
         from pathlib import Path
@@ -42,7 +49,11 @@ class PresentationQuestionService:
                 "company_name": company_name,
                 "department": "HR",
                 "trainer_name": f"{company_name} AI Trainer",
-                "objectives": f"New Hire Induction for {pres.name}"
+                "objectives": f"New Hire Induction for {pres.name}",
+                "ai_officer_name": config.ai_officer_name,
+                "ai_role_description": config.ai_role_description,
+                "vocal_tone": config.vocal_tone,
+                "communication_style": config.communication_style
             }
             
             # Build context and run FAQ generator
@@ -50,10 +61,10 @@ class PresentationQuestionService:
             from app.modules.induction.llm.faq_generator import generate_faq
             
             ai_persona = {
-                "name": f"{company_name} AI Induction Officer",
-                "role": "HR Induction Officer",
-                "tone": "Professional, Friendly",
-                "communication_style": "Conversational",
+                "name": config.ai_officer_name,
+                "role": config.ai_role_description,
+                "tone": config.vocal_tone,
+                "communication_style": config.communication_style,
                 "company": company_name
             }
             
