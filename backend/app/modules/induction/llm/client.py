@@ -26,15 +26,31 @@ class LLMClient:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
 
-            response = await client.chat.completions.create(
-                model=self.model,
-                messages=[
+            kwargs = {
+                "model": self.model,
+                "messages": [
                     {"role": "system", "content": "You must output JSON only. Ensure the response matches the requested schema exactly and is valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
-                response_format={"type": "json_object"},
-                temperature=0.2
-            )
+                "temperature": 0.2
+            }
+
+            is_openrouter = "openrouter.ai" in self.base_url
+            is_nvidia = self.provider == "nvidia" or "nvidia.com" in self.base_url
+
+            if is_openrouter:
+                kwargs["extra_body"] = {
+                    "reasoning": {"enabled": True}
+                }
+            elif is_nvidia:
+                kwargs["extra_body"] = {
+                    "chat_template_kwargs": {"enable_thinking": True},
+                    "reasoning_budget": 16384
+                }
+            else:
+                kwargs["response_format"] = {"type": "json_object"}
+
+            response = await client.chat.completions.create(**kwargs)
             content = response.choices[0].message.content
             latency = time.perf_counter() - t0
 

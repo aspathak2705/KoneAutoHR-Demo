@@ -19,10 +19,17 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # LLM config
-    LLM_PROVIDER: Literal["nvidia", "openai", "ollama"] ="nvidia"
-    LLM_MODEL: str = "nvidia/nemotron-3-super-120b-a12b"
-    LLM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    LLM_PROVIDER: Literal["nvidia", "openai", "ollama"] ="openai"
+    LLM_MODEL: str = "nvidia/nemotron-3-super-120b-a12b:free"
+    LLM_BASE_URL: str = "https://openrouter.ai/api/v1"
     LLM_API_KEY: Optional[str] = None
+
+    # Microsoft OAuth config
+    MICROSOFT_CLIENT_ID: Optional[str] = None
+    MICROSOFT_CLIENT_SECRET: Optional[str] = None
+    MICROSOFT_TENANT_ID: str = "common"
+    MICROSOFT_REDIRECT_URI: str = "http://localhost:8000/api/v1/microsoft/callback"
+    MICROSOFT_ACCESS_TOKEN: Optional[str] = None
 
     from pydantic import model_validator
 
@@ -68,6 +75,18 @@ def validate_llm_settings():
             "messages": [{"role": "user", "content": "ping"}],
             "max_tokens": 1
         }
+        is_openrouter = "openrouter.ai" in settings.LLM_BASE_URL
+        is_nvidia = settings.LLM_PROVIDER.lower() == "nvidia" or "nvidia.com" in settings.LLM_BASE_URL
+        
+        if is_openrouter:
+            payload["extra_body"] = {
+                "reasoning": {"enabled": True}
+            }
+        elif is_nvidia:
+            payload["extra_body"] = {
+                "chat_template_kwargs": {"enable_thinking": True},
+                "reasoning_budget": 1024
+            }
         url = f"{settings.LLM_BASE_URL.rstrip('/')}/chat/completions"
         with httpx.Client(timeout=8.0) as client:
             response = client.post(url, headers=headers, json=payload)
