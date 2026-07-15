@@ -19,10 +19,22 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # LLM config
-    LLM_PROVIDER: Literal["nvidia", "openai", "ollama"] = "openai"
-    LLM_MODEL: str = "nvidia/nemotron-3-super-120b-a12b:free"
-    LLM_BASE_URL: str = "https://openrouter.ai/api/v1"
+    LLM_PROVIDER: Literal["nvidia", "openai", "ollama"] ="nvidia"
+    LLM_MODEL: str = "nvidia/nemotron-3-super-120b-a12b"
+    LLM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     LLM_API_KEY: Optional[str] = None
+
+    from pydantic import model_validator
+
+    @model_validator(mode="after")
+    def clean_quotes(self) -> "Settings":
+        if self.LLM_API_KEY:
+            self.LLM_API_KEY = self.LLM_API_KEY.strip("\"'")
+        if self.LLM_MODEL:
+            self.LLM_MODEL = self.LLM_MODEL.strip("\"'")
+        if self.LLM_BASE_URL:
+            self.LLM_BASE_URL = self.LLM_BASE_URL.strip("\"'")
+        return self
 
 settings = Settings()
 
