@@ -17,12 +17,13 @@ async def generate_induction_package_scripts(
     Assumes all generators return validated output structures.
     """
     # 1. Define AI Persona
+    company_name = meeting_context.get("company_name", "KONE")
     ai_persona = {
-        "name": "KONE AI Induction Officer",
+        "name": f"{company_name} AI Induction Officer",
         "role": "HR Induction Officer",
         "tone": "Professional, Friendly",
         "communication_style": "Conversational",
-        "company": "KONE"
+        "company": company_name
     }
 
     # 2. Build Base Context

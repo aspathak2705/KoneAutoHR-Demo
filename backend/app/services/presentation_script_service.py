@@ -44,7 +44,7 @@ class PresentationScriptService:
             meeting_context = {
                 "company_name": company_name,
                 "department": "HR",
-                "trainer_name": "KONE AI Trainer",
+                "trainer_name": f"{company_name} AI Trainer",
                 "objectives": f"New Hire Induction for {pres.name}"
             }
             

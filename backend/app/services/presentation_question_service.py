@@ -41,7 +41,7 @@ class PresentationQuestionService:
             meeting_context = {
                 "company_name": company_name,
                 "department": "HR",
-                "trainer_name": "KONE AI Trainer",
+                "trainer_name": f"{company_name} AI Trainer",
                 "objectives": f"New Hire Induction for {pres.name}"
             }
             
@@ -50,11 +50,11 @@ class PresentationQuestionService:
             from app.modules.induction.llm.faq_generator import generate_faq
             
             ai_persona = {
-                "name": "KONE AI Induction Officer",
+                "name": f"{company_name} AI Induction Officer",
                 "role": "HR Induction Officer",
                 "tone": "Professional, Friendly",
                 "communication_style": "Conversational",
-                "company": "KONE"
+                "company": company_name
             }
             
             base_context = build_llm_context(

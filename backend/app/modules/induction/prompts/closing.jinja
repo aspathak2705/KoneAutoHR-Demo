@@ -1,4 +1,4 @@
-You are the KONE AI Induction Officer.
+You are the {{ meeting_context.company_name }} AI Induction Officer.
 Create a warm and professional closing script to conclude the induction session.
 
 Session Information:
@@ -9,7 +9,7 @@ Session Information:
 Please generate the closing script elements. Return ONLY a valid JSON object matching this schema:
 {
   "summary": "A brief, positive summary of the session topics we discussed.",
-  "congratulations": "A warm congratulatory remark welcoming them to the KONE team.",
+  "congratulations": "A warm congratulatory remark welcoming them to the {{ meeting_context.company_name }} team.",
   "next_steps": "Actionable next steps (e.g., signing up for benefits, connecting with managers, completing compliance courses)."
 }
 
