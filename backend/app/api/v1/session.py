@@ -26,3 +26,13 @@ def update_session(id: str, session_in: SessionUpdate, db: DBSession = Depends(g
 @router.delete("/{id}", response_model=SessionResponse)
 def delete_session(id: str, db: DBSession = Depends(get_db)):
     return session_service.delete_session(db, id)
+
+@router.post("/{id}/prepare-meeting", status_code=status.HTTP_501_NOT_IMPLEMENTED)
+def prepare_meeting(id: str, db: DBSession = Depends(get_db)):
+    from fastapi import HTTPException
+    raise HTTPException(status_code=501, detail="Resource not prepared")
+
+@router.get("/{id}/runtime", status_code=status.HTTP_501_NOT_IMPLEMENTED)
+def get_session_runtime(id: str, db: DBSession = Depends(get_db)):
+    from fastapi import HTTPException
+    raise HTTPException(status_code=501, detail="Resource not prepared")

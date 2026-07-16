@@ -9,3 +9,5 @@ from app.models.presentation_script import PresentationScript # noqa
 from app.models.presentation_question import PresentationQuestion # noqa
 from app.models.employee_list import EmployeeList # noqa
 from app.models.organization_config import OrganizationConfig # noqa
+from app.models.microsoft_token import MicrosoftToken # noqa
+from app.models.meeting import Meeting # noqa

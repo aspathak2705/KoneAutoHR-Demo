@@ -24,3 +24,4 @@ class Session(Base):
     employee_list: Mapped[Optional["EmployeeList"]] = relationship(back_populates="sessions")
     uploads: Mapped[List["Upload"]] = relationship(back_populates="session", cascade="all, delete-orphan")
     presentation_jobs: Mapped[List["PresentationJob"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+    meetings: Mapped[List["Meeting"]] = relationship(back_populates="session", cascade="all, delete-orphan")
