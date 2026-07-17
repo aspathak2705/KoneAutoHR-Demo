@@ -47,9 +47,9 @@ async def lifespan(app: FastAPI):
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='organization_config'")
             has_config_table = cursor.fetchone()
             
-            # Check microsoft_tokens table
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='microsoft_tokens'")
-            has_tokens_table = cursor.fetchone()
+            # Check invitation_drafts table
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='invitation_drafts'")
+            has_drafts_table = cursor.fetchone()
             
             # Check meetings table
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='meetings'")
@@ -62,7 +62,7 @@ async def lifespan(app: FastAPI):
                 needs_reset = True
             if script_cols and "status" not in script_cols:
                 needs_reset = True
-            if not has_config_table or not has_tokens_table or not has_meetings_table:
+            if not has_config_table or not has_drafts_table or not has_meetings_table:
                 needs_reset = True
                 
             if needs_reset:
@@ -100,7 +100,6 @@ register_exception_handlers(app)
 
 from app.modules.configuration.configuration_router import router as configuration_router
 from app.modules.analytics.analytics_router import router as analytics_router
-from app.api.v1.microsoft import router as microsoft_router
 from app.api.v1.meetings import router as meetings_router
 from app.api.v1.runtime import router as runtime_router
 
@@ -115,7 +114,6 @@ app.include_router(presentation_script.router, prefix="/api/v1")
 app.include_router(presentation_questions.router, prefix="/api/v1")
 app.include_router(configuration_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
-app.include_router(microsoft_router, prefix="/api/v1")
 app.include_router(meetings_router, prefix="/api/v1")
 app.include_router(runtime_router, prefix="/api/v1")
 
