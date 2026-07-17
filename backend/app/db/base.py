@@ -11,3 +11,4 @@ from app.models.employee_list import EmployeeList # noqa
 from app.models.organization_config import OrganizationConfig # noqa
 from app.models.meeting import Meeting # noqa
 from app.models.invitation_draft import InvitationDraft # noqa
+from app.models.runtime import Runtime # noqa
