@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session as DBSession
 from pydantic import BaseModel
 from typing import List
@@ -7,6 +8,7 @@ from app.services.runtime_service import runtime_service
 from app.services.session_service import session_service
 from app.services.meeting_runtime_service import meeting_runtime_service
 from app.services.qa_service import qa_service
+from app.services.report_service import report_service
 from app.models.runtime_message import RuntimeMessage
 from app.models.organization_config import OrganizationConfig
 
@@ -133,3 +135,31 @@ def get_conversation_history(session_id: str, db: DBSession = Depends(get_db)):
         }
         for msg in history
     ]
+
+@router.get("/{session_id}/report")
+def download_session_report(session_id: str, db: DBSession = Depends(get_db)):
+    try:
+        report_path, _ = report_service.generate_and_save_packages(db, session_id)
+        if not report_path.exists():
+            raise HTTPException(status_code=404, detail="Report file not found")
+        return FileResponse(
+            path=report_path,
+            filename=f"induction_report_{session_id}.md",
+            media_type="text/markdown"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/{session_id}/transcript")
+def download_session_transcript(session_id: str, db: DBSession = Depends(get_db)):
+    try:
+        _, transcript_path = report_service.generate_and_save_packages(db, session_id)
+        if not transcript_path.exists():
+            raise HTTPException(status_code=404, detail="Transcript file not found")
+        return FileResponse(
+            path=transcript_path,
+            filename=f"induction_transcript_{session_id}.md",
+            media_type="text/markdown"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

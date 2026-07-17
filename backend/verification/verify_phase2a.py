@@ -147,8 +147,20 @@ def main():
         if res_status_final.status_code == 200:
             print_result("State shifted to COMPLETED", res_status_final.json().get("state") == "COMPLETED")
 
+        # 7. Test report downloading (Sprint 5)
+        print("\nTesting report package downloads...")
+        res_report = client.get(f"/api/v1/runtime/{session_id}/report")
+        print_result("GET /report returns 200", res_report.status_code == 200)
+        if res_report.status_code == 200:
+            print_result("Report contains Attendance Summary", "Attendance Summary" in res_report.text)
+
+        res_transcript = client.get(f"/api/v1/runtime/{session_id}/transcript")
+        print_result("GET /transcript returns 200", res_transcript.status_code == 200)
+        if res_transcript.status_code == 200:
+            print_result("Transcript has dialogue header", "# Dialogue Transcript Log" in res_transcript.text)
+
         print("\n=====================================================================")
-        print("                 SPRINT 3 RUNTIME ENGINE TEST PASS                   ")
+        print("             SPRINT 3 & 5 RUNTIME ENGINE TESTS PASS                  ")
         print("=====================================================================")
 
     except Exception as e:
