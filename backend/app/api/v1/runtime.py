@@ -7,6 +7,8 @@ from app.db.database import get_db
 from app.services.runtime_service import runtime_service
 from app.services.session_service import session_service
 from app.services.meeting_runtime_service import meeting_runtime_service
+from app.services.teams_runtime_service import teams_runtime_service
+from app.services.speech_runtime import speech_runtime_service
 from app.services.qa_service import qa_service
 from app.services.report_service import report_service
 from app.models.runtime_message import RuntimeMessage
@@ -17,6 +19,9 @@ router = APIRouter(prefix="/runtime", tags=["Orchestration Runtime"])
 class AskQuestionRequest(BaseModel):
     speaker_name: str
     question_text: str
+
+class SpeakRequest(BaseModel):
+    narration_text: str
 
 class MessageResponse(BaseModel):
     id: str
@@ -52,6 +57,13 @@ def get_slide_controller(session_id: str, db: DBSession = Depends(get_db)):
             detail=str(e)
         )
 
+@router.get("/{session_id}/status")
+def get_runtime_status_detailed(session_id: str, db: DBSession = Depends(get_db)):
+    """
+    Sprint RC-1: Returns detailed connection state logs.
+    """
+    return teams_runtime_service.get_status(db, session_id)
+
 @router.get("/{session_id}")
 def get_runtime_status(session_id: str, db: DBSession = Depends(get_db)):
     """
@@ -73,6 +85,8 @@ def get_runtime_status(session_id: str, db: DBSession = Depends(get_db)):
             "session_id": session_id,
             "state": db_runtime.state,
             "current_slide": db_runtime.current_slide,
+            "reconnect_count": db_runtime.reconnect_count,
+            "speech_state": db_runtime.speech_state,
             "last_heartbeat": db_runtime.last_heartbeat.isoformat() if db_runtime.last_heartbeat else None,
             "questions_asked": len(questions),
             "presentation_ready": readiness.get("has_presentation") and readiness.get("has_script") and readiness.get("has_faq"),
@@ -85,6 +99,31 @@ def get_runtime_status(session_id: str, db: DBSession = Depends(get_db)):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+
+@router.post("/{session_id}/launch")
+def launch_runtime_session(session_id: str):
+    teams_runtime_service.launch_session(session_id)
+    return {"message": "Teams automation client initialized."}
+
+@router.post("/{session_id}/join")
+def join_runtime_meeting(session_id: str):
+    teams_runtime_service.join_meeting(session_id)
+    return {"message": "Teams joining sequence initiated."}
+
+@router.post("/{session_id}/leave")
+def leave_runtime_meeting(session_id: str):
+    teams_runtime_service.leave_meeting(session_id)
+    return {"message": "Teams leave sequence completed."}
+
+@router.post("/{session_id}/speak")
+def start_runtime_speaking(session_id: str, req: SpeakRequest):
+    speech_runtime_service.speak(session_id, req.narration_text)
+    return {"message": "TTS speaking initiated."}
+
+@router.post("/{session_id}/stop-speaking")
+def stop_runtime_speaking(session_id: str):
+    speech_runtime_service.stop_speaking(session_id)
+    return {"message": "TTS speaking interrupted."}
 
 @router.post("/{session_id}/start")
 def start_runtime(session_id: str, db: DBSession = Depends(get_db)):
@@ -163,3 +202,19 @@ def download_session_transcript(session_id: str, db: DBSession = Depends(get_db)
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/{session_id}/attendance")
+def get_attendance_report(session_id: str, db: DBSession = Depends(get_db)):
+    from app.services.attendance_service import attendance_service
+    return attendance_service.get_attendance_summary(db, session_id)
+
+@router.get("/{session_id}/transcript-data")
+def get_transcript_raw(session_id: str, db: DBSession = Depends(get_db)):
+    from app.services.transcript_service import transcript_service
+    return transcript_service.get_chronological_transcript(db, session_id)
+
+@router.post("/{session_id}/reconnect")
+async def trigger_reconnect_simulation(session_id: str):
+    from app.services.teams_runtime_service import teams_runtime_service
+    await teams_runtime_service.simulate_reconnect(session_id)
+    return {"message": "Reconnection sequence triggered."}

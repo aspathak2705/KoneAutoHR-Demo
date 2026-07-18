@@ -9,8 +9,13 @@ class Runtime(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     session_id: Mapped[str] = mapped_column(String, ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
-    state: Mapped[str] = mapped_column(String, default="PREPARING") # PREPARING / READY / JOINING / PRESENTING / QUESTIONS / COMPLETED
+    state: Mapped[str] = mapped_column(String, default="PREPARING") 
+    # State values: PREPARING, LAUNCHING, JOINING, WAITING, CONNECTED, DISCONNECTED, RECONNECTING, COMPLETED
+    
     current_slide: Mapped[int] = mapped_column(Integer, default=0)
+    reconnect_count: Mapped[int] = mapped_column(Integer, default=0)
+    speech_state: Mapped[str] = mapped_column(String, default="IDLE") # IDLE, SPEAKING, INTERRUPTED
+    
     started_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
     last_heartbeat: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=True)

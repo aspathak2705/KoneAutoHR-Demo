@@ -28,3 +28,4 @@ class Session(Base):
     invitation_drafts: Mapped[List["InvitationDraft"]] = relationship(back_populates="session", cascade="all, delete-orphan")
     runtimes: Mapped[List["Runtime"]] = relationship(back_populates="session", cascade="all, delete-orphan")
     runtime_messages: Mapped[List["RuntimeMessage"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+    attendances: Mapped[List["Attendance"]] = relationship(back_populates="session", cascade="all, delete-orphan")

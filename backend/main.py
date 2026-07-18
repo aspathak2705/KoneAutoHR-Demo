@@ -62,6 +62,10 @@ async def lifespan(app: FastAPI):
             # Check runtime_messages table
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runtime_messages'")
             has_messages_table = cursor.fetchone()
+
+            # Check attendances table
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='attendances'")
+            has_attendances_table = cursor.fetchone()
             
             conn.close()
             
@@ -70,7 +74,7 @@ async def lifespan(app: FastAPI):
                 needs_reset = True
             if script_cols and "status" not in script_cols:
                 needs_reset = True
-            if not has_config_table or not has_drafts_table or not has_meetings_table or not has_runtimes_table or not has_messages_table:
+            if not has_config_table or not has_drafts_table or not has_meetings_table or not has_runtimes_table or not has_messages_table or not has_attendances_table:
                 needs_reset = True
                 
             if needs_reset:
