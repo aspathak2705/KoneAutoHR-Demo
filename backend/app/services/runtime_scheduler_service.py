@@ -11,12 +11,12 @@ from loguru import logger
 
 class RuntimeSchedulerService:
     """
-    Sprint RC-1 — Runtime Scheduler
-    Automatically triggers the meeting runtime launch at the scheduled date and time.
+    Sprint RC-1 — Runtime Scheduler (Production Hardened)
+    Automatically schedules, monitors, and recovers meeting runtimes.
     """
     def __init__(self):
-        self._scheduler_task = None
         self._scheduled_sessions = set()
+        self._launch_locks = set()
 
     def schedule_session(self, db: DBSession, session_id: str) -> dict:
         """
@@ -40,6 +40,7 @@ class RuntimeSchedulerService:
         runtime.current_step = "WAITING_FOR_TIME"
         runtime.meeting_status = "SCHEDULED"
         runtime.last_heartbeat = datetime.datetime.now()
+        runtime.last_error = None
         db.commit()
 
         self._scheduled_sessions.add(session_id)
@@ -47,6 +48,21 @@ class RuntimeSchedulerService:
         runtime_event_bus.publish(session_id, "MeetingScheduled", {"session_id": session_id, "date": meeting.date, "time": meeting.time})
 
         return self.get_schedule_status(db, session_id)
+
+    def handle_meeting_time_update(self, db: DBSession, session_id: str) -> None:
+        """
+        Edge Case 4: HR Edits Meeting Time.
+        Resets scheduler timer and returns state to SCHEDULED.
+        """
+        runtime = db.query(Runtime).filter(Runtime.session_id == session_id).first()
+        if runtime and runtime.state not in ["CONNECTED", "COMPLETED"]:
+            runtime.state = "SCHEDULED"
+            runtime.current_step = "WAITING_FOR_TIME"
+            runtime.last_error = None
+            runtime.last_heartbeat = datetime.datetime.now()
+            db.commit()
+            self._scheduled_sessions.add(session_id)
+            logger.info(f"[Scheduler] HR updated meeting time for session {session_id}. Reset schedule timer.")
 
     def get_schedule_status(self, db: DBSession, session_id: str) -> dict:
         """
@@ -67,36 +83,88 @@ class RuntimeSchedulerService:
             "scheduled_time": scheduled_time,
             "meeting_url": meeting.teams_url if meeting else None,
             "is_scheduled": state in ["SCHEDULED", "WAITING_FOR_TIME", "LAUNCHING", "JOINING", "CONNECTED", "WAITING"],
-            "last_heartbeat": runtime.last_heartbeat.isoformat() if runtime and runtime.last_heartbeat else None
+            "last_heartbeat": runtime.last_heartbeat.isoformat() if runtime and runtime.last_heartbeat else None,
+            "last_error": runtime.last_error if runtime else None
         }
 
     def trigger_launch_if_due(self, db: DBSession, session_id: str) -> bool:
         """
-        Checks system time against configured meeting time and launches if due.
-        Prevents duplicate launches.
+        Checks system time vs meeting schedule and triggers launch.
+        Handles Edge Cases:
+        - Already connected/launching (Edge Case 5)
+        - Mutex lock prevention (Edge Case 3)
+        - Past expiration window (Edge Case 2)
         """
+        # Edge Case 3 & 5: Already connected, launching, or currently locked
+        if session_id in self._launch_locks:
+            return False
+
         runtime = db.query(Runtime).filter(Runtime.session_id == session_id).first()
-        if not runtime or runtime.state in ["LAUNCHING", "JOINING", "CONNECTED", "WAITING", "COMPLETED"]:
+        if not runtime or runtime.state in ["LAUNCHING", "JOINING", "CONNECTED", "WAITING", "COMPLETED", "EXPIRED"]:
             return False
 
         meeting = db.query(Meeting).filter(Meeting.session_id == session_id).first()
         if not meeting or not meeting.date or not meeting.time:
             return False
 
-        # Compare meeting schedule with system time
         now = datetime.datetime.now()
         try:
-            scheduled_datetime = datetime.datetime.strptime(f"{meeting.date} {meeting.time}", "%Y-%m-%d %H:%M")
+            scheduled_dt = datetime.datetime.strptime(f"{meeting.date} {meeting.time}", "%Y-%m-%d %H:%M")
         except Exception:
-            # If parse fails, default to current time for immediate verification launch
-            scheduled_datetime = now
+            scheduled_dt = now
 
-        if now >= scheduled_datetime or runtime.state == "SCHEDULED":
-            logger.info(f"[Scheduler] Triggering autonomous launch for session {session_id}...")
-            teams_runtime_service.launch_session(session_id)
-            teams_runtime_service.join_meeting(session_id)
-            return True
+        # Edge Case 2: What if meeting time has already passed (> 30 mins ago)?
+        time_diff_minutes = (now - scheduled_dt).total_seconds() / 60.0
+
+        if time_diff_minutes > 30:
+            logger.warning(f"[Scheduler] Session {session_id} meeting schedule window expired ({time_diff_minutes:.1f} mins past).")
+            runtime.state = "EXPIRED"
+            runtime.last_error = f"Schedule expired ({meeting.date} {meeting.time} was > 30 minutes ago)."
+            db.commit()
+            return False
+
+        # Lock session launch
+        self._launch_locks.add(session_id)
+        try:
+            if now >= scheduled_dt or runtime.state in ["SCHEDULED", "WAITING_FOR_TIME"]:
+                logger.info(f"[Scheduler] Triggering autonomous launch for session {session_id}...")
+                teams_runtime_service.launch_session(session_id)
+                teams_runtime_service.join_meeting(session_id)
+                return True
+        finally:
+            self._launch_locks.discard(session_id)
 
         return False
+
+    def recover_on_backend_restart(self, db: DBSession) -> dict:
+        """
+        Edge Case 1: Backend Restarts.
+        Scans DB for non-finalized runtimes and restores their schedule or connection tasks.
+        """
+        runtimes = db.query(Runtime).filter(
+            Runtime.state.in_(["SCHEDULED", "WAITING_FOR_TIME", "LAUNCHING", "JOINING", "CONNECTED", "WAITING", "RECONNECTING"])
+        ).all()
+
+        recovered = {"rescheduled": 0, "reconnected": 0, "expired": 0}
+
+        for rt in runtimes:
+            if rt.state in ["SCHEDULED", "WAITING_FOR_TIME"]:
+                # Check if launch is due or still in future
+                if self.trigger_launch_if_due(db, rt.session_id):
+                    recovered["rescheduled"] += 1
+                else:
+                    if rt.state == "EXPIRED":
+                        recovered["expired"] += 1
+                    else:
+                        self._scheduled_sessions.add(rt.session_id)
+                        recovered["rescheduled"] += 1
+
+            elif rt.state in ["CONNECTED", "WAITING", "JOINING", "LAUNCHING", "RECONNECTING"]:
+                logger.info(f"[RuntimeRecovery] Restoring connection session for {rt.session_id} (State: {rt.state})...")
+                teams_runtime_service.join_meeting(rt.session_id)
+                recovered["reconnected"] += 1
+
+        logger.info(f"[RuntimeRecovery] Recovery scan completed: {recovered}")
+        return recovered
 
 runtime_scheduler_service = RuntimeSchedulerService()
