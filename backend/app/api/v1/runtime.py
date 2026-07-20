@@ -14,7 +14,48 @@ from app.services.report_service import report_service
 from app.models.runtime_message import RuntimeMessage
 from app.models.organization_config import OrganizationConfig
 
+from app.services.runtime_scheduler_service import runtime_scheduler_service
+from app.services.runtime_validation_service import runtime_validation_service
+
 router = APIRouter(prefix="/runtime", tags=["Orchestration Runtime"])
+
+@router.post("/{session_id}/schedule")
+def schedule_runtime_meeting(session_id: str, db: DBSession = Depends(get_db)):
+    try:
+        return runtime_scheduler_service.schedule_session(db, session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/{session_id}/schedule")
+def get_runtime_schedule(session_id: str, db: DBSession = Depends(get_db)):
+    try:
+        return runtime_scheduler_service.get_schedule_status(db, session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/{session_id}/validate")
+def validate_runtime(session_id: str, db: DBSession = Depends(get_db)):
+    try:
+        return runtime_validation_service.validate_runtime_readiness(db, session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/{session_id}/phase2b-handover")
+def get_phase2b_handover_context(session_id: str, db: DBSession = Depends(get_db)):
+    try:
+        db_runtime = meeting_runtime_service.get_runtime(db, session_id)
+        if db_runtime.state not in ["CONNECTED", "WAITING", "COMPLETED"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Runtime not ready for Phase 2B handover. Current state is {db_runtime.state}. Must be CONNECTED & WAITING."
+            )
+        return {
+            "handover_status": "READY",
+            "runtime_state": db_runtime.state,
+            "context": runtime_service.get_runtime_context(db, session_id)
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 class AskQuestionRequest(BaseModel):
     speaker_name: str
