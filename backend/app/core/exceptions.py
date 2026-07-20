@@ -34,3 +34,7 @@ class LLMResponseValidationError(DomainException):
 class PromptRenderError(DomainException):
     """Raised when rendering a Jinja prompt template fails."""
     pass
+
+class InvalidResponseError(DomainException):
+    """Raised when the AI returns an invalid response format or missing required fields after retries."""
+    pass

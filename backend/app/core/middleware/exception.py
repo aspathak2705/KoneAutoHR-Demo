@@ -42,6 +42,23 @@ def register_exception_handlers(app: FastAPI):
             content={"success": False, "message": "Storage system error occurred.", "request_id": request_id}
         )
 
+    from app.core.exceptions import InvalidResponseError, LLMResponseParseError, LLMResponseValidationError
+
+    @app.exception_handler(InvalidResponseError)
+    @app.exception_handler(LLMResponseParseError)
+    @app.exception_handler(LLMResponseValidationError)
+    async def invalid_response_handler(request: Request, exc: Exception):
+        request_id = getattr(request.state, "request_id", "unknown")
+        logger.error(f"InvalidResponseError caught on request {request_id}: {str(exc)}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "error": "The AI returned an invalid response format. Please try again.",
+                "request_id": request_id
+            }
+        )
+
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         request_id = getattr(request.state, "request_id", "unknown")

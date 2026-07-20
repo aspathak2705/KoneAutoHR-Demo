@@ -5,8 +5,16 @@ from app.core.exceptions import LLMResponseParseError
 def parse_llm_json(content: str) -> dict:
     """
     Parses and extracts the JSON object from raw LLM output.
-    Cleans markdown code fences, leading text, and trailing explanations.
+    1. Removes Markdown code fences (```json ... ```)
+    2. Trims whitespace
+    3. Locates the first '{'
+    4. Locates the last '}'
+    5. Extracts only that portion
+    6. Parses JSON structure via json.loads
     """
+    if not content or not content.strip():
+        raise LLMResponseParseError("Empty response returned from LLM provider.")
+
     cleaned = content.strip()
 
     # 1. Strip markdown code block wrappers
