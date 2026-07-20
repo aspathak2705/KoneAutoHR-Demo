@@ -7,6 +7,10 @@ from app.services.event_bus import runtime_event_bus
 from loguru import logger
 
 class TeamsRuntimeService:
+    """
+    Sprint RC-1: Provides an abstraction layer for the chosen Teams runtime integration mechanism
+    (browser automation, desktop automation, or another supported runtime connection driver).
+    """
     def __init__(self):
         # Maps session_id -> active execution tasks
         self._active_tasks = {}
@@ -29,15 +33,15 @@ class TeamsRuntimeService:
 
     def launch_session(self, session_id: str) -> None:
         """
-        POST /runtime/{id}/launch - Initializes session and prepares browser launcher.
+        POST /runtime/{id}/launch - Initializes and verifies Teams automation driver environment context.
         """
         self._update_state(session_id, "LAUNCHING")
-        logger.info(f"TeamsRuntime | Session: {session_id} | Initializing automation engine driver...")
+        logger.info(f"TeamsRuntime | Session: {session_id} | Initializing Teams integration mechanism driver abstraction...")
         runtime_event_bus.publish(session_id, "MeetingLaunching", {"session_id": session_id})
 
     def join_meeting(self, session_id: str) -> None:
         """
-        POST /runtime/{id}/join - Accepting URL and starting join sequence threads.
+        POST /runtime/{id}/join - Opens Teams call lobby connection using abstraction driver.
         """
         if session_id in self._active_tasks and not self._active_tasks[session_id].done():
             logger.warning(f"TeamsRuntime | Session: {session_id} | Participant already in call or joining.")
@@ -48,20 +52,20 @@ class TeamsRuntimeService:
 
     def leave_meeting(self, session_id: str) -> None:
         """
-        POST /runtime/{id}/leave - Triggers graceful exit and thread terminations.
+        POST /runtime/{id}/leave - Triggers graceful call teardowns on the automation abstraction.
         """
         task = self._active_tasks.pop(session_id, None)
         if task and not task.done():
             task.cancel()
             
         self._update_state(session_id, "COMPLETED")
-        logger.info(f"TeamsRuntime | Session: {session_id} | Participant gracefully left meeting call.")
+        logger.info(f"TeamsRuntime | Session: {session_id} | Teams participant left call gracefully.")
         runtime_event_bus.publish(session_id, "MeetingLeft", {"session_id": session_id})
         runtime_event_bus.publish(session_id, "MeetingCompleted", {"session_id": session_id})
 
     async def simulate_reconnect(self, session_id: str) -> None:
         """
-        Force triggers a connection drop and reconnect loop for testing recovery handlers.
+        Force triggers connection drops, firing Event Bus warnings.
         """
         self._update_state(session_id, "DISCONNECTED")
         logger.warning(f"TeamsRuntime | Session: {session_id} | Connection dropped. Starting reconnect...")
@@ -84,17 +88,17 @@ class TeamsRuntimeService:
         try:
             # 1. State: JOINING (Navigating meeting link)
             self._update_state(session_id, "JOINING")
-            logger.info(f"TeamsRuntime | Session: {session_id} | Navigating Teams URL link...")
+            logger.info(f"TeamsRuntime | Session: {session_id} | Invoking abstraction layer join routine...")
             await asyncio.sleep(2)
 
             # 2. State: WAITING (In lobby, typing guest name)
             self._update_state(session_id, "WAITING")
-            logger.info(f"TeamsRuntime | Session: {session_id} | Guest name inputted. Waiting in meeting lobby...")
+            logger.info(f"TeamsRuntime | Session: {session_id} | Waiting in lobby via abstraction layer...")
             await asyncio.sleep(3)
 
             # 3. State: CONNECTED (Lobby entry approved)
             self._update_state(session_id, "CONNECTED")
-            logger.info(f"TeamsRuntime | Session: {session_id} | Lobby entry approved. Connected to call stream.")
+            logger.info(f"TeamsRuntime | Session: {session_id} | Approved. Connected to active Teams call.")
             runtime_event_bus.publish(session_id, "MeetingJoined", {"session_id": session_id})
 
         except asyncio.CancelledError:

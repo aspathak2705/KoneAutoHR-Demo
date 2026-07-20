@@ -9,6 +9,11 @@ from app.services.event_bus import runtime_event_bus
 from loguru import logger
 
 class AttendanceService:
+    """
+    Sprint RC-3: Tracks attendee presence and participation logs populated via meeting
+    runtime participant detection callbacks (Teams participant list detection signals)
+    and manual HR confirmation backup indicators.
+    """
     def __init__(self):
         # Subscribe to Event Bus topics
         runtime_event_bus.subscribe("MeetingJoined", self._on_meeting_joined)
