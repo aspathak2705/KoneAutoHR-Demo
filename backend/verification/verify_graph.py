@@ -1,1 +1,4 @@
-# Decommissioned in favor of verify_meetings.py and verify_runtime.py
+from verify import main
+
+if __name__ == "__main__":
+    main()
