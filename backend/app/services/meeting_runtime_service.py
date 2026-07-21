@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+from typing import Optional
 from sqlalchemy.orm import Session as DBSession
 from app.models.runtime import Runtime
 from app.models.session import Session
@@ -12,11 +13,14 @@ class MeetingRuntimeService:
         # Maps session_id -> running asyncio.Task
         self._active_tasks = {}
 
-    def get_runtime(self, db: DBSession, session_id: str) -> Runtime:
+    def get_runtime(self, db: DBSession, session_id: str) -> Optional[Runtime]:
+        sess = db.query(Session).filter(Session.id == session_id).first()
+        if not sess:
+            return None
         runtime = db.query(Runtime).filter(Runtime.session_id == session_id).first()
         if not runtime:
             # Create a default runtime record
-            runtime = Runtime(session_id=session_id, state="READY", current_slide=0)
+            runtime = Runtime(session_id=session_id, state="PREPARING", current_slide=0)
             db.add(runtime)
             db.commit()
             db.refresh(runtime)

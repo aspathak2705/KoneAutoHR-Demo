@@ -44,15 +44,29 @@ def get_meeting(id: str, db: DBSession = Depends(get_db)):
         )
     return db_meeting
 
-@router.get("/session/{session_id}", response_model=MeetingResponse)
+@router.get("/session/{session_id}")
 def get_meeting_by_session(session_id: str, db: DBSession = Depends(get_db)):
+    """
+    Phase 6 — Meeting API Refactor
+    Returns 200 OK with configured: false when meeting is not configured yet.
+    """
     db_meeting = meeting_repository.get_by_session(db, session_id)
     if not db_meeting:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No meeting configured for this session."
-        )
-    return db_meeting
+        return {
+            "configured": False,
+            "meeting": None,
+            "session_id": session_id
+        }
+    return {
+        "configured": True,
+        "session_id": session_id,
+        "id": db_meeting.id,
+        "teams_meeting_url": db_meeting.teams_meeting_url,
+        "meeting_passcode": db_meeting.meeting_passcode,
+        "meeting_date": db_meeting.meeting_date,
+        "meeting_time": db_meeting.meeting_time,
+        "organizer_name": db_meeting.organizer_name
+    }
 
 @router.post("/session/{session_id}/generate-drafts", response_model=List[InvitationDraftResponse])
 async def generate_invitation_drafts(session_id: str, db: DBSession = Depends(get_db)):
@@ -64,6 +78,11 @@ async def generate_invitation_drafts(session_id: str, db: DBSession = Depends(ge
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate invitation drafts: {str(e)}"
+        )
 
 @router.get("/session/{session_id}/drafts", response_model=List[InvitationDraftResponse])
 def get_invitation_drafts(session_id: str, db: DBSession = Depends(get_db)):
@@ -72,25 +91,21 @@ def get_invitation_drafts(session_id: str, db: DBSession = Depends(get_db)):
 @router.put("/drafts/{draft_id}", response_model=InvitationDraftResponse)
 def update_invitation_draft(draft_id: str, draft_in: InvitationDraftUpdate, db: DBSession = Depends(get_db)):
     try:
-        return invitation_draft_service.update_draft(
-            db=db,
-            draft_id=draft_id,
-            subject=draft_in.subject,
-            body=draft_in.body
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
-
-@router.post("/session/{session_id}/validate-readiness", response_model=ReadinessResponse)
-def validate_session_readiness(session_id: str, db: DBSession = Depends(get_db)):
-    try:
-        result = session_service.validate_readiness(db, session_id)
-        return result
+        return invitation_draft_service.update_draft(db, draft_id, draft_in)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+
+from app.services.runtime_context_service import runtime_context_service
+from app.services.runtime_readiness_service import runtime_readiness_service
+
+@router.post("/session/{session_id}/validate-readiness")
+def validate_session_readiness(session_id: str, db: DBSession = Depends(get_db)):
+    """
+    Phase 4 — Unified Readiness API
+    Returns HTTP 200 OK with authoritative readiness report.
+    """
+    context = runtime_context_service.build_runtime_context(db, session_id)
+    return runtime_readiness_service.evaluate_readiness(context)

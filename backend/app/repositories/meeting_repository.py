@@ -30,13 +30,14 @@ class MeetingRepository:
         if not session_exists:
             raise ValueError("Associated session not found.")
 
-        # 4. Duplicate Meetings
+        # 4. Duplicate Meetings (clean up stale association if reusing same real Teams URL)
         duplicate = db.query(Meeting).filter(
             Meeting.teams_meeting_url == teams_meeting_url.strip(),
             Meeting.session_id != session_id
         ).first()
         if duplicate:
-            raise ValueError("This Teams Meeting URL is already scheduled for another session.")
+            db.delete(duplicate)
+            db.commit()
 
     def create_or_update(
         self,

@@ -72,7 +72,7 @@ class MessageResponse(BaseModel):
     timestamp: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 @router.get("/{session_id}/context")
 def get_runtime_context(session_id: str, db: DBSession = Depends(get_db)):
@@ -98,6 +98,19 @@ def get_slide_controller(session_id: str, db: DBSession = Depends(get_db)):
             detail=str(e)
         )
 
+from app.services.runtime_context_service import runtime_context_service
+from app.services.runtime_readiness_service import runtime_readiness_service
+
+@router.get("/readiness/{session_id}")
+def get_unified_runtime_readiness(session_id: str, db: DBSession = Depends(get_db)):
+    """
+    Phase 4 — Unified Readiness API
+    Returns authoritative, single-source-of-truth readiness report for a session with HTTP 200 OK.
+    Never returns HTTP 400 for missing assets.
+    """
+    context = runtime_context_service.build_runtime_context(db, session_id)
+    return runtime_readiness_service.evaluate_readiness(context)
+
 @router.get("/{session_id}/status")
 def get_runtime_status_detailed(session_id: str, db: DBSession = Depends(get_db)):
     """
@@ -109,37 +122,40 @@ def get_runtime_status_detailed(session_id: str, db: DBSession = Depends(get_db)
 def get_runtime_status(session_id: str, db: DBSession = Depends(get_db)):
     """
     Sprint 3 & 4: Returns running meeting status combined with readiness and QA counters.
+    Never fails with 400 if session assets are not fully ready.
     """
-    try:
-        readiness = session_service.validate_readiness(db, session_id)
-        db_runtime = meeting_runtime_service.get_runtime(db, session_id)
-        
-        # Fetch question speaker count
-        config = db.query(OrganizationConfig).first()
-        trainer = config.ai_trainer_name if config else "KONE Trainer"
-        questions = db.query(RuntimeMessage).filter(
-            RuntimeMessage.session_id == session_id,
-            RuntimeMessage.speaker_name != trainer
-        ).all()
+    context = runtime_context_service.build_runtime_context(db, session_id)
+    readiness = runtime_readiness_service.evaluate_readiness(context)
+    
+    db_runtime = meeting_runtime_service.get_runtime(db, session_id)
+    state = db_runtime.state if db_runtime else "IDLE"
+    current_slide = db_runtime.current_slide if db_runtime else 0
+    reconnect_count = db_runtime.reconnect_count if db_runtime else 0
+    speech_state = db_runtime.speech_state if db_runtime else "IDLE"
+    last_hb = db_runtime.last_heartbeat.isoformat() if db_runtime and db_runtime.last_heartbeat else None
+    
+    # Fetch question speaker count
+    config = db.query(OrganizationConfig).first()
+    trainer = config.ai_trainer_name if config else "KONE Trainer"
+    questions = db.query(RuntimeMessage).filter(
+        RuntimeMessage.session_id == session_id,
+        RuntimeMessage.speaker_name != trainer
+    ).all()
 
-        return {
-            "session_id": session_id,
-            "state": db_runtime.state,
-            "current_slide": db_runtime.current_slide,
-            "reconnect_count": db_runtime.reconnect_count,
-            "speech_state": db_runtime.speech_state,
-            "last_heartbeat": db_runtime.last_heartbeat.isoformat() if db_runtime.last_heartbeat else None,
-            "questions_asked": len(questions),
-            "presentation_ready": readiness.get("has_presentation") and readiness.get("has_script") and readiness.get("has_faq"),
-            "employees_ready": readiness.get("has_employees"),
-            "meeting_ready": readiness.get("has_meeting"),
-            "ai_ready": readiness.get("has_script") and readiness.get("has_faq")
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+    return {
+        "session_id": session_id,
+        "state": state,
+        "current_slide": current_slide,
+        "reconnect_count": reconnect_count,
+        "speech_state": speech_state,
+        "last_heartbeat": last_hb,
+        "questions_asked": len(questions),
+        "presentation_ready": readiness.get("has_presentation") and readiness.get("has_script") and readiness.get("has_faq"),
+        "employees_ready": readiness.get("has_employees"),
+        "meeting_ready": readiness.get("has_meeting"),
+        "ai_ready": readiness.get("has_script") and readiness.get("has_faq"),
+        "readiness_report": readiness
+    }
 
 @router.post("/{session_id}/launch")
 def launch_runtime_session(session_id: str):

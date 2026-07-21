@@ -22,70 +22,60 @@ async def lifespan(app: FastAPI):
     from app.core.config import validate_llm_settings
     validate_llm_settings()
     
-    # Auto-reset SQLite database if schema mismatch detected
+    # Non-destructive SQLite Database Auto-Migration (Preserves all user data across restarts)
     db_file = Path("autohr.db")
-    if db_file.exists():
-        import sqlite3, os
-        from loguru import logger
-        try:
-            conn = sqlite3.connect(db_file)
-            cursor = conn.cursor()
-            
-            # Check sessions table
-            cursor.execute("PRAGMA table_info(sessions)")
-            session_cols = [row[1] for row in cursor.fetchall()]
-            
-            # Check presentation_scripts table
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='presentation_scripts'")
-            has_scripts_table = cursor.fetchone()
-            script_cols = []
-            if has_scripts_table:
-                cursor.execute("PRAGMA table_info(presentation_scripts)")
-                script_cols = [row[1] for row in cursor.fetchall()]
-                
-            # Check organization_config table
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='organization_config'")
-            has_config_table = cursor.fetchone()
-            
-            # Check invitation_drafts table
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='invitation_drafts'")
-            has_drafts_table = cursor.fetchone()
-            
-            # Check meetings table
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='meetings'")
-            has_meetings_table = cursor.fetchone()
+    import sqlite3
+    from loguru import logger
+    try:
+        conn = sqlite3.connect(db_file)
+        cursor = conn.cursor()
 
-            # Check runtimes table
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runtimes'")
-            has_runtimes_table = cursor.fetchone()
+        def add_column_if_missing(table, col, col_type):
+            cursor.execute(f"PRAGMA table_info({table})")
+            cols = [row[1] for row in cursor.fetchall()]
+            if cols and col not in cols:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                logger.info(f"Database Auto-Migration | Added missing column '{col}' to table '{table}'.")
 
-            # Check runtime_messages table
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runtime_messages'")
-            has_messages_table = cursor.fetchone()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runtimes'")
+        if cursor.fetchone():
+            add_column_if_missing("runtimes", "current_step", "VARCHAR DEFAULT 'IDLE'")
+            add_column_if_missing("runtimes", "meeting_status", "VARCHAR DEFAULT 'DISCONNECTED'")
+            add_column_if_missing("runtimes", "started_at", "DATETIME")
+            add_column_if_missing("runtimes", "connected_at", "DATETIME")
+            add_column_if_missing("runtimes", "completed_at", "DATETIME")
+            add_column_if_missing("runtimes", "last_error", "VARCHAR")
 
-            # Check attendances table
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='attendances'")
-            has_attendances_table = cursor.fetchone()
-            
-            conn.close()
-            
-            needs_reset = False
-            if session_cols and "presentation_id" not in session_cols:
-                needs_reset = True
-            if script_cols and "status" not in script_cols:
-                needs_reset = True
-            if not has_config_table or not has_drafts_table or not has_meetings_table or not has_runtimes_table or not has_messages_table or not has_attendances_table:
-                needs_reset = True
-                
-            if needs_reset:
-                os.remove(db_file)
-                logger.info("Schema mismatch detected: Deleted old autohr.db for clean recreation.")
-        except Exception as e:
-            logger.warning(f"Schema check error: {e}")
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'")
+        if cursor.fetchone():
+            add_column_if_missing("sessions", "presentation_id", "VARCHAR")
+            add_column_if_missing("sessions", "employee_list_id", "VARCHAR")
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"Database Auto-Migration notice: {e}")
 
     Base.metadata.create_all(bind=engine)
     Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+
+    # Spawn background scheduler worker loop to trigger scheduled joins automatically
+    import asyncio
+    from app.db.database import SessionLocal
+    from app.services.runtime_scheduler_service import runtime_scheduler_service
+
+    async def _scheduler_background_loop():
+        while True:
+            try:
+                with SessionLocal() as db:
+                    runtime_scheduler_service.recover_on_backend_restart(db)
+            except Exception as e:
+                logger.error(f"SchedulerWorker | Error: {e}")
+            await asyncio.sleep(5)
+
+    scheduler_task = asyncio.create_task(_scheduler_background_loop())
     yield
+    scheduler_task.cancel()
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -115,6 +105,8 @@ from app.modules.analytics.analytics_router import router as analytics_router
 from app.api.v1.meetings import router as meetings_router
 from app.api.v1.runtime import router as runtime_router
 
+from app.api.v1 import assets
+
 # Include v1 versioned routers
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(session.router, prefix="/api/v1")
@@ -128,6 +120,7 @@ app.include_router(configuration_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(meetings_router, prefix="/api/v1")
 app.include_router(runtime_router, prefix="/api/v1")
+app.include_router(assets.router, prefix="/api/v1")
 
 if __name__ == "__main__":
     import uvicorn

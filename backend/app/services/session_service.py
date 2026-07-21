@@ -84,44 +84,16 @@ class SessionService:
         return session_repository.delete(db, id)
 
     def validate_readiness(self, db: DBSession, session_id: str) -> dict:
+        from app.services.asset_service import asset_service
         session = self.get_session(db, session_id)
         
-        has_presentation = session.presentation_id is not None
-        has_employees = session.employee_list_id is not None
-        
-        from app.repositories.presentation_script_repository import presentation_script_repository
-        from app.repositories.presentation_question_repository import presentation_question_repository
-        from app.models.meeting import Meeting
-        
-        has_script = False
-        if has_presentation:
-            script = presentation_script_repository.get_active(db, session.presentation_id)
-            has_script = script is not None and script.status == "COMPLETED"
-            
-        has_faq = False
-        if has_presentation:
-            faq = presentation_question_repository.get_active(db, session.presentation_id)
-            has_faq = faq is not None and faq.status == "COMPLETED"
-            
-        meeting = db.query(Meeting).filter(Meeting.session_id == session_id).first()
-        has_meeting = meeting is not None
-        
-        # Session is fully ready if all 5 checks pass
-        is_ready = has_presentation and has_employees and has_script and has_faq and has_meeting
+        readiness = asset_service.validate_linked_assets_readiness(db, session_id)
         
         # Update session status if ready
-        if is_ready and session.status == "PENDING":
+        if readiness["is_ready"] and session.status == "PENDING":
             from app.schemas.session import SessionUpdate
             session_repository.update(db, session, SessionUpdate(status="READY"))
             
-        return {
-            "session_id": session_id,
-            "has_presentation": has_presentation,
-            "has_employees": has_employees,
-            "has_script": has_script,
-            "has_faq": has_faq,
-            "has_meeting": has_meeting,
-            "is_ready": is_ready
-        }
+        return readiness
 
 session_service = SessionService()

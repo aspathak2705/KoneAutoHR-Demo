@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session as DBSession
 from app.models.session import Session
 from app.models.meeting import Meeting
 from app.models.presentation import Presentation
-from app.models.employee import Employee
+from app.models.employee_list import EmployeeList
 from app.models.presentation_script import PresentationScript
 from app.models.presentation_question import PresentationQuestion
 from app.models.organization_config import OrganizationConfig
@@ -20,10 +20,21 @@ class RuntimeValidationService:
             raise ValueError(f"Session {session_id} not found.")
 
         meeting = db.query(Meeting).filter(Meeting.session_id == session_id).first()
-        presentation = db.query(Presentation).filter(Presentation.session_id == session_id).first()
-        employees = db.query(Employee).filter(Employee.session_id == session_id).all()
-        script = db.query(PresentationScript).filter(PresentationScript.session_id == session_id).first()
-        questions = db.query(PresentationQuestion).filter(PresentationQuestion.session_id == session_id).first()
+        
+        presentation = session.presentation
+        if not presentation and session.presentation_id:
+            presentation = db.query(Presentation).filter(Presentation.id == session.presentation_id).first()
+
+        employee_list = session.employee_list
+        if not employee_list and session.employee_list_id:
+            employee_list = db.query(EmployeeList).filter(EmployeeList.id == session.employee_list_id).first()
+
+        script = None
+        questions = None
+        if presentation:
+            script = db.query(PresentationScript).filter(PresentationScript.presentation_id == presentation.id).first()
+            questions = db.query(PresentationQuestion).filter(PresentationQuestion.presentation_id == presentation.id).first()
+
         config = db.query(OrganizationConfig).first()
 
         # Format Validations
@@ -51,8 +62,8 @@ class RuntimeValidationService:
         state_consistent = session.status not in ["ARCHIVED", "DELETED"]
 
         checks = {
-            "has_presentation": presentation is not None and bool(presentation.filename),
-            "has_employees": len(employees) > 0,
+            "has_presentation": presentation is not None and bool(getattr(presentation, "original_filename", None) or getattr(presentation, "name", None)),
+            "has_employees": employee_list is not None and getattr(employee_list, "employee_count", 0) > 0,
             "has_script": script is not None and bool(script.script_content),
             "has_faq": questions is not None and bool(questions.questions_content),
             "has_company_config": config is not None and bool(config.company_name),

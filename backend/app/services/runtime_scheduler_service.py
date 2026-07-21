@@ -164,7 +164,10 @@ class RuntimeSchedulerService:
                 teams_runtime_service.join_meeting(rt.session_id)
                 recovered["reconnected"] += 1
 
-        logger.info(f"[RuntimeRecovery] Recovery scan completed: {recovered}")
+        if any(recovered.values()):
+            logger.info(f"[RuntimeRecovery] Recovery scan completed: {recovered}")
+        else:
+            logger.debug(f"[RuntimeRecovery] Recovery scan completed: {recovered}")
         return recovered
 
 runtime_scheduler_service = RuntimeSchedulerService()
