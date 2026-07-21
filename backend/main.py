@@ -1,3 +1,11 @@
+import sys
+import asyncio
+if sys.platform == "win32":
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    except Exception:
+        pass
+
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI
@@ -59,16 +67,23 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
-    # Spawn background scheduler worker loop to trigger scheduled joins automatically
+    # Execute startup recovery ONCE on server startup
     import asyncio
     from app.db.database import SessionLocal
     from app.services.runtime_scheduler_service import runtime_scheduler_service
 
+    try:
+        with SessionLocal() as db:
+            runtime_scheduler_service.startup_recovery(db)
+    except Exception as e:
+        logger.error(f"StartupRecovery | Error: {e}")
+
+    # Spawn background scheduler worker loop to poll scheduled launches every 5 seconds
     async def _scheduler_background_loop():
         while True:
             try:
                 with SessionLocal() as db:
-                    runtime_scheduler_service.recover_on_backend_restart(db)
+                    runtime_scheduler_service.poll_scheduled_launches(db)
             except Exception as e:
                 logger.error(f"SchedulerWorker | Error: {e}")
             await asyncio.sleep(5)

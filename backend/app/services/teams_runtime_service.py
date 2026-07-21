@@ -1,21 +1,38 @@
+import sys
 import asyncio
 import datetime
+from typing import Optional
 from sqlalchemy.orm import Session as DBSession
 from app.db.database import SessionLocal
 from app.models.runtime import Runtime
 from app.models.meeting import Meeting
 from app.services.event_bus import runtime_event_bus
+from app.services.runtime_task_manager import runtime_task_manager
+from app.services.browser_driver import BrowserDriver
 from loguru import logger
+
+def _run_coro_in_proactor_thread(coro_fn, *args):
+    """
+    Executes an async coroutine inside a dedicated thread with WindowsProactorEventLoopPolicy.
+    Guarantees Playwright subprocess creation on Windows regardless of main Uvicorn event loop type.
+    """
+    if sys.platform == "win32":
+        try:
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        except Exception:
+            pass
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro_fn(*args))
+    finally:
+        loop.close()
 
 class TeamsRuntimeService:
     """
-    Sprint RC-1 & RC-2: Abstraction layer for Teams runtime integration mechanism
-    (Playwright Chromium web automation driver navigating real Teams URLs without Graph/OAuth).
+    Sprint RS-1 to RS-4: Production-grade Teams Runtime Engine
+    Single task per session, BrowserDriver layer, evidence-backed state transitions, heartbeat updates.
     """
-    def __init__(self):
-        # Maps session_id -> active execution tasks
-        self._active_tasks = {}
-
     def get_status(self, db: DBSession, session_id: str) -> dict:
         runtime = db.query(Runtime).filter(Runtime.session_id == session_id).first()
         if not runtime:
@@ -29,7 +46,8 @@ class TeamsRuntimeService:
             "current_slide": runtime.current_slide,
             "reconnect_count": runtime.reconnect_count,
             "speech_state": runtime.speech_state,
-            "last_heartbeat": runtime.last_heartbeat.isoformat() if runtime.last_heartbeat else None
+            "last_heartbeat": runtime.last_heartbeat.isoformat() if runtime.last_heartbeat else None,
+            "last_error": runtime.last_error
         }
 
     def launch_session(self, session_id: str) -> None:
@@ -42,36 +60,32 @@ class TeamsRuntimeService:
 
     def join_meeting(self, session_id: str) -> None:
         """
-        POST /runtime/{id}/join - Opens Teams call lobby connection using browser automation.
+        Sprint RS-1: Enforces One Session -> One Runtime -> One Browser -> One Task.
+        Rejects duplicate launch requests if task is active.
+        Spawns execution in Proactor thread on Windows for Playwright subprocess compatibility.
         """
-        if session_id in self._active_tasks and not self._active_tasks[session_id].done():
-            logger.warning(f"TeamsRuntime | Session: {session_id} | Participant already in call or joining.")
+        if runtime_task_manager.is_task_active(session_id):
+            logger.warning(f"TeamsRuntime | Session: {session_id} | Participant already in call or joining. Task rejected.")
             return
-            
+
         try:
             loop = asyncio.get_running_loop()
-            task = loop.create_task(self._run_participant_loop(session_id))
-            self._active_tasks[session_id] = task
+            task = loop.run_in_executor(None, _run_coro_in_proactor_thread, self._run_participant_loop, session_id)
+            runtime_task_manager.register_task(session_id, task)
         except RuntimeError:
-            # Fallback for sync CLI / verification script contexts
-            asyncio.run(self._run_participant_loop(session_id))
+            _run_coro_in_proactor_thread(self._run_participant_loop, session_id)
 
     def leave_meeting(self, session_id: str) -> None:
         """
-        POST /runtime/{id}/leave - Triggers graceful call teardowns on browser instance.
+        POST /runtime/{id}/leave - Cancels active task and marks state COMPLETED / LEFT.
         """
-        task = self._active_tasks.pop(session_id, None)
-        if task and not task.done():
-            task.cancel()
-            
+        runtime_task_manager.cancel_task(session_id)
         self._update_state(session_id, "COMPLETED")
+        runtime_task_manager.cleanup_task(session_id)
         logger.info(f"TeamsRuntime | Session: {session_id} | Teams participant left call gracefully.")
         runtime_event_bus.publish(session_id, "MeetingLeft", {"session_id": session_id})
 
     async def simulate_reconnect(self, session_id: str) -> None:
-        """
-        Force triggers connection drops, firing Event Bus warnings and reconnecting.
-        """
         self._update_state(session_id, "DISCONNECTED")
         logger.warning(f"TeamsRuntime | Session: {session_id} | Connection dropped. Starting reconnect...")
         runtime_event_bus.publish(session_id, "MeetingDisconnected", {"session_id": session_id})
@@ -87,70 +101,89 @@ class TeamsRuntimeService:
         await asyncio.sleep(2)
         self._update_state(session_id, "CONNECTED")
         runtime_event_bus.publish(session_id, "MeetingJoined", {"session_id": session_id})
-        logger.info(f"TeamsRuntime | Session: {session_id} | Reconnected successfully.")
 
     async def _run_participant_loop(self, session_id: str) -> None:
+        driver = BrowserDriver()
         try:
-            from app.services.runtime_context_service import runtime_context_service
-            from app.services.runtime_readiness_service import runtime_readiness_service
-
-            with SessionLocal() as db:
-                ctx = runtime_context_service.build_runtime_context(db, session_id)
-                readiness = runtime_readiness_service.evaluate_readiness(ctx)
-                meeting = ctx.get("meeting")
-                meeting_url = meeting.teams_url if meeting else None
-
-            if not meeting_url or not readiness.get("has_meeting"):
-                raise ValueError("Cannot join meeting: Session has no valid/configured Teams Meeting URL.")
-
-            # 1. State: JOINING (Navigating meeting link)
-            self._update_state(session_id, "JOINING")
-            logger.info(f"TeamsRuntime | Session: {session_id} | Navigating Teams meeting URL: {meeting_url}")
-
-            # Attempt Playwright headless launch if Playwright library is available
             try:
-                from playwright.async_api import async_playwright
-                playwright = await async_playwright().start()
-                browser = await playwright.chromium.launch(
-                    headless=True,
-                    args=[
-                        "--use-fake-ui-for-media-stream",
-                        "--use-fake-device-for-media-stream",
-                        "--autoplay-policy=no-user-gesture-required"
-                    ]
-                )
-                context = await browser.new_context()
-                page = await context.new_page()
-                await page.goto(meeting_url)
-                logger.info(f"TeamsRuntime | Playwright browser loaded meeting URL: {meeting_url}")
-            except Exception as pw_err:
-                logger.info(f"TeamsRuntime | Playwright driver notice (using WebRTC session driver): {pw_err}")
+                from app.services.runtime_context_service import runtime_context_service
+                from app.services.runtime_readiness_service import runtime_readiness_service
 
-            await asyncio.sleep(1)
+                with SessionLocal() as db:
+                    ctx = runtime_context_service.build_runtime_context(db, session_id)
+                    readiness = runtime_readiness_service.evaluate_readiness(ctx)
+                    meeting = ctx.get("meeting")
+                    meeting_url = meeting.teams_url if meeting else None
 
-            # 2. State: WAITING (In lobby, typing guest name)
-            self._update_state(session_id, "WAITING")
-            logger.info(f"TeamsRuntime | Session: {session_id} | Waiting in Teams lobby for host admittance...")
-            await asyncio.sleep(1)
+                if not meeting_url or not readiness.get("has_meeting"):
+                    raise ValueError("Cannot join meeting: Session has no valid/configured Teams Meeting URL.")
 
-            # 3. State: CONNECTED (Lobby entry approved)
-            self._update_state(session_id, "CONNECTED")
-            logger.info(f"TeamsRuntime | Session: {session_id} | Approved. Connected to active Teams call: {meeting_url}")
-            runtime_event_bus.publish(session_id, "MeetingJoined", {"session_id": session_id, "meeting_url": meeting_url})
+                # Step 1: BROWSER_STARTING -> BROWSER_READY
+                self._update_state(session_id, "BROWSER_STARTING")
+                await driver.launch()
+                self._update_state(session_id, "BROWSER_READY")
 
-        except asyncio.CancelledError:
-            logger.info(f"TeamsRuntime | Session: {session_id} | Joining task was cancelled.")
-        except Exception as e:
-            logger.error(f"TeamsRuntime | Session: {session_id} | Join Failure: {e}")
-            runtime_event_bus.publish(session_id, "JoinFailure", {"session_id": session_id, "error": str(e)})
+                # Step 2: TEAMS_PAGE_LOADING -> TEAMS_PAGE_READY
+                self._update_state(session_id, "TEAMS_PAGE_LOADING")
+                await driver.navigate(meeting_url)
+                self._update_state(session_id, "TEAMS_PAGE_READY")
 
-    def _update_state(self, session_id: str, state: str) -> None:
+                # Step 3: GUEST_FORM_VISIBLE -> JOIN_REQUEST_SENT -> IN_LOBBY
+                self._update_state(session_id, "GUEST_FORM_VISIBLE")
+                await driver.join_guest("KONE AI Trainer")
+                self._update_state(session_id, "JOIN_REQUEST_SENT")
+                
+                lobby_info = await driver.wait_for_lobby()
+                self._update_state(session_id, "IN_LOBBY")
+
+                # Step 4: ADMITTED -> PARTICIPANT_VISIBLE -> CONNECTED
+                await driver.wait_for_admit()
+                self._update_state(session_id, "ADMITTED")
+
+                conn_verify = await driver.verify_connected()
+                if not conn_verify.get("connected"):
+                    raise RuntimeError(f"Failed to verify call connection: {conn_verify.get('reason')}")
+
+                self._update_state(session_id, "CONNECTED")
+                logger.info(f"TeamsRuntime | Session: {session_id} | Verified CONNECTED to active Teams call: {meeting_url}")
+                runtime_event_bus.publish(session_id, "MeetingJoined", {"session_id": session_id, "meeting_url": meeting_url})
+
+                self._update_state(session_id, "WAITING")
+
+                # Sprint RS-4 Heartbeat loop (updates last_heartbeat every 10s while connected)
+                while True:
+                    await asyncio.sleep(10)
+                    self._touch_heartbeat(session_id)
+
+            except asyncio.CancelledError:
+                logger.info(f"TeamsRuntime | Session: {session_id} | Joining task was cancelled.")
+                await driver.leave()
+                raise
+            except Exception as e:
+                logger.error(f"TeamsRuntime | Session: {session_id} | Join Failure: {e}")
+                self._update_state(session_id, "FAILED", error_msg=str(e))
+                runtime_event_bus.publish(session_id, "JoinFailure", {"session_id": session_id, "error": str(e)})
+        finally:
+            # Guaranteed cleanup on every termination path (cancellation, failure, or completion)
+            await driver.close()
+            runtime_task_manager.cleanup_task(session_id)
+
+    def _touch_heartbeat(self, session_id: str) -> None:
+        with SessionLocal() as db:
+            runtime = db.query(Runtime).filter(Runtime.session_id == session_id).first()
+            if runtime:
+                runtime.last_heartbeat = datetime.datetime.now()
+                db.commit()
+
+    def _update_state(self, session_id: str, state: str, error_msg: Optional[str] = None) -> None:
         with SessionLocal() as db:
             runtime = db.query(Runtime).filter(Runtime.session_id == session_id).first()
             if not runtime:
                 runtime = Runtime(session_id=session_id)
                 db.add(runtime)
             runtime.state = state
+            if error_msg:
+                runtime.last_error = error_msg
             runtime.last_heartbeat = datetime.datetime.now()
             db.commit()
 

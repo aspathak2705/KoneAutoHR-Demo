@@ -136,10 +136,24 @@ class RuntimeSchedulerService:
 
         return False
 
-    def recover_on_backend_restart(self, db: DBSession) -> dict:
+    def poll_scheduled_launches(self, db: DBSession) -> int:
         """
-        Edge Case 1: Backend Restarts.
-        Scans DB for non-finalized runtimes and restores their schedule or connection tasks.
+        Periodic background worker scan (runs every 5s).
+        Scans ONLY scheduled sessions and triggers launch if time has arrived.
+        NEVER re-triggers already active/connected sessions.
+        """
+        runtimes = db.query(Runtime).filter(
+            Runtime.state.in_(["SCHEDULED", "WAITING_FOR_TIME"])
+        ).all()
+        launched_count = 0
+        for rt in runtimes:
+            if self.trigger_launch_if_due(db, rt.session_id):
+                launched_count += 1
+        return launched_count
+
+    def startup_recovery(self, db: DBSession) -> dict:
+        """
+        Executed ONCE during FastAPI lifespan startup to recover sessions after a server restart.
         """
         runtimes = db.query(Runtime).filter(
             Runtime.state.in_(["SCHEDULED", "WAITING_FOR_TIME", "LAUNCHING", "JOINING", "CONNECTED", "WAITING", "RECONNECTING"])
@@ -149,7 +163,6 @@ class RuntimeSchedulerService:
 
         for rt in runtimes:
             if rt.state in ["SCHEDULED", "WAITING_FOR_TIME"]:
-                # Check if launch is due or still in future
                 if self.trigger_launch_if_due(db, rt.session_id):
                     recovered["rescheduled"] += 1
                 else:
@@ -160,14 +173,18 @@ class RuntimeSchedulerService:
                         recovered["rescheduled"] += 1
 
             elif rt.state in ["CONNECTED", "WAITING", "JOINING", "LAUNCHING", "RECONNECTING"]:
-                logger.info(f"[RuntimeRecovery] Restoring connection session for {rt.session_id} (State: {rt.state})...")
-                teams_runtime_service.join_meeting(rt.session_id)
-                recovered["reconnected"] += 1
+                from app.services.runtime_task_manager import runtime_task_manager
+                hb_stale = True
+                if rt.last_heartbeat:
+                    hb_stale = (datetime.datetime.now() - rt.last_heartbeat).total_seconds() > 30
+
+                if hb_stale and not runtime_task_manager.is_task_active(rt.session_id):
+                    logger.info(f"[RuntimeRecovery] Heartbeat expired (>30s) and task missing for session {rt.session_id}. Recovering...")
+                    teams_runtime_service.join_meeting(rt.session_id)
+                    recovered["reconnected"] += 1
 
         if any(recovered.values()):
-            logger.info(f"[RuntimeRecovery] Recovery scan completed: {recovered}")
-        else:
-            logger.debug(f"[RuntimeRecovery] Recovery scan completed: {recovered}")
+            logger.info(f"[RuntimeRecovery] Startup recovery completed: {recovered}")
         return recovered
 
 runtime_scheduler_service = RuntimeSchedulerService()
