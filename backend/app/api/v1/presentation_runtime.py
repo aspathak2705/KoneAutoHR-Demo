@@ -2,7 +2,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import get_db
-from app.modules.presentation.session_interpreter import get_session_interpreter
+from app.modules.session.session_interpreter import get_session_interpreter
 from app.modules.presentation.models import PresentationStatusResponse
 
 router = APIRouter(prefix="/runtime", tags=["Session Engine"])

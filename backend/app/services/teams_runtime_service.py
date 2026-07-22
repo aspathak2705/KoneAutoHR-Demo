@@ -8,7 +8,7 @@ from app.models.runtime import Runtime
 from app.models.meeting import Meeting
 from app.services.event_bus import runtime_event_bus
 from app.services.runtime_task_manager import runtime_task_manager
-from app.services.browser_driver import BrowserDriver
+from app.modules.browser.browser_agent import BrowserAgent
 from loguru import logger
 
 def _run_coro_in_proactor_thread(coro_fn, *args):
@@ -34,7 +34,8 @@ class TeamsRuntimeService:
     Single task per session, BrowserDriver layer, evidence-backed state transitions, heartbeat updates.
     """
     def __init__(self):
-        self._active_drivers: Dict[str, BrowserDriver] = {}
+        from typing import Dict
+        self._active_drivers: Dict[str, BrowserAgent] = {}
 
     def get_status(self, db: DBSession, session_id: str) -> dict:
         runtime = db.query(Runtime).filter(Runtime.session_id == session_id).first()
@@ -117,7 +118,7 @@ class TeamsRuntimeService:
         runtime_event_bus.publish(session_id, "MeetingJoined", {"session_id": session_id})
 
     async def _run_participant_loop(self, session_id: str) -> None:
-        driver = BrowserDriver()
+        driver = BrowserAgent()
         self._active_drivers[session_id] = driver
         try:
             try:

@@ -22,3 +22,4 @@ class Presentation(Base):
     scripts: Mapped[List["PresentationScript"]] = relationship(back_populates="presentation", cascade="all, delete-orphan")
     questions: Mapped[List["PresentationQuestion"]] = relationship(back_populates="presentation", cascade="all, delete-orphan")
     sessions: Mapped[List["Session"]] = relationship(back_populates="presentation")
+    assets: Mapped[List["PresentationAsset"]] = relationship(back_populates="presentation", cascade="all, delete-orphan")

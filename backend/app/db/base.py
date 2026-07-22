@@ -14,3 +14,4 @@ from app.models.invitation_draft import InvitationDraft # noqa
 from app.models.runtime import Runtime # noqa
 from app.models.runtime_message import RuntimeMessage # noqa
 from app.models.attendance import Attendance # noqa
+from app.models.presentation_asset import PresentationAsset # noqa
