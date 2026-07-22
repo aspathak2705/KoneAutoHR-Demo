@@ -153,35 +153,26 @@ class RuntimeSchedulerService:
 
     def startup_recovery(self, db: DBSession) -> dict:
         """
-        Executed ONCE during FastAPI lifespan startup to recover sessions after a server restart.
+        Executed ONCE during FastAPI lifespan startup to clean up leftover runtime states after a server restart.
+        Does NOT automatically spawn browser windows on server startup.
+        Browser launch occurs ONLY when HR clicks 'Start Induction' or scheduled meeting time arrives.
         """
         runtimes = db.query(Runtime).filter(
             Runtime.state.in_(["SCHEDULED", "WAITING_FOR_TIME", "LAUNCHING", "JOINING", "CONNECTED", "WAITING", "RECONNECTING"])
         ).all()
 
-        recovered = {"rescheduled": 0, "reconnected": 0, "expired": 0}
+        recovered = {"rescheduled": 0, "reset": 0, "expired": 0}
 
         for rt in runtimes:
             if rt.state in ["SCHEDULED", "WAITING_FOR_TIME"]:
-                if self.trigger_launch_if_due(db, rt.session_id):
-                    recovered["rescheduled"] += 1
-                else:
-                    if rt.state == "EXPIRED":
-                        recovered["expired"] += 1
-                    else:
-                        self._scheduled_sessions.add(rt.session_id)
-                        recovered["rescheduled"] += 1
-
+                self._scheduled_sessions.add(rt.session_id)
+                recovered["rescheduled"] += 1
             elif rt.state in ["CONNECTED", "WAITING", "JOINING", "LAUNCHING", "RECONNECTING"]:
-                from app.services.runtime_task_manager import runtime_task_manager
-                hb_stale = True
-                if rt.last_heartbeat:
-                    hb_stale = (datetime.datetime.now() - rt.last_heartbeat).total_seconds() > 30
-
-                if hb_stale and not runtime_task_manager.is_task_active(rt.session_id):
-                    logger.info(f"[RuntimeRecovery] Heartbeat expired (>30s) and task missing for session {rt.session_id}. Recovering...")
-                    teams_runtime_service.join_meeting(rt.session_id)
-                    recovered["reconnected"] += 1
+                logger.info(f"[RuntimeRecovery] Resetting stale session {rt.session_id} state from {rt.state} -> PREPARING on server startup.")
+                rt.state = "PREPARING"
+                rt.last_error = None
+                db.commit()
+                recovered["reset"] += 1
 
         if any(recovered.values()):
             logger.info(f"[RuntimeRecovery] Startup recovery completed: {recovered}")

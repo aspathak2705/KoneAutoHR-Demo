@@ -33,6 +33,9 @@ class TeamsRuntimeService:
     Sprint RS-1 to RS-4: Production-grade Teams Runtime Engine
     Single task per session, BrowserDriver layer, evidence-backed state transitions, heartbeat updates.
     """
+    def __init__(self):
+        self._active_drivers: Dict[str, BrowserDriver] = {}
+
     def get_status(self, db: DBSession, session_id: str) -> dict:
         runtime = db.query(Runtime).filter(Runtime.session_id == session_id).first()
         if not runtime:
@@ -49,6 +52,17 @@ class TeamsRuntimeService:
             "last_heartbeat": runtime.last_heartbeat.isoformat() if runtime.last_heartbeat else None,
             "last_error": runtime.last_error
         }
+
+    async def advance_slide(self, session_id: str) -> bool:
+        """
+        Invokes BrowserDriver.advance_slide() on active session browser.
+        """
+        driver = self._active_drivers.get(session_id)
+        if driver:
+            res = await driver.advance_slide()
+            return res.get("advanced", False)
+        logger.warning(f"TeamsRuntime | No active BrowserDriver found for session {session_id} to advance slide.")
+        return False
 
     def launch_session(self, session_id: str) -> None:
         """
@@ -104,6 +118,7 @@ class TeamsRuntimeService:
 
     async def _run_participant_loop(self, session_id: str) -> None:
         driver = BrowserDriver()
+        self._active_drivers[session_id] = driver
         try:
             try:
                 from app.services.runtime_context_service import runtime_context_service
@@ -165,6 +180,7 @@ class TeamsRuntimeService:
                 runtime_event_bus.publish(session_id, "JoinFailure", {"session_id": session_id, "error": str(e)})
         finally:
             # Guaranteed cleanup on every termination path (cancellation, failure, or completion)
+            self._active_drivers.pop(session_id, None)
             await driver.close()
             runtime_task_manager.cleanup_task(session_id)
 

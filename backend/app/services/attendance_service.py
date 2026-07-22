@@ -20,6 +20,10 @@ class AttendanceService:
         runtime_event_bus.subscribe("MeetingLeft", self._on_meeting_left)
         runtime_event_bus.subscribe("MeetingCompleted", self._on_meeting_completed)
 
+    def get_attendance(self, session_id: str) -> dict:
+        with SessionLocal() as db:
+            return self.get_attendance_summary(db, session_id)
+
     def get_attendance_log(self, db: DBSession, session_id: str) -> list[Attendance]:
         return db.query(Attendance).filter(Attendance.session_id == session_id).all()
 

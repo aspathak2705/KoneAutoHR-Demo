@@ -34,7 +34,10 @@ class BrowserDriver:
                     "--use-fake-ui-for-media-stream",
                     "--use-fake-device-for-media-stream",
                     "--autoplay-policy=no-user-gesture-required",
-                    "--disable-blink-features=AutomationControlled"
+                    "--disable-blink-features=AutomationControlled",
+                    "--mute-audio",
+                    "--disable-features=ExternalProtocolDialog",
+                    "--disable-external-intent-requests"
                 ]
             )
             self._context = await self._browser.new_context(
@@ -92,6 +95,13 @@ class BrowserDriver:
         if not self._page:
             raise RuntimeError("Browser page context is missing.")
         try:
+            # Step 1.5: Wait for prejoin screen components to load on DOM
+            try:
+                logger.info("BrowserDriver | Waiting for guest name input or join button to render on prejoin screen...")
+                await self._page.wait_for_selector('input, button:has-text("Join now"), button[data-tid*="prejoin"]', timeout=15000)
+            except Exception as e:
+                logger.warning(f"BrowserDriver | Timeout waiting for prejoin screen elements: {e}")
+
             # Step 2: Fill guest name input field (with pre-join selectors)
             name_input_selectors = [
                 'input[data-tid*="prejoin-display-name-input" i]',
@@ -202,6 +212,35 @@ class BrowserDriver:
             return {"connected": False, "reason": "In-call controls not detected in DOM after join attempt."}
         except Exception as e:
             return {"connected": False, "reason": str(e)}
+
+    async def advance_slide(self) -> Dict[str, Any]:
+        """
+        Advances presentation slide in the Teams browser window via DOM button or ArrowRight keyboard shortcut.
+        """
+        if not self._page:
+            return {"advanced": False, "reason": "No active page"}
+        try:
+            next_btn_selectors = [
+                'button[aria-label*="Next slide" i]',
+                'button[data-tid*="next-slide" i]',
+                'button[aria-label*="Next" i]'
+            ]
+            for sel in next_btn_selectors:
+                try:
+                    btn = await self._page.wait_for_selector(sel, timeout=1500)
+                    if btn:
+                        await btn.click()
+                        logger.info(f"BrowserDriver | Advanced slide via DOM button: {sel}")
+                        return {"advanced": True, "method": "dom_button"}
+                except Exception:
+                    continue
+
+            await self._page.keyboard.press("ArrowRight")
+            logger.info("BrowserDriver | Advanced slide via keyboard ArrowRight.")
+            return {"advanced": True, "method": "keyboard_arrow_right"}
+        except Exception as e:
+            logger.warning(f"BrowserDriver | Error advancing slide: {e}")
+            return {"advanced": False, "reason": str(e)}
 
     async def leave(self) -> None:
         if self._page:

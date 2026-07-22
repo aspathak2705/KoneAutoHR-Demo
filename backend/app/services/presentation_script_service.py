@@ -59,12 +59,11 @@ class PresentationScriptService:
                 "communication_style": config.communication_style
             }
             
-            from app.modules.induction.llm.preparation_orchestrator import generate_induction_package_scripts
-            scripts = await generate_induction_package_scripts(
-                session_metadata=session_metadata,
-                meeting_context=meeting_context,
+            from app.services.session_script_builder import session_script_builder
+            session_json = await session_script_builder.build_session_script(
+                company_name=company_name,
+                voice_persona=meeting_context.get("vocal_tone", "professional"),
                 employee_profiles=employee_profiles,
-                audience_summary=audience_summary,
                 slide_knowledge=slide_knowledge
             )
             
@@ -80,11 +79,18 @@ class PresentationScriptService:
                     last_ai_generation=datetime.datetime.now()
                 )
                 
-            # 2. Save PresentationScript (WelcomeFlow, SlideNarrations, Closing)
+            # 2. Save PresentationScript (Opening, Slides, Closing, WelcomeFlow, SlideNarrations, ClosingScript)
             script_payload = {
-                "welcome_flow": scripts.get("welcome_flow"),
-                "slide_narrations": scripts.get("slide_narrations"),
-                "closing_script": scripts.get("closing_script")
+                "opening": session_json.get("opening"),
+                "slides": session_json.get("slides"),
+                "closing": session_json.get("closing"),
+                # Backward compatibility fallback
+                "welcome_flow": {
+                    "intro": session_json.get("opening", {}).get("presenter_intro", ""),
+                    "rules": session_json.get("opening", {}).get("session_rules", "")
+                },
+                "slide_narrations": {str(s["slide_number"]): s.get("narration", "") for s in session_json.get("slides", [])},
+                "closing_script": session_json.get("closing", {}).get("summary", "")
             }
             script_row = presentation_script_repository.create(
                 db,
@@ -94,7 +100,8 @@ class PresentationScriptService:
             )
             
             # 3. Save PresentationQuestion (FAQ list)
-            faq_payload = scripts.get("faq", [])
+            # Use default list if not returned
+            faq_payload = []
             presentation_question_repository.create(
                 db,
                 presentation_id=presentation_id,
@@ -110,6 +117,19 @@ class PresentationScriptService:
         script = presentation_script_repository.get(db, script_id)
         if not script:
             raise ValueError("Script not found")
-        return presentation_script_repository.update(db, script, script_content=json.dumps(script_content))
+        from app.services.response_validator import response_validator
+        validated_content = response_validator.validate_and_patch(script_content)
+        
+        # Ensure we keep welcome_flow/slide_narrations fallbacks updated for backward compatibility
+        validated_content["welcome_flow"] = {
+            "intro": validated_content.get("opening", {}).get("presenter_intro", ""),
+            "rules": validated_content.get("opening", {}).get("session_rules", "")
+        }
+        validated_content["slide_narrations"] = {
+            str(s["slide_number"]): s.get("narration", "") for s in validated_content.get("slides", [])
+        }
+        validated_content["closing_script"] = validated_content.get("closing", {}).get("summary", "")
+
+        return presentation_script_repository.update(db, script, script_content=json.dumps(validated_content))
 
 presentation_script_service = PresentationScriptService()

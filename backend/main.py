@@ -121,6 +121,7 @@ from app.api.v1.meetings import router as meetings_router
 from app.api.v1.runtime import router as runtime_router
 
 from app.api.v1 import assets
+from app.api.v1 import presentation_runtime
 
 # Include v1 versioned routers
 app.include_router(health.router, prefix="/api/v1")
@@ -136,6 +137,7 @@ app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(meetings_router, prefix="/api/v1")
 app.include_router(runtime_router, prefix="/api/v1")
 app.include_router(assets.router, prefix="/api/v1")
+app.include_router(presentation_runtime.router, prefix="/api/v1")
 
 if __name__ == "__main__":
     import uvicorn
