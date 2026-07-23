@@ -18,6 +18,7 @@ os.environ.setdefault("API_BASE_URL", "http://localhost:8000")
 from app.modules.meeting_bot.bot.meeting_bot import MeetingBot
 from app.modules.presentation_observer.observer.presentation_observer import presentation_observer
 from app.modules.presentation_observer.services.presentation_observer_service import presentation_observer_service
+from app.modules.semantic_browser.services.semantic_browser_service import semantic_browser_service
 from app.modules.presentation_observer.models.observation_state import ObservationState
 from app.modules.presentation_observer.models.observation_event import ObservationEvent
 from app.modules.semantic_browser.models.meeting_state import MeetingState
@@ -232,13 +233,13 @@ async def run_verification():
         
         obs7 = await presentation_observer_service.run_observation_cycle()
         assert ObservationEvent.PRESENTATION_ENDED in obs7.events
-        assert obs7.observation_state == ObservationState.ENDED
+        assert obs7.observation_state == ObservationState.LOST
         
         # Verify service caching contains latest observation frame
         latest = presentation_observer_service.get_latest_observation()
         assert latest == obs7
         
-        steps["stage7"].complete(True, "Resolved PRESENTATION_ENDED event, ENDED state, and service cache consistency")
+        steps["stage7"].complete(True, "Resolved PRESENTATION_ENDED event, LOST state, and service cache consistency")
         print("[✓] Stage 7 Verified")
         
         # STAGE 8: Timeline Audit
@@ -253,7 +254,10 @@ async def run_verification():
             ObservationEvent.CHAT_OPENED,
             ObservationEvent.PARTICIPANTS_OPENED,
             ObservationEvent.RECORDING_STARTED,
-            ObservationEvent.PRESENTATION_ENDED
+            ObservationEvent.PRESENTATION_ENDED,
+            ObservationEvent.CHAT_CLOSED,
+            ObservationEvent.PARTICIPANTS_CLOSED,
+            ObservationEvent.RECORDING_STOPPED
         ]
         assert timeline == expected
         
