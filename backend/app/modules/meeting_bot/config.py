@@ -1,0 +1,15 @@
+import os
+
+class MeetingBotConfig:
+    def __init__(self):
+        self.headless: bool = os.environ.get("BOT_BROWSER_HEADLESS", "false").lower() == "true"
+        self.slow_mo: int = int(os.environ.get("BOT_BROWSER_SLOW_MO", "50"))
+        self.viewport_width: int = int(os.environ.get("BOT_BROWSER_WIDTH", "1280"))
+        self.viewport_height: int = int(os.environ.get("BOT_BROWSER_HEIGHT", "720"))
+        self.use_fake_devices: bool = os.environ.get("BOT_USE_FAKE_DEVICES", "true").lower() == "true"
+        
+        # Connection timeouts and retries
+        self.timeout_ms: int = int(os.environ.get("BOT_TIMEOUT_MS", "30000"))
+        self.retry_count: int = int(os.environ.get("BOT_RETRY_COUNT", "3"))
+
+meeting_bot_config = MeetingBotConfig()

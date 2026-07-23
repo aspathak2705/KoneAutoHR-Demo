@@ -1,0 +1,12 @@
+from enum import Enum
+
+class BotState(str, Enum):
+    CREATED = "CREATED"
+    INITIALIZING = "INITIALIZING"
+    READY = "READY"
+    JOINING = "JOINING"
+    WAITING = "WAITING"
+    CONNECTED = "CONNECTED"
+    DISCONNECTED = "DISCONNECTED"
+    FAILED = "FAILED"
+    STOPPED = "STOPPED"
