@@ -114,6 +114,7 @@ from app.api.v1.runtime import router as runtime_router
 from app.api.v1 import assets
 from app.api.v1 import presentation_runtime
 from app.api.v1.meeting_bot import router as meeting_bot_router
+from app.api.v1.semantic_browser import router as semantic_browser_router
 
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(session.router, prefix="/api/v1")
@@ -130,6 +131,7 @@ app.include_router(runtime_router, prefix="/api/v1")
 app.include_router(assets.router, prefix="/api/v1")
 app.include_router(presentation_runtime.router, prefix="/api/v1")
 app.include_router(meeting_bot_router, prefix="/api/v1")
+app.include_router(semantic_browser_router, prefix="/api/v1/semantic-browser")
 
 if __name__ == "__main__":
     import uvicorn
