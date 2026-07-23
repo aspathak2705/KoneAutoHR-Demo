@@ -18,14 +18,18 @@ class DesktopController:
             return False
 
         logger.info("DesktopController | Attempting to focus Teams window...")
-        hwnd = user32.FindWindowW(None, "Microsoft Teams")
+        hwnd = user32.FindWindowW(None, "Join conversation | Microsoft Teams")
+        if not hwnd:
+            hwnd = self._find_window_by_title_substring("Join conversation")
         if not hwnd:
             hwnd = self._find_window_by_title_substring("Teams")
+        if not hwnd:
+            hwnd = self._find_window_by_title_substring("Chromium")
 
         if hwnd:
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE
             user32.SetForegroundWindow(hwnd)
-            logger.info("DesktopController | Focused Teams window successfully.")
+            logger.info(f"DesktopController | Focused Teams window successfully (HWND: {hwnd}).")
             return True
         logger.warning("DesktopController | Teams window not found.")
         return False
@@ -80,7 +84,6 @@ class DesktopController:
             return
         logger.info("DesktopController | Simulating text paste...")
         import subprocess
-        # Escaping quotes for PowerShell
         escaped = text.replace("'", "''")
         subprocess.run(
             ["powershell", "-Command", f"Set-Clipboard -Value '{escaped}'"],

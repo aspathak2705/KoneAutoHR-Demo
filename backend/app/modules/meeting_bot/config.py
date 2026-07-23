@@ -12,4 +12,16 @@ class MeetingBotConfig:
         self.timeout_ms: int = int(os.environ.get("BOT_TIMEOUT_MS", "30000"))
         self.retry_count: int = int(os.environ.get("BOT_RETRY_COUNT", "3"))
 
+        # Lobby waiting configurations
+        self.lobby_wait_enabled: bool = os.environ.get("BOT_LOBBY_WAIT_ENABLED", "true").lower() == "true"
+        
+        # Max timeout in seconds. Default is None (infinite wait).
+        timeout_env = os.environ.get("BOT_MAX_LOBBY_TIMEOUT", "None")
+        if timeout_env.lower() in ("none", "null", ""):
+            self.max_lobby_timeout = None
+        else:
+            self.max_lobby_timeout = int(timeout_env)
+            
+        self.polling_interval: int = int(os.environ.get("BOT_POLLING_INTERVAL", "1"))
+
 meeting_bot_config = MeetingBotConfig()

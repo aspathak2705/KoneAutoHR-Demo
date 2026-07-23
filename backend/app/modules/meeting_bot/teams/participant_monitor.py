@@ -5,7 +5,12 @@ class ParticipantMonitor:
     async def get_participants(self, page: Page) -> list[str]:
         """
         Scrapes and returns the current participant list from the Teams page DOM.
+        Only parses if the meeting call is active.
         """
+        # If call is not active, return empty list
+        if not await self.meeting_active(page):
+            return []
+
         # Attempt to open the roster/participants pane if not open
         roster_buttons = [
             "button[data-tid='members-header-button']",
@@ -13,7 +18,6 @@ class ParticipantMonitor:
             "button[aria-label*='participants' i]"
         ]
         
-        # Check if roster panel is already open
         is_open = await page.locator("div[role='listitem']").count() > 0
         if not is_open:
             for btn_sel in roster_buttons:
@@ -26,7 +30,6 @@ class ParticipantMonitor:
                 except Exception:
                     pass
 
-        # Parse participant item elements
         item_selectors = [
             "[data-tid='participant-list-item']",
             "div[role='listitem']",
@@ -42,7 +45,6 @@ class ParticipantMonitor:
                     for i in range(cnt):
                         text = await elements.nth(i).inner_text()
                         if text:
-                            # Normalize text
                             first_line = text.split("\n")[0].strip()
                             if first_line and first_line not in names:
                                 names.append(first_line)
@@ -50,7 +52,7 @@ class ParticipantMonitor:
             except Exception:
                 pass
 
-        return names or ["KONE AI Bot (You)"]
+        return names
 
     async def participant_count(self, page: Page) -> int:
         """
@@ -62,6 +64,7 @@ class ParticipantMonitor:
     async def meeting_active(self, page: Page) -> bool:
         """
         Checks if the call is active.
+        True ONLY if call interface toolbars (hangup, layout controls) are loaded on screen.
         """
         active_selectors = [
             "button[data-tid='hangup-button']",

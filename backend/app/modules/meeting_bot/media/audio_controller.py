@@ -8,6 +8,23 @@ class AudioController:
         self.process = None
         self.current_track = None
 
+    def _get_powershell_path(self) -> str:
+        """
+        Retrieves the absolute path to PowerShell.exe to prevent FileNotFoundError.
+        """
+        system_root = os.environ.get("SystemRoot", "C:\\Windows")
+        paths = [
+            os.path.join(system_root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+            os.path.join(system_root, "SysWOW64", "WindowsPowerShell", "v1.0", "powershell.exe"),
+            "powershell.exe",
+            "powershell"
+        ]
+        for p in paths:
+            # If it's a relative/executable name, assume it works if absolute doesn't exist
+            if not os.path.isabs(p) or os.path.exists(p):
+                return p
+        return "powershell"
+
     def play_audio(self, audio_path: str) -> None:
         """
         Plays MP3 audio file using native Windows Media player in background process.
@@ -31,8 +48,9 @@ class AudioController:
             f'while ($player.Position -lt $player.NaturalDuration.TimeSpan) {{ Start-Sleep -Milliseconds 200 }}'
         )
 
+        ps_exe = self._get_powershell_path()
         self.process = subprocess.Popen(
-            ["powershell", "-Command", ps_cmd],
+            [ps_exe, "-Command", ps_cmd],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
