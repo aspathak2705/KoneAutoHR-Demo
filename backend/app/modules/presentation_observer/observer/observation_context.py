@@ -1,17 +1,18 @@
 import time
 from typing import Optional
-from app.modules.semantic_browser.models.meeting_state import MeetingState
-from app.modules.semantic_browser.models.presentation_state import PresentationMode
+from app.modules.semantic_browser.browser.semantic_snapshot import SemanticSnapshot
+from app.modules.presentation_observer.models.observation import Observation
 
 class ObservationContext:
     def __init__(self):
-        self.current_slide: Optional[str] = None
-        self.presentation_mode: PresentationMode = PresentationMode.NONE
-        self.meeting_state: MeetingState = MeetingState.DISCONNECTED
-        self.last_change_time: float = time.time()
-        self.timeline_position: int = 0
-        self.presentation_started: bool = False
-        self.presentation_finished: bool = False
+        # Rolling reference frames
+        self.prev_observation: Optional[Observation] = None
+        self.prev_snapshot: Optional[SemanticSnapshot] = None
+        
+        # Timeline and markers tracking
+        self.presentation_start_time: Optional[float] = None
+        self.last_event_timestamp: float = time.time()
+        self.current_timeline_index: int = 0
         
         # Internal tracker to detect slide changes (saves text hashes or label of slide container elements)
         self.slide_elements_hash: str = ""

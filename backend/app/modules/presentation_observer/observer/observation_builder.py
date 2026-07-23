@@ -24,14 +24,14 @@ class ObservationBuilder:
             timestamp=time.time(),
             meeting_state=meeting_state,
             presentation_state=presentation_state,
-            current_state=current_state,
+            observation_state=current_state,
             events=events,
             slide_changed=flags.get("slide_changed", False),
             presentation_started=flags.get("presentation_started", False),
             presentation_ended=flags.get("presentation_ended", False),
             chat_open=flags.get("chat_open", False),
             participants_open=flags.get("participants_open", False),
-            recording=flags.get("recording", False),
+            recording_active=flags.get("recording_active", False),
             timeline_index=timeline_index,
             details=details or {}
         )

@@ -9,16 +9,16 @@ class Observation(BaseModel):
     timestamp: float
     meeting_state: MeetingState
     presentation_state: PresentationMode
-    current_state: ObservationState
+    observation_state: ObservationState
     events: List[ObservationEvent] = []
     
-    # Changes flags
+    # Change flags
     slide_changed: bool = False
     presentation_started: bool = False
     presentation_ended: bool = False
     chat_open: bool = False
     participants_open: bool = False
-    recording: bool = False
+    recording_active: bool = False
     
     timeline_index: int = 0
     details: Dict[str, Any] = {}

@@ -69,7 +69,7 @@ async def run_verification():
         await asyncio.sleep(1)
         
         obs1 = await presentation_observer_service.run_observation_cycle()
-        assert obs1.current_state == ObservationState.WAITING
+        assert obs1.observation_state == ObservationState.WAITING
         steps["stage1"].complete(True, "Resolved ObservationState.WAITING")
         print("[✓] Stage 1 Verified")
         
@@ -88,7 +88,7 @@ async def run_verification():
         
         obs2 = await presentation_observer_service.run_observation_cycle()
         assert ObservationEvent.PRESENTATION_STARTED in obs2.events
-        assert obs2.current_state == ObservationState.ACTIVE
+        assert obs2.observation_state == ObservationState.ACTIVE
         steps["stage2"].complete(True, "Resolved PRESENTATION_STARTED and ACTIVE state")
         print("[✓] Stage 2 Verified")
         
@@ -184,7 +184,7 @@ async def run_verification():
         
         obs7 = await presentation_observer_service.run_observation_cycle()
         assert ObservationEvent.PRESENTATION_ENDED in obs7.events
-        assert obs7.current_state == ObservationState.ENDED
+        assert obs7.observation_state == ObservationState.ENDED
         steps["stage7"].complete(True, "Resolved PRESENTATION_ENDED event & ENDED state")
         print("[✓] Stage 7 Verified")
         
