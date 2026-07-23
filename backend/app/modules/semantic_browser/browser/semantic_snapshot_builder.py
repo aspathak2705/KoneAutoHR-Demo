@@ -1,4 +1,5 @@
 import time
+from typing import Optional
 from app.modules.semantic_browser.browser.semantic_snapshot import SemanticSnapshot
 from app.modules.semantic_browser.models.meeting_state import MeetingState
 from app.modules.semantic_browser.models.presentation_state import PresentationMode
@@ -14,6 +15,7 @@ class SemanticSnapshotBuilder:
         chat_open: bool,
         participants_open: bool,
         recording_active: bool,
+        presentation_signature: Optional[str] = None,
         details: dict = None
     ) -> SemanticSnapshot:
         """
@@ -28,5 +30,6 @@ class SemanticSnapshotBuilder:
             chat_open=chat_open,
             participants_open=participants_open,
             recording_active=recording_active,
+            presentation_signature=presentation_signature,
             details=details or {}
         )

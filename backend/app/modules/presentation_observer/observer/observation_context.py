@@ -14,5 +14,5 @@ class ObservationContext:
         self.last_event_timestamp: float = time.time()
         self.current_timeline_index: int = 0
         
-        # Internal tracker to detect slide changes (saves text hashes or label of slide container elements)
-        self.slide_elements_hash: str = ""
+        # Slide Presentation Signature
+        self.presentation_signature: Optional[str] = None

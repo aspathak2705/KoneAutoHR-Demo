@@ -47,7 +47,7 @@ class MeetingStateAnalyzer:
             state = MeetingState.CONNECTED
         elif "connecting" in body_text or "connecting" in title.lower():
             state = MeetingState.CONNECTING
-        elif "let you in" in body_text or "lobby" in body_text or "waiting to join" in body_text:
+        elif any(k in body_text for k in ["let you in", "lobby", "waiting to join", "waiting for host", "admission"]):
             state = MeetingState.LOBBY
         elif "join" in body_text or "meeting" in body_text:
             state = MeetingState.CONNECTING

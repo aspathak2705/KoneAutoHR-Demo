@@ -88,27 +88,18 @@ class ChangeDetector:
             events.append(ObservationEvent.RECORDING_STOPPED)
             context.last_event_timestamp = time.time()
 
-        # 6. Detect Slide Change (generic layout text mutation check)
+        # 6. Detect Slide Change via presentation_signature checks (no DOM heuristics)
         if curr.presentation_state == PresentationMode.POWERPOINT_SHARED:
-            slide_elements = []
-            for el in curr.dom_summary.elements:
-                is_slide_desc = (
-                    el.role in ["dialog", "presentation"] or
-                    "slide" in (el.label or "").lower() or
-                    "slide" in (el.text or "").lower()
-                )
-                if is_slide_desc and el.text:
-                    slide_elements.append(el.text)
-                    
-            curr_hash = " | ".join(slide_elements)
-            if not context.slide_elements_hash:
-                context.slide_elements_hash = curr_hash
-            elif curr_hash != context.slide_elements_hash:
-                events.append(ObservationEvent.SLIDE_CHANGED)
-                flags["slide_changed"] = True
-                context.slide_elements_hash = curr_hash
-                context.last_event_timestamp = time.time()
-                logger.info("ChangeDetector | Slide transition event resolved.")
+            prev_sig = prev.presentation_signature if prev else None
+            curr_sig = curr.presentation_signature
+            
+            # Slide change resolves if transitioning within PowerPoint and the signature shifts
+            if prev and prev.presentation_state == PresentationMode.POWERPOINT_SHARED:
+                if prev_sig is not None and curr_sig != prev_sig:
+                    events.append(ObservationEvent.SLIDE_CHANGED)
+                    flags["slide_changed"] = True
+                    context.last_event_timestamp = time.time()
+                    logger.info(f"ChangeDetector | SLIDE_CHANGED | Previous Signature: {prev_sig} | Current Signature: {curr_sig}")
 
         return events, flags
 

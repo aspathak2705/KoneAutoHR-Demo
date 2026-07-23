@@ -16,7 +16,6 @@ os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:5173")
 os.environ.setdefault("API_BASE_URL", "http://localhost:8000")
 
 from app.modules.meeting_bot.bot.meeting_bot import MeetingBot
-from app.modules.semantic_browser.browser.semantic_browser import semantic_browser
 from app.modules.presentation_observer.observer.presentation_observer import presentation_observer
 from app.modules.presentation_observer.services.presentation_observer_service import presentation_observer_service
 from app.modules.presentation_observer.models.observation_state import ObservationState
@@ -36,7 +35,7 @@ class StepTracker:
 
 async def run_verification():
     print("==================================================")
-    print("         AUTOHR PHASE 4 VERIFICATION RUN          ")
+    print("         AUTOHR PHASE 4.1 VERIFICATION RUN        ")
     print("==================================================")
     
     steps = {
@@ -70,8 +69,14 @@ async def run_verification():
         
         obs1 = await presentation_observer_service.run_observation_cycle()
         assert obs1.observation_state == ObservationState.WAITING
-        steps["stage1"].complete(True, "Resolved ObservationState.WAITING")
+        assert len(obs1.events) == 0
+        
+        steps["stage1"].complete(True, "Resolved ObservationState.WAITING with zero initial transition events")
         print("[✓] Stage 1 Verified")
+        
+        # Reset timeline history to clean test start before starting transition stages
+        from app.modules.presentation_observer.analyzers.timeline_tracker import timeline_tracker
+        timeline_tracker.clear()
         
         # STAGE 2: Admit to meeting and PowerPoint appears
         print("\n--- STAGE 2: Presentation Started ---")
@@ -89,7 +94,22 @@ async def run_verification():
         obs2 = await presentation_observer_service.run_observation_cycle()
         assert ObservationEvent.PRESENTATION_STARTED in obs2.events
         assert obs2.observation_state == ObservationState.ACTIVE
-        steps["stage2"].complete(True, "Resolved PRESENTATION_STARTED and ACTIVE state")
+        
+        # Verify copied Phase 3 snapshot values and signature presence
+        assert obs2.presentation_state == PresentationMode.POWERPOINT_SHARED
+        assert obs2.meeting_state == MeetingState.CONNECTED
+        assert obs2.timeline_index == 1  # 1 after clearing timeline history
+        
+        snap2 = semantic_browser_service.get_history()[-1]
+        sig2 = snap2.presentation_signature
+        print(f"  - Stage 2 calculated presentation signature: {sig2}")
+        assert sig2 is not None
+        
+        # Verify no false positives
+        assert ObservationEvent.CHAT_OPENED not in obs2.events
+        assert ObservationEvent.RECORDING_STARTED not in obs2.events
+        
+        steps["stage2"].complete(True, "Resolved PRESENTATION_STARTED, ACTIVE state, and signature presence")
         print("[✓] Stage 2 Verified")
         
         # STAGE 3: Mutate DOM to trigger Slide Change
@@ -107,7 +127,18 @@ async def run_verification():
         
         obs3 = await presentation_observer_service.run_observation_cycle()
         assert ObservationEvent.SLIDE_CHANGED in obs3.events
-        steps["stage3"].complete(True, "Resolved SLIDE_CHANGED event on DOM shift")
+        
+        snap3 = semantic_browser_service.get_history()[-1]
+        sig3 = snap3.presentation_signature
+        print(f"  - Stage 3 calculated presentation signature: {sig3}")
+        assert sig3 is not None
+        assert sig3 != sig2  # Asserts signature changes on content mutation
+        
+        # Verify context progression
+        assert obs3.timestamp >= obs2.timestamp
+        assert obs3.timeline_index > obs2.timeline_index
+        
+        steps["stage3"].complete(True, "Resolved SLIDE_CHANGED event on signature shift")
         print("[✓] Stage 3 Verified")
         
         # STAGE 4: Chat Panel Opens
@@ -126,6 +157,11 @@ async def run_verification():
         
         obs4 = await presentation_observer_service.run_observation_cycle()
         assert ObservationEvent.CHAT_OPENED in obs4.events
+        
+        # Verify no false positives
+        assert ObservationEvent.PRESENTATION_ENDED not in obs4.events
+        assert ObservationEvent.RECORDING_STARTED not in obs4.events
+        
         steps["stage4"].complete(True, "Resolved CHAT_OPENED event")
         print("[✓] Stage 4 Verified")
         
@@ -185,7 +221,12 @@ async def run_verification():
         obs7 = await presentation_observer_service.run_observation_cycle()
         assert ObservationEvent.PRESENTATION_ENDED in obs7.events
         assert obs7.observation_state == ObservationState.ENDED
-        steps["stage7"].complete(True, "Resolved PRESENTATION_ENDED event & ENDED state")
+        
+        # Verify service caching contains latest observation frame
+        latest = presentation_observer_service.get_latest_observation()
+        assert latest == obs7
+        
+        steps["stage7"].complete(True, "Resolved PRESENTATION_ENDED event, ENDED state, and service cache consistency")
         print("[✓] Stage 7 Verified")
         
         # STAGE 8: Timeline Audit
@@ -193,15 +234,18 @@ async def run_verification():
         timeline = presentation_observer_service.get_timeline()
         print(f"Timeline entries: {[evt.value for evt in timeline]}")
         
-        # Assert events mapped in correct order
-        assert ObservationEvent.PRESENTATION_STARTED in timeline
-        assert ObservationEvent.SLIDE_CHANGED in timeline
-        assert ObservationEvent.CHAT_OPENED in timeline
-        assert ObservationEvent.PARTICIPANTS_OPENED in timeline
-        assert ObservationEvent.RECORDING_STARTED in timeline
-        assert ObservationEvent.PRESENTATION_ENDED in timeline
+        # Assert exact ordering of transition events (excluding lobby WAITING)
+        expected = [
+            ObservationEvent.PRESENTATION_STARTED,
+            ObservationEvent.SLIDE_CHANGED,
+            ObservationEvent.CHAT_OPENED,
+            ObservationEvent.PARTICIPANTS_OPENED,
+            ObservationEvent.RECORDING_STARTED,
+            ObservationEvent.PRESENTATION_ENDED
+        ]
+        assert timeline == expected
         
-        steps["stage8"].complete(True, "All transition events registered correctly in order")
+        steps["stage8"].complete(True, "All transition events registered in correct chronological order")
         print("[✓] Stage 8 Verified")
         
     finally:
@@ -210,7 +254,7 @@ async def run_verification():
         await asyncio.sleep(1.5)
 
     print("\n" + "=" * 50)
-    print("       AUTOHR PHASE 4 VERIFICATION SUMMARY        ")
+    print("       AUTOHR PHASE 4.1 VERIFICATION SUMMARY        ")
     print("=" * 50)
     passed_all = True
     for key, step in steps.items():

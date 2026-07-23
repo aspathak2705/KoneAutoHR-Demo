@@ -1,11 +1,13 @@
 from playwright.async_api import Page
 from app.modules.semantic_browser.models.presentation_state import PresentationMode
 from loguru import logger
+import hashlib
 
 class PresentationAnalyzer:
     async def analyze(self, page: Page) -> dict:
         """
         Determines presentation status (Screen sharing, PowerPoint share, Video playback, Blank/Waiting, Loading, Ended).
+        Computes a cryptographic presentation_signature if presenting.
         """
         mode = PresentationMode.NONE
         details = {}
@@ -117,8 +119,24 @@ class PresentationAnalyzer:
                     else:
                         mode = PresentationMode.NONE
 
+        # Calculate dynamic SHA256 signature if presenting
+        signature = None
+        if mode in [PresentationMode.POWERPOINT_SHARED, PresentationMode.SCREEN_SHARING]:
+            target_sel = details.get("selector_matched")
+            if target_sel:
+                try:
+                    text_content = await page.locator(target_sel).inner_text()
+                    if text_content:
+                        # Normalize white space and newlines
+                        normalized = " ".join(text_content.split())
+                        signature = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+                        details["signature_source_text"] = normalized[:100]
+                except Exception as e:
+                    logger.error(f"PresentationAnalyzer | Failed to calculate presentation signature: {e}")
+
         return {
             "mode": mode,
+            "signature": signature,
             "details": details
         }
 
