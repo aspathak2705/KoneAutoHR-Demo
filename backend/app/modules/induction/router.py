@@ -8,7 +8,8 @@ from app.db.database import get_db
 from app.services.storage_service import storage_service
 from app.core.constants import UploadType
 from app.core.exceptions import SessionNotFoundException
-from app.modules.induction.services.induction_service import induction_service
+from app.modules.induction.services.preparation_pipeline import preparation_pipeline
+from app.services.presentation_job_service import presentation_job_service
 
 router = APIRouter(prefix="/induction", tags=["Induction Preparation"])
 
@@ -18,14 +19,24 @@ def prepare_induction(
     background_tasks: BackgroundTasks,
     db: DBSession = Depends(get_db)
 ):
-    return induction_service.prepare_induction(db, session_id, background_tasks)
+    job = presentation_job_service.get_job_by_session(db, session_id=session_id, job_type="SCRIPT")
+    if job:
+        presentation_job_service.update_job_status(db, job.id, status="PENDING", progress=0.0, error_message=None)
+    else:
+        job = presentation_job_service.create_job(db, session_id=session_id, job_type="SCRIPT")
+        
+    background_tasks.add_task(preparation_pipeline.run_script_generation, session_id, job.id)
+    return job
 
 @router.get("/{session_id}/status")
 def get_preparation_status(
     session_id: str,
     db: DBSession = Depends(get_db)
 ):
-    return induction_service.get_job_status(db, session_id)
+    job = presentation_job_service.get_job_by_session(db, session_id=session_id, job_type="SCRIPT")
+    if not job:
+        return {"status": "not_started", "progress": 0.0}
+    return {"status": job.status, "progress": job.progress, "error_message": job.error_message}
 
 @router.get("/{session_id}/package")
 def get_induction_package(

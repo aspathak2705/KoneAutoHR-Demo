@@ -21,7 +21,6 @@ def health_check(db: DBSession = Depends(get_db)):
     storage_status = "unavailable"
     upload_dir = settings.UPLOAD_DIR
     try:
-        # Check if dir exists or can be created, and is writable
         if not os.path.exists(upload_dir):
             os.makedirs(upload_dir, exist_ok=True)
         if os.access(upload_dir, os.W_OK):
@@ -37,7 +36,7 @@ def health_check(db: DBSession = Depends(get_db)):
         "status": overall_status,
         "database": db_status,
         "storage": storage_status,
-        "version": settings.APP_VERSION
+        "version": "1.0.0"
     }
 
     if not is_healthy:

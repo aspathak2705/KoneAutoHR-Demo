@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+from pathlib import Path
 from typing import Dict, Any, Optional
 from loguru import logger
 from app.modules.presentation.models import NarrationBlock
@@ -21,16 +22,37 @@ class SpeechEngine:
         self._is_paused: bool = False
         self._current_task: Optional[asyncio.Task] = None
 
-    async def speak(self, narration: NarrationBlock) -> bool:
+    async def speak(self, narration: NarrationBlock, session_id: Optional[str] = None) -> bool:
         """
         Synthesizes spoken narration text into audio stream and manages playback.
         """
         self._is_speaking = True
         self._is_paused = False
-        logger.info(f"SpeechEngine | Synthesizing & Speaking (Voice: {self.voice}) Slide {narration.slide_number}: '{narration.text[:60]}...'")
+        
+        audio_file = None
+        is_temp = True
 
-        # Step 1: Synthesize audio file via Edge-TTS / gTTS / pyttsx3 if available
-        audio_file = await self._synthesize_audio(narration.text)
+        # Check for pre-generated audio files in the package directory
+        if session_id:
+            label = f"slide_{narration.slide_number}"
+            if narration.slide_number == 0:
+                # Welcome flow (can be greeting or intro)
+                label = "greeting"
+            elif narration.slide_number >= 99:
+                label = "closing"
+                
+            from app.core.config import settings
+            pre_gen_path = Path(settings.UPLOAD_DIR) / "sessions" / session_id / "audio" / f"{label}.mp3"
+            if pre_gen_path.exists():
+                audio_file = str(pre_gen_path.resolve())
+                is_temp = False
+                logger.info(f"SpeechEngine | Playing pre-generated audio track: {audio_file}")
+
+        if not audio_file:
+            logger.info(f"SpeechEngine | Synthesizing & Speaking (Voice: {self.voice}) Slide {narration.slide_number}: '{narration.text[:60]}...'")
+            # Step 1: Synthesize audio file via Edge-TTS / gTTS / pyttsx3 if available
+            audio_file = await self._synthesize_audio(narration.text)
+            is_temp = True
 
         try:
             # Step 2: Manage playback stream duration & pause/resume state
@@ -52,7 +74,8 @@ class SpeechEngine:
             return False
         finally:
             self._is_speaking = False
-            if audio_file and os.path.exists(audio_file):
+            # Only delete if it is a dynamically generated temporary file
+            if is_temp and audio_file and os.path.exists(audio_file):
                 try:
                     os.remove(audio_file)
                 except Exception:
@@ -111,8 +134,6 @@ class SpeechEngine:
     def stop(self) -> None:
         self._is_speaking = False
         self._is_paused = False
-        if self._current_task and not self._current_task.done():
-            self._current_task.cancel()
         logger.info("SpeechEngine | Speech playback stopped.")
 
 speech_engine = SpeechEngine()

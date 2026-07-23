@@ -8,4 +8,5 @@ class PresentationJobResponse(TimestampedSchema):
     session_id: str
     status: JobStatus
     progress: float
+    job_type: str
     error_message: Optional[str] = None

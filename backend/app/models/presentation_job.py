@@ -13,6 +13,7 @@ class PresentationJob(Base):
     status: Mapped[str] = mapped_column(String, default="PENDING") # JobStatus enum value
     progress: Mapped[float] = mapped_column(Float, default=0.0)
     error_message: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    job_type: Mapped[str] = mapped_column(String, default="SCRIPT") # SCRIPT or AUDIO
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
 

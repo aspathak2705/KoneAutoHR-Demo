@@ -1,9 +1,14 @@
 from enum import Enum
 
 class SessionStatus(str, Enum):
-    PENDING = "PENDING"
-    ACTIVE = "ACTIVE"
-    COMPLETED = "COMPLETED"
+    UPLOADED = "UPLOADED"
+    VALIDATING = "VALIDATING"
+    PARSING = "PARSING"
+    GENERATING_SCRIPT = "GENERATING_SCRIPT"
+    GENERATING_AUDIO = "GENERATING_AUDIO"
+    REGISTERING_ASSETS = "REGISTERING_ASSETS"
+    VERIFYING = "VERIFYING"
+    READY = "READY"
     FAILED = "FAILED"
 
 class UploadType(str, Enum):
@@ -19,3 +24,10 @@ class JobStatus(str, Enum):
     PROCESSING = "PROCESSING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+
+class TaskStatus(str, Enum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"

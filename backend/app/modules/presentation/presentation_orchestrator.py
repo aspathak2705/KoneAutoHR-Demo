@@ -89,7 +89,7 @@ class PresentationOrchestrator:
                 slide_number=0,
                 text=greeting_text,
                 estimated_duration=4.5
-            ))
+            ), session_id=self.session_id)
             presentation_events.publish_narration_completed(self.session_id, 0)
 
             self._update_runtime_state("INTRODUCTION")
@@ -121,7 +121,7 @@ class PresentationOrchestrator:
                 self.memory.record_narration(slide.slide_number, narration.text, narration.estimated_duration)
 
                 # Deliver speech via SpeechEngine
-                await speech_engine.speak(narration)
+                await speech_engine.speak(narration, session_id=self.session_id)
 
                 presentation_events.publish_narration_completed(self.session_id, slide.slide_number)
                 presentation_events.publish_slide_completed(self.session_id, slide.slide_number)
@@ -142,7 +142,7 @@ class PresentationOrchestrator:
                     slide_number=total,
                     text=summary_text,
                     estimated_duration=3.5
-                ))
+                ), session_id=self.session_id)
 
                 self.memory.complete_session()
                 presentation_events.publish_presentation_completed(self.session_id, len(self.memory.visited_slides))

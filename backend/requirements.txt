@@ -10,3 +10,6 @@ passlib[bcrypt]
 python-pptx
 openpyxl
 openai
+jinja2
+httpx
+alembic

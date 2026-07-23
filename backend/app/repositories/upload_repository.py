@@ -34,15 +34,14 @@ class UploadRepository:
             upload_type=upload_type.value if hasattr(upload_type, "value") else upload_type
         )
         db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
+        db.flush()
         return db_obj
 
     def delete(self, db: DBSession, id: str) -> Optional[Upload]:
         db_obj = self.get(db, id)
         if db_obj:
             db.delete(db_obj)
-            db.commit()
+            db.flush()
         return db_obj
 
 upload_repository = UploadRepository()

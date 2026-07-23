@@ -20,23 +20,21 @@ class PresentationRepository:
             uploaded_by=uploaded_by
         )
         db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
+        db.flush()
         return db_obj
 
     def update(self, db: DBSession, db_obj: Presentation, **kwargs) -> Presentation:
         for key, value in kwargs.items():
             setattr(db_obj, key, value)
         db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
+        db.flush()
         return db_obj
 
     def delete(self, db: DBSession, id: str) -> Optional[Presentation]:
         db_obj = self.get(db, id)
         if db_obj:
             db.delete(db_obj)
-            db.commit()
+            db.flush()
         return db_obj
 
 presentation_repository = PresentationRepository()

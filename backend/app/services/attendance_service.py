@@ -128,7 +128,7 @@ class AttendanceService:
     # Event Bus Subscription Callbacks
     def _on_meeting_joined(self, session_id: str, data: Any) -> None:
         logger.info(f"AttendanceService | Event 'MeetingJoined' received for session {session_id}")
-        # Auto-seed mock attendees joining session
+        # Load actual attendees from uploaded employee list and log join events
         with SessionLocal() as db:
             session = db.query(Session).filter(Session.id == session_id).first()
             if session and session.employee_list:

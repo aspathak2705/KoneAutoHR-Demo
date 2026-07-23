@@ -20,23 +20,21 @@ class EmployeeListRepository:
             employee_count=employee_count
         )
         db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
+        db.flush()
         return db_obj
 
     def update(self, db: DBSession, db_obj: EmployeeList, **kwargs) -> EmployeeList:
         for key, value in kwargs.items():
             setattr(db_obj, key, value)
         db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
+        db.flush()
         return db_obj
 
     def delete(self, db: DBSession, id: str) -> Optional[EmployeeList]:
         db_obj = self.get(db, id)
         if db_obj:
             db.delete(db_obj)
-            db.commit()
+            db.flush()
         return db_obj
 
 employee_list_repository = EmployeeListRepository()

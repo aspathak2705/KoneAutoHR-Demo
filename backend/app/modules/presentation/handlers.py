@@ -16,7 +16,7 @@ class SlideController:
         return await controller.verify_slide(slide_num)
 
 class SpeechController:
-    async def speak_sentences(self, sentences: List[str], slide_num: int = 0) -> None:
+    async def speak_sentences(self, sentences: List[str], slide_num: int = 0, session_id: Optional[str] = None) -> None:
         if not sentences:
             return
         text = " ".join(sentences)
@@ -26,7 +26,7 @@ class SpeechController:
             slide_number=slide_num,
             text=text,
             estimated_duration=duration
-        ))
+        ), session_id=session_id)
 
 class ProgressTracker:
     def record_progress(self, session_id: str, slide_num: int) -> None:
@@ -54,7 +54,7 @@ class WaitForParticipantsHandler:
             if elapsed > 0 and elapsed % 20 == 0 and periodic_speeches:
                 speech_text = periodic_speeches[periodic_idx % len(periodic_speeches)]
                 logger.info(f"Handler | [WAIT_FOR_PARTICIPANTS] Periodic waiting announcement: '{speech_text}'")
-                await speech_engine.speak(NarrationBlock(slide_number=0, text=speech_text, estimated_duration=3.5))
+                await speech_engine.speak(NarrationBlock(slide_number=0, text=speech_text, estimated_duration=3.5), session_id=session_id)
                 periodic_idx += 1
 
             await asyncio.sleep(2)
@@ -69,7 +69,7 @@ class SpokenTextHandler:
     async def execute(self, step: ScriptStep, session_id: str) -> None:
         sentences = step.speech or [f"Executing {self.step_type_name} step."]
         logger.info(f"Handler | [{self.step_type_name}] Delivering {len(sentences)} pre-generated sentences...")
-        await self.speech_ctrl.speak_sentences(sentences, slide_num=step.slide_number or 0)
+        await self.speech_ctrl.speak_sentences(sentences, slide_num=step.slide_number or 0, session_id=session_id)
 
 class PresentationHandler:
     """
@@ -87,7 +87,7 @@ class PresentationHandler:
 
         # 1. Speak 'before' sentences
         if step.before:
-            await self.speech_ctrl.speak_sentences(step.before, slide_num=slide_num)
+            await self.speech_ctrl.speak_sentences(step.before, slide_num=slide_num, session_id=session_id)
 
         # 2. Advance & verify slide via SlideController
         await self.slide_ctrl.display_and_verify(controller, slide_num)
@@ -95,13 +95,13 @@ class PresentationHandler:
 
         # 3. Speak 'during' sentences
         if step.during:
-            await self.speech_ctrl.speak_sentences(step.during, slide_num=slide_num)
+            await self.speech_ctrl.speak_sentences(step.during, slide_num=slide_num, session_id=session_id)
         elif step.speech:
-            await self.speech_ctrl.speak_sentences(step.speech, slide_num=slide_num)
+            await self.speech_ctrl.speak_sentences(step.speech, slide_num=slide_num, session_id=session_id)
 
         # 4. Speak 'after' sentences
         if step.after:
-            await self.speech_ctrl.speak_sentences(step.after, slide_num=slide_num)
+            await self.speech_ctrl.speak_sentences(step.after, slide_num=slide_num, session_id=session_id)
 
 # Gap 7 Future Action Handlers
 class PlayVideoHandler:
@@ -127,13 +127,13 @@ class WaitForQuestionsHandler:
     async def execute(self, step: ScriptStep, session_id: str) -> None:
         sentences = step.speech or ["Opening the floor for live employee Q&A."]
         logger.info(f"Handler | [WAIT_FOR_QUESTIONS] {sentences}")
-        await speech_engine.speak(NarrationBlock(slide_number=99, text=" ".join(sentences), estimated_duration=3.5))
+        await speech_engine.speak(NarrationBlock(slide_number=99, text=" ".join(sentences), estimated_duration=3.5), session_id=session_id)
 
 class ClosingHandler:
     """Delivers final closing thank-you and leaves meeting."""
     async def execute(self, step: ScriptStep, session_id: str) -> None:
         sentences = step.speech or ["Thank you all for participating in today's induction session!"]
         logger.info(f"Handler | [CLOSING] {sentences}")
-        await speech_engine.speak(NarrationBlock(slide_number=100, text=" ".join(sentences), estimated_duration=3.5))
+        await speech_engine.speak(NarrationBlock(slide_number=100, text=" ".join(sentences), estimated_duration=3.5), session_id=session_id)
         logger.info(f"Handler | [CLOSING] Calling teams_runtime_service.leave_meeting() for {session_id}...")
         teams_runtime_service.leave_meeting(session_id)

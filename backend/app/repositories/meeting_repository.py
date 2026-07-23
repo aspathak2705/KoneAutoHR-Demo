@@ -37,7 +37,7 @@ class MeetingRepository:
         ).first()
         if duplicate:
             db.delete(duplicate)
-            db.commit()
+            db.flush()
 
     def create_or_update(
         self,
@@ -73,21 +73,19 @@ class MeetingRepository:
             )
             db.add(db_obj)
 
-        db.commit()
-        db.refresh(db_obj)
+        db.flush()
         return db_obj
 
     def update_status(self, db: DBSession, db_obj: Meeting, status: str) -> Meeting:
         db_obj.meeting_status = status
         db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
+        db.flush()
         return db_obj
 
     def delete(self, db: DBSession, id: str) -> None:
         db_obj = self.get(db, id)
         if db_obj:
             db.delete(db_obj)
-            db.commit()
+            db.flush()
 
 meeting_repository = MeetingRepository()

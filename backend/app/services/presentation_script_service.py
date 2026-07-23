@@ -13,6 +13,7 @@ from app.modules.induction.employees.excel_parser import parse_employees_excel
 from app.modules.induction.employees.profiler import profile_employees
 from app.modules.induction.employees.audience_builder import build_audience_summary
 from app.core.config import settings
+from app.db.unit_of_work import UnitOfWork
 
 class PresentationScriptService:
     async def generate_script_and_questions(
@@ -67,47 +68,46 @@ class PresentationScriptService:
                 slide_knowledge=slide_knowledge
             )
             
-            # 1. Update metadata
-            meta = presentation_metadata_repository.get_by_presentation(db, presentation_id)
-            if meta:
-                presentation_metadata_repository.update(
+            with UnitOfWork(db):
+                # 1. Update metadata
+                meta = presentation_metadata_repository.get_by_presentation(db, presentation_id)
+                if meta:
+                    presentation_metadata_repository.update(
+                        db,
+                        meta,
+                        slide_count=len(slide_knowledge),
+                        generation_date=datetime.datetime.now(),
+                        generation_status="COMPLETED",
+                        last_ai_generation=datetime.datetime.now()
+                    )
+                    
+                # 2. Save PresentationScript
+                script_payload = {
+                    "opening": session_json.get("opening"),
+                    "slides": session_json.get("slides"),
+                    "closing": session_json.get("closing"),
+                    "welcome_flow": {
+                        "intro": session_json.get("opening", {}).get("presenter_intro", ""),
+                        "rules": session_json.get("opening", {}).get("session_rules", "")
+                    },
+                    "slide_narrations": {str(s["slide_number"]): s.get("narration", "") for s in session_json.get("slides", [])},
+                    "closing_script": session_json.get("closing", {}).get("summary", "")
+                }
+                script_row = presentation_script_repository.create(
                     db,
-                    meta,
-                    slide_count=len(slide_knowledge),
-                    generation_date=datetime.datetime.now(),
-                    generation_status="COMPLETED",
-                    last_ai_generation=datetime.datetime.now()
+                    presentation_id=presentation_id,
+                    script_content=json.dumps(script_payload),
+                    llm_model=settings.LLM_MODEL
                 )
                 
-            # 2. Save PresentationScript (Opening, Slides, Closing, WelcomeFlow, SlideNarrations, ClosingScript)
-            script_payload = {
-                "opening": session_json.get("opening"),
-                "slides": session_json.get("slides"),
-                "closing": session_json.get("closing"),
-                # Backward compatibility fallback
-                "welcome_flow": {
-                    "intro": session_json.get("opening", {}).get("presenter_intro", ""),
-                    "rules": session_json.get("opening", {}).get("session_rules", "")
-                },
-                "slide_narrations": {str(s["slide_number"]): s.get("narration", "") for s in session_json.get("slides", [])},
-                "closing_script": session_json.get("closing", {}).get("summary", "")
-            }
-            script_row = presentation_script_repository.create(
-                db,
-                presentation_id=presentation_id,
-                script_content=json.dumps(script_payload),
-                llm_model=settings.LLM_MODEL
-            )
-            
-            # 3. Save PresentationQuestion (FAQ list)
-            # Use default list if not returned
-            faq_payload = []
-            presentation_question_repository.create(
-                db,
-                presentation_id=presentation_id,
-                questions_content=json.dumps(faq_payload)
-            )
-            
+                # 3. Save PresentationQuestion
+                faq_payload = []
+                presentation_question_repository.create(
+                    db,
+                    presentation_id=presentation_id,
+                    questions_content=json.dumps(faq_payload)
+                )
+                
             return script_row
 
     def get_active_script(self, db: DBSession, presentation_id: str) -> Optional[PresentationScript]:
@@ -130,6 +130,8 @@ class PresentationScriptService:
         }
         validated_content["closing_script"] = validated_content.get("closing", {}).get("summary", "")
 
-        return presentation_script_repository.update(db, script, script_content=json.dumps(validated_content))
+        with UnitOfWork(db):
+            res = presentation_script_repository.update(db, script, script_content=json.dumps(validated_content))
+        return res
 
 presentation_script_service = PresentationScriptService()

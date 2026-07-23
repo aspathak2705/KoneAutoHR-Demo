@@ -10,6 +10,7 @@ from app.modules.induction.parser.ppt_parser import parse_presentation
 from app.modules.induction.employees.excel_parser import parse_employees_excel
 from app.modules.induction.employees.profiler import profile_employees
 from app.modules.induction.employees.audience_builder import build_audience_summary
+from app.db.unit_of_work import UnitOfWork
 
 class PresentationQuestionService:
     async def generate_questions_only(
@@ -56,7 +57,6 @@ class PresentationQuestionService:
                 "communication_style": config.communication_style
             }
             
-            # Build context and run FAQ generator
             from app.modules.induction.llm.context_builder import build_llm_context
             from app.modules.induction.llm.faq_generator import generate_faq
             
@@ -80,11 +80,13 @@ class PresentationQuestionService:
             faq_data = await generate_faq(base_context)
             faq_payload = faq_data.get("faq", [])
             
-            return presentation_question_repository.create(
-                db,
-                presentation_id=presentation_id,
-                questions_content=json.dumps(faq_payload)
-            )
+            with UnitOfWork(db):
+                res = presentation_question_repository.create(
+                    db,
+                    presentation_id=presentation_id,
+                    questions_content=json.dumps(faq_payload)
+                )
+            return res
 
     def get_active_questions(self, db: DBSession, presentation_id: str) -> Optional[PresentationQuestion]:
         return presentation_question_repository.get_active(db, presentation_id)
@@ -93,6 +95,8 @@ class PresentationQuestionService:
         q = presentation_question_repository.get(db, question_id)
         if not q:
             raise ValueError("Questions record not found")
-        return presentation_question_repository.update(db, q, questions_content=json.dumps(questions_content))
+        with UnitOfWork(db):
+            res = presentation_question_repository.update(db, q, questions_content=json.dumps(questions_content))
+        return res
 
 presentation_question_service = PresentationQuestionService()

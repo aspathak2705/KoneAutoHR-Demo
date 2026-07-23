@@ -21,8 +21,7 @@ class SessionRepository:
             employee_list_id=obj_in.employee_list_id
         )
         db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
+        db.flush()
         return db_obj
 
     def update(self, db: DBSession, db_obj: Session, obj_in: SessionUpdate) -> Session:
@@ -30,15 +29,14 @@ class SessionRepository:
         for key, value in update_data.items():
             setattr(db_obj, key, value)
         db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
+        db.flush()
         return db_obj
 
     def delete(self, db: DBSession, id: str) -> Optional[Session]:
         db_obj = self.get(db, id)
         if db_obj:
             db.delete(db_obj)
-            db.commit()
+            db.flush()
         return db_obj
 
 session_repository = SessionRepository()

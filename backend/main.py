@@ -10,18 +10,17 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.db.database import engine
-from app.db.base import Base
 from app.api.v1 import health, session, upload, presentation, employee_list, presentation_script, presentation_questions
 from app.modules.induction.router import router as induction_router
 from app.core.middleware import (
     RequestIDMiddleware,
     ProcessTimeMiddleware,
     RequestLoggingMiddleware,
-    register_exception_handlers
+    register_exception_handlers,
 )
 
 @asynccontextmanager
@@ -29,46 +28,41 @@ async def lifespan(app: FastAPI):
     setup_logging()
     from app.core.config import validate_llm_settings
     validate_llm_settings()
-    
-    # Non-destructive SQLite Database Auto-Migration (Preserves all user data across restarts)
-    db_file = Path("autohr.db")
-    import sqlite3
-    from loguru import logger
-    try:
-        conn = sqlite3.connect(db_file)
-        cursor = conn.cursor()
 
-        def add_column_if_missing(table, col, col_type):
-            cursor.execute(f"PRAGMA table_info({table})")
-            cols = [row[1] for row in cursor.fetchall()]
-            if cols and col not in cols:
-                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
-                logger.info(f"Database Auto-Migration | Added missing column '{col}' to table '{table}'.")
-
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runtimes'")
-        if cursor.fetchone():
-            add_column_if_missing("runtimes", "current_step", "VARCHAR DEFAULT 'IDLE'")
-            add_column_if_missing("runtimes", "meeting_status", "VARCHAR DEFAULT 'DISCONNECTED'")
-            add_column_if_missing("runtimes", "started_at", "DATETIME")
-            add_column_if_missing("runtimes", "connected_at", "DATETIME")
-            add_column_if_missing("runtimes", "completed_at", "DATETIME")
-            add_column_if_missing("runtimes", "last_error", "VARCHAR")
-
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'")
-        if cursor.fetchone():
-            add_column_if_missing("sessions", "presentation_id", "VARCHAR")
-            add_column_if_missing("sessions", "employee_list_id", "VARCHAR")
-
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.warning(f"Database Auto-Migration notice: {e}")
-
-    Base.metadata.create_all(bind=engine)
     Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
-    # Execute startup recovery ONCE on server startup
-    import asyncio
+    # Self-healing database initialization (creates tables if starting from scratch)
+    from app.db.database import engine, Base
+    # Import all models to register on metadata
+    from app.models.session import Session
+    from app.models.upload import Upload
+    from app.models.meeting import Meeting
+    from app.models.runtime import Runtime
+    from app.models.runtime_message import RuntimeMessage
+    from app.models.presentation import Presentation
+    from app.models.presentation_metadata import PresentationMetadata
+    from app.models.presentation_script import PresentationScript
+    from app.models.presentation_question import PresentationQuestion
+    from app.models.presentation_job import PresentationJob
+    from app.models.employee_list import EmployeeList
+    from app.models.organization_config import OrganizationConfig
+
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database Initialization | Metadata verified and tables checked.")
+    except Exception as e:
+        logger.error(f"Database Initialization | Error creating tables: {e}")
+
+    try:
+        from alembic.config import Config
+        from alembic import command
+        # Run Alembic migrations programmatically
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Database Initialization | Alembic migrations applied successfully.")
+    except Exception as e:
+        logger.error(f"Database Initialization | Alembic migration error: {e}")
+
     from app.db.database import SessionLocal
     from app.services.runtime_scheduler_service import runtime_scheduler_service
 
@@ -78,7 +72,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"StartupRecovery | Error: {e}")
 
-    # Spawn background scheduler worker loop to poll scheduled launches every 5 seconds
     async def _scheduler_background_loop():
         while True:
             try:
@@ -89,41 +82,38 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(5)
 
     scheduler_task = asyncio.create_task(_scheduler_background_loop())
-    yield
-    scheduler_task.cancel()
+    try:
+        yield
+    finally:
+        scheduler_task.cancel()
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
-# CORS Middleware
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(ProcessTimeMiddleware)
+app.add_middleware(RequestIDMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex="https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Request Interceptor Middlewares (Starlette onion: executed bottom-up)
-app.add_middleware(RequestLoggingMiddleware)
-app.add_middleware(ProcessTimeMiddleware)
-app.add_middleware(RequestIDMiddleware)
-
-# Global Exceptions Mapper
 register_exception_handlers(app)
 
 from app.modules.configuration.configuration_router import router as configuration_router
 from app.modules.analytics.analytics_router import router as analytics_router
 from app.api.v1.meetings import router as meetings_router
 from app.api.v1.runtime import router as runtime_router
-
 from app.api.v1 import assets
 from app.api.v1 import presentation_runtime
 
-# Include v1 versioned routers
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(session.router, prefix="/api/v1")
 app.include_router(upload.router, prefix="/api/v1")
@@ -141,4 +131,4 @@ app.include_router(presentation_runtime.router, prefix="/api/v1")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host=settings.HOST, port=settings.PORT, reload=True)
+    uvicorn.run("main:app", host=settings.HOST, port=settings.PORT, reload=settings.DEBUG)

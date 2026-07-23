@@ -2,59 +2,43 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
 from app.core.exceptions import (
-    SessionNotFoundException,
-    InvalidUploadException,
+    BaseAppException,
+    ValidationException,
+    RuntimeException,
     StorageException,
-    ValidationException
+    BrowserException,
+    LLMException
 )
 
 def register_exception_handlers(app: FastAPI):
-    @app.exception_handler(SessionNotFoundException)
-    async def session_not_found_handler(request: Request, exc: SessionNotFoundException):
+    @app.exception_handler(BaseAppException)
+    async def base_app_exception_handler(request: Request, exc: BaseAppException):
         request_id = getattr(request.state, "request_id", "unknown")
-        return JSONResponse(
-            status_code=404,
-            content={"success": False, "message": str(exc), "request_id": request_id}
-        )
+        
+        # Determine status code
+        status_code = 500
+        code = exc.__class__.__name__
+        
+        if isinstance(exc, ValidationException):
+            status_code = 400
+        elif isinstance(exc, RuntimeException):
+            status_code = 500
+        elif isinstance(exc, StorageException):
+            status_code = 500
+        elif isinstance(exc, BrowserException):
+            status_code = 500
+        elif isinstance(exc, LLMException):
+            status_code = 502
 
-    @app.exception_handler(InvalidUploadException)
-    async def invalid_upload_handler(request: Request, exc: InvalidUploadException):
-        request_id = getattr(request.state, "request_id", "unknown")
-        return JSONResponse(
-            status_code=400,
-            content={"success": False, "message": str(exc), "request_id": request_id}
-        )
+        logger.error(f"[{request_id}] Exception: {code} - {exc.message} (details: {exc.details})")
 
-    @app.exception_handler(ValidationException)
-    async def validation_handler(request: Request, exc: ValidationException):
-        request_id = getattr(request.state, "request_id", "unknown")
         return JSONResponse(
-            status_code=400,
-            content={"success": False, "message": str(exc), "request_id": request_id}
-        )
-
-    @app.exception_handler(StorageException)
-    async def storage_handler(request: Request, exc: StorageException):
-        request_id = getattr(request.state, "request_id", "unknown")
-        logger.error(f"StorageException: {str(exc)}")
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "message": "Storage system error occurred.", "request_id": request_id}
-        )
-
-    from app.core.exceptions import InvalidResponseError, LLMResponseParseError, LLMResponseValidationError
-
-    @app.exception_handler(InvalidResponseError)
-    @app.exception_handler(LLMResponseParseError)
-    @app.exception_handler(LLMResponseValidationError)
-    async def invalid_response_handler(request: Request, exc: Exception):
-        request_id = getattr(request.state, "request_id", "unknown")
-        logger.error(f"InvalidResponseError caught on request {request_id}: {str(exc)}")
-        return JSONResponse(
-            status_code=400,
+            status_code=status_code,
             content={
                 "success": False,
-                "error": "The AI returned an invalid response format. Please try again.",
+                "code": code,
+                "message": exc.message,
+                "details": exc.details,
                 "request_id": request_id
             }
         )
@@ -67,8 +51,9 @@ def register_exception_handlers(app: FastAPI):
             status_code=500,
             content={
                 "success": False,
-                "message": "Internal Server Error",
-                "request_id": request_id,
-                "detail": str(exc)
+                "code": "INTERNAL_SERVER_ERROR",
+                "message": "An unexpected error occurred.",
+                "details": {"error": str(exc)},
+                "request_id": request_id
             }
         )

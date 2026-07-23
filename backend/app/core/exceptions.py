@@ -1,40 +1,49 @@
-class DomainException(Exception):
-    """Base exception class for all domain errors."""
+class BaseAppException(Exception):
+    """Base exception class for all application errors."""
+    def __init__(self, message: str, details: dict = None):
+        super().__init__(message)
+        self.message = message
+        self.details = details or {}
+
+class ValidationException(BaseAppException):
+    """Raised when request payloads, file uploads, or validation parameters fail logic constraints."""
     pass
 
-class SessionNotFoundException(DomainException):
+class RuntimeException(BaseAppException):
+    """Raised during presentation runtime execution or state loops failures."""
+    pass
+
+class StorageException(BaseAppException):
+    """Raised when file storage or asset operations fail."""
+    pass
+
+class BrowserException(BaseAppException):
+    """Raised when Teams browser driver or page interactions fail."""
+    pass
+
+class LLMException(BaseAppException):
+    """Base LLM connection or response validation failure exceptions."""
+    pass
+
+# Domain mapping back-compat subclass layers
+class SessionNotFoundException(ValidationException):
     def __init__(self, session_id: str):
-        self.session_id = session_id
-        super().__init__(f"Session with ID {session_id} not found.")
+        super().__init__(f"Session with ID {session_id} not found.", {"session_id": session_id})
 
-class InvalidUploadException(DomainException):
-    """Raised when an uploaded file fails format or mime validation."""
+class InvalidUploadException(ValidationException):
     pass
 
-class StorageException(DomainException):
-    """Raised when file storage operations fail."""
+class LLMConnectionError(LLMException):
     pass
 
-class ValidationException(DomainException):
-    """Generic business validation exception."""
+class LLMResponseParseError(LLMException):
     pass
 
-class LLMConnectionError(DomainException):
-    """Raised when the LLM provider fails to connect or returns an API error."""
+class LLMResponseValidationError(LLMException):
     pass
 
-class LLMResponseParseError(DomainException):
-    """Raised when the LLM response cannot be parsed as JSON."""
+class PromptRenderError(LLMException):
     pass
 
-class LLMResponseValidationError(DomainException):
-    """Raised when the LLM response is missing required fields or has invalid types."""
-    pass
-
-class PromptRenderError(DomainException):
-    """Raised when rendering a Jinja prompt template fails."""
-    pass
-
-class InvalidResponseError(DomainException):
-    """Raised when the AI returns an invalid response format or missing required fields after retries."""
+class InvalidResponseError(LLMException):
     pass
