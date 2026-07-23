@@ -21,9 +21,12 @@ class MeetingStateAnalyzer:
         except Exception:
             title = ""
 
-        # Flatten DOM elements text for keywords lookup
-        all_text = " ".join([el.text or "" for el in dom.elements]).lower()
-        all_labels = " ".join([el.label or "" for el in dom.elements]).lower()
+        # Fetch actual visible body text directly from page frame to check keywords
+        try:
+            body_text = await page.locator("body").inner_text()
+            body_text = body_text.lower()
+        except Exception:
+            body_text = ""
 
         # Check CONNECTED first
         hangup_visible = False
@@ -42,11 +45,11 @@ class MeetingStateAnalyzer:
 
         if hangup_visible:
             state = MeetingState.CONNECTED
-        elif "connecting" in all_text or "connecting" in title.lower():
+        elif "connecting" in body_text or "connecting" in title.lower():
             state = MeetingState.CONNECTING
-        elif "let you in" in all_text or "lobby" in all_text or "waiting to join" in all_text:
+        elif "let you in" in body_text or "lobby" in body_text or "waiting to join" in body_text:
             state = MeetingState.LOBBY
-        elif "join" in all_text or "meeting" in all_text:
+        elif "join" in body_text or "meeting" in body_text:
             state = MeetingState.CONNECTING
         else:
             state = MeetingState.DISCONNECTED
