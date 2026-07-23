@@ -1,13 +1,14 @@
 from playwright.async_api import Page
 from app.modules.semantic_browser.models.presentation_state import PresentationMode
+from app.modules.semantic_browser.models.semantic_state import DOMSummary
 from loguru import logger
 import hashlib
 
 class PresentationAnalyzer:
-    async def analyze(self, page: Page) -> dict:
+    async def analyze(self, page: Page, dom: DOMSummary = None) -> dict:
         """
         Determines presentation status (Screen sharing, PowerPoint share, Video playback, Blank/Waiting, Loading, Ended).
-        Computes a cryptographic presentation_signature if presenting.
+        Computes a cryptographic presentation_content_signature if presenting.
         """
         mode = PresentationMode.NONE
         details = {}
@@ -119,20 +120,50 @@ class PresentationAnalyzer:
                     else:
                         mode = PresentationMode.NONE
 
-        # Calculate dynamic SHA256 signature if presenting
+        # Calculate presentation_content_signature if presenting
+        # Fallback Decision Tree:
+        # 1. Can DOMSummary provide presentation text?
+        #    - Yes -> Build signature from DOMSummary text.
+        #    - No  -> Perform targeted Playwright selector query.
         signature = None
         if mode in [PresentationMode.POWERPOINT_SHARED, PresentationMode.SCREEN_SHARING]:
             target_sel = details.get("selector_matched")
-            if target_sel:
+            text_content = ""
+            
+            # Step A: Inspect the pre-built DOMSummary model first
+            if dom and dom.elements:
+                slide_texts = []
+                for el in dom.elements:
+                    is_presentation_node = (
+                        el.role in ["presentation", "dialog"] or 
+                        (el.id and "powerpoint" in el.id.lower())
+                    )
+                    if is_presentation_node and el.text:
+                        slide_texts.append(el.text)
+                if slide_texts:
+                    text_content = " | ".join(slide_texts)
+                    logger.debug("PresentationAnalyzer | Extracted presentation content from pre-built DOMSummary.")
+            
+            # Step B: Fallback to targeted Playwright selector query if DOMSummary did not contain slide text
+            if not text_content and target_sel:
                 try:
                     text_content = await page.locator(target_sel).inner_text()
-                    if text_content:
-                        # Normalize white space and newlines
-                        normalized = " ".join(text_content.split())
-                        signature = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-                        details["signature_source_text"] = normalized[:100]
+                    logger.debug("PresentationAnalyzer | DOMSummary content missing. Performed targeted Playwright viewport scan.")
                 except Exception as e:
-                    logger.error(f"PresentationAnalyzer | Failed to calculate presentation signature: {e}")
+                    logger.error(f"PresentationAnalyzer | Viewport scan failed: {e}")
+
+            # Normalize and Hash calculated text contents
+            if text_content:
+                try:
+                    # Normalization pipeline: Trim, remove duplicate spaces/newlines, encode to UTF-8
+                    cleaned_spaces = " ".join(text_content.split())
+                    trimmed = cleaned_spaces.strip()
+                    utf8_bytes = trimmed.encode("utf-8")
+                    signature = hashlib.sha256(utf8_bytes).hexdigest()
+                    
+                    details["signature_source_text"] = trimmed[:100]
+                except Exception as e:
+                    logger.error(f"PresentationAnalyzer | Failed to calculate content signature: {e}")
 
         return {
             "mode": mode,

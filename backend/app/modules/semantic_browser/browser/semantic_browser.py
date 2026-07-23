@@ -27,12 +27,12 @@ class SemanticBrowser:
         # 3. Meeting State Scan
         m_state = await meeting_state_analyzer.analyze(page, dom)
         
-        # 4. Presentation Scan
+        # 4. Presentation Scan (accepts dom to avoid duplicate DOM queries)
         p_mode = PresentationMode.NONE
         p_sig = None
         p_details = {}
         if semantic_browser_config.enable_presentation:
-            p_res = await presentation_analyzer.analyze(page)
+            p_res = await presentation_analyzer.analyze(page, dom)
             p_mode = p_res["mode"]
             p_sig = p_res.get("signature")
             p_details = p_res["details"]
@@ -46,7 +46,7 @@ class SemanticBrowser:
             chat_open=m_state["chat_open"],
             participants_open=m_state["participants_open"],
             recording_active=m_state["recording_active"],
-            presentation_signature=p_sig,
+            presentation_content_signature=p_sig,
             details={
                 "hand_raised": m_state["hand_raised"],
                 "presentation_details": p_details

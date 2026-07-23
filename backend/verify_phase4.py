@@ -35,7 +35,7 @@ class StepTracker:
 
 async def run_verification():
     print("==================================================")
-    print("         AUTOHR PHASE 4.1 VERIFICATION RUN        ")
+    print("         AUTOHR PHASE 4.3 VERIFICATION RUN        ")
     print("==================================================")
     
     steps = {
@@ -43,6 +43,7 @@ async def run_verification():
         "stage1": StepTracker("Stage 1: Waiting/Lobby (No Pres)"),
         "stage2": StepTracker("Stage 2: PowerPoint Appears (Started)"),
         "stage3": StepTracker("Stage 3: DOM Changes (Slide Changed)"),
+        "stage3b": StepTracker("Stage 3B: Identical Content (No Slide Change)"),
         "stage4": StepTracker("Stage 4: Chat Panel Opens (Chat Opened)"),
         "stage5": StepTracker("Stage 5: Roster Panel Opens (Participants Opened)"),
         "stage6": StepTracker("Stage 6: Recording Activates (Recording Started)"),
@@ -101,8 +102,8 @@ async def run_verification():
         assert obs2.timeline_index == 1  # 1 after clearing timeline history
         
         snap2 = semantic_browser_service.get_history()[-1]
-        sig2 = snap2.presentation_signature
-        print(f"  - Stage 2 calculated presentation signature: {sig2}")
+        sig2 = snap2.presentation_content_signature
+        print(f"  - Stage 2 calculated presentation content signature: {sig2}")
         assert sig2 is not None
         
         # Verify no false positives
@@ -129,8 +130,8 @@ async def run_verification():
         assert ObservationEvent.SLIDE_CHANGED in obs3.events
         
         snap3 = semantic_browser_service.get_history()[-1]
-        sig3 = snap3.presentation_signature
-        print(f"  - Stage 3 calculated presentation signature: {sig3}")
+        sig3 = snap3.presentation_content_signature
+        print(f"  - Stage 3 calculated presentation content signature: {sig3}")
         assert sig3 is not None
         assert sig3 != sig2  # Asserts signature changes on content mutation
         
@@ -140,6 +141,17 @@ async def run_verification():
         
         steps["stage3"].complete(True, "Resolved SLIDE_CHANGED event on signature shift")
         print("[✓] Stage 3 Verified")
+        
+        # STAGE 3B: No Slide Change on identical content
+        print("\n--- STAGE 3B: Unchanged Slide Content ---")
+        obs3b = await presentation_observer_service.run_observation_cycle()
+        assert ObservationEvent.SLIDE_CHANGED not in obs3b.events
+        
+        snap3b = semantic_browser_service.get_history()[-1]
+        assert snap3b.presentation_content_signature == sig3
+        
+        steps["stage3b"].complete(True, "No SLIDE_CHANGED event emitted when presentation signature remains unchanged")
+        print("[✓] Stage 3B Verified")
         
         # STAGE 4: Chat Panel Opens
         print("\n--- STAGE 4: Chat Pane Toggle ---")
@@ -254,7 +266,7 @@ async def run_verification():
         await asyncio.sleep(1.5)
 
     print("\n" + "=" * 50)
-    print("       AUTOHR PHASE 4.1 VERIFICATION SUMMARY        ")
+    print("       AUTOHR PHASE 4.3 VERIFICATION SUMMARY        ")
     print("=" * 50)
     passed_all = True
     for key, step in steps.items():

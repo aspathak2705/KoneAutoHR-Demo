@@ -15,7 +15,7 @@ class SemanticSnapshotBuilder:
         chat_open: bool,
         participants_open: bool,
         recording_active: bool,
-        presentation_signature: Optional[str] = None,
+        presentation_content_signature: Optional[str] = None,
         details: dict = None
     ) -> SemanticSnapshot:
         """
@@ -30,6 +30,6 @@ class SemanticSnapshotBuilder:
             chat_open=chat_open,
             participants_open=participants_open,
             recording_active=recording_active,
-            presentation_signature=presentation_signature,
+            presentation_content_signature=presentation_content_signature,
             details=details or {}
         )

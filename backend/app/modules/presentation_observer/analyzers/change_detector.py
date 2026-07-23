@@ -88,10 +88,10 @@ class ChangeDetector:
             events.append(ObservationEvent.RECORDING_STOPPED)
             context.last_event_timestamp = time.time()
 
-        # 6. Detect Slide Change via presentation_signature checks (no DOM heuristics)
+        # 6. Detect Slide Change via presentation_content_signature checks (no DOM heuristics)
         if curr.presentation_state == PresentationMode.POWERPOINT_SHARED:
-            prev_sig = prev.presentation_signature if prev else None
-            curr_sig = curr.presentation_signature
+            prev_sig = prev.presentation_content_signature if prev else None
+            curr_sig = curr.presentation_content_signature
             
             # Slide change resolves if transitioning within PowerPoint and the signature shifts
             if prev and prev.presentation_state == PresentationMode.POWERPOINT_SHARED:

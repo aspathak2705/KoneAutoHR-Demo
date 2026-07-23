@@ -13,5 +13,5 @@ class SemanticSnapshot(BaseModel):
     chat_open: bool = False
     participants_open: bool = False
     recording_active: bool = False
-    presentation_signature: Optional[str] = None
+    presentation_content_signature: Optional[str] = None
     details: Dict[str, Any] = {}
