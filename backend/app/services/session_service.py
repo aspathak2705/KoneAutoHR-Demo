@@ -51,10 +51,7 @@ class SessionService:
                     dest = target_dir / Path(emp.storage_path).name
                     shutil.copy2(emp.storage_path, dest)
                     
-            # Create presentation job record
-            job = presentation_job_service.create_job(db, session.id)
-            
-            # If script and questions are already generated, mark job as completed immediately
+            # If script and questions are already generated, create job and mark as completed immediately
             if session.presentation_id:
                 from app.repositories.presentation_script_repository import presentation_script_repository
                 from app.repositories.presentation_question_repository import presentation_question_repository
@@ -63,6 +60,7 @@ class SessionService:
                 script = presentation_script_repository.get_active(db, session.presentation_id)
                 questions = presentation_question_repository.get_active(db, session.presentation_id)
                 if script and questions:
+                    job = presentation_job_service.create_job(db, session.id)
                     presentation_job_service.update_job_status(db, job.id, JobStatus.COMPLETED, progress=1.0)
             
         # Refresh inside active session scope

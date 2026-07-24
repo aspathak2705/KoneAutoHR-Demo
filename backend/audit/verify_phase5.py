@@ -87,6 +87,11 @@ async def run_verification():
     ws.append(["Jane Doe", "jane.doe@kone.com", "HR", "Talent Acquisition Coordinator", "Espoo", "2026-08-01"])
     wb.save(excel_path)
 
+    from pptx import Presentation as PPTXPresentation
+    prs = PPTXPresentation()
+    prs.slides.add_slide(prs.slide_layouts[0])
+    prs.save("mock_deck.pptx")
+
     def clean_db(db_session, s_id):
         try:
             db_session.query(Meeting).filter(Meeting.session_id == s_id).delete()
@@ -95,7 +100,6 @@ async def run_verification():
             db_session.query(PresentationQuestion).filter(PresentationQuestion.presentation_id == "pres-audit").delete()
             db_session.query(Presentation).filter(Presentation.id == "pres-audit").delete()
             db_session.query(EmployeeList).filter(EmployeeList.id == "emplist-audit").delete()
-            db_session.query(OrganizationConfig).delete()
             db_session.commit()
         except Exception as e:
             db_session.rollback()
@@ -104,17 +108,19 @@ async def run_verification():
     try:
         clean_db(db, session_id)
 
-        # Seed Config
-        config = OrganizationConfig(
-            company_name="KONE",
-            company_domain="kone.com",
-            ai_officer_name="KONE AI Officer",
-            ai_trainer_name="KONE Trainer",
-            ai_role_description="AI Onboarding Assistant",
-            vocal_tone="Professional",
-            communication_style="Direct"
-        )
-        db.add(config)
+        # Seed Config only if none exists
+        if not db.query(OrganizationConfig).first():
+            config = OrganizationConfig(
+                company_name="KONE",
+                company_domain="kone.com",
+                ai_officer_name="KONE AI Officer",
+                ai_trainer_name="KONE Trainer",
+                ai_role_description="AI Onboarding Assistant",
+                vocal_tone="Professional",
+                communication_style="Direct"
+            )
+            db.add(config)
+            db.commit()
 
         # Seed Presentation
         pres = Presentation(
@@ -250,9 +256,102 @@ async def run_verification():
         assert "zero-tolerance" in ans
         assertions += 1
 
+        # Stage 7: Pipeline Decoupling & Fast Failure
+        from app.modules.induction.services.preparation_orchestrator import preparation_orchestrator
+        
+        # Test 1: Fast failure when script is not generated
+        session_decoupled_id = "test-session-decoupled-audit"
+        
+        # Create temp session without script
+        sess_decoupled = Session(
+            id=session_decoupled_id,
+            name="Decoupled Pipeline Session Audit",
+            presentation_id="pres-audit",
+            employee_list_id="emplist-audit",
+            status="PENDING"
+        )
+        db.add(sess_decoupled)
+        db.commit()
+        
+        try:
+            # Recreate jobs but SCRIPT job status is PENDING (not COMPLETED)
+            script_job = preparation_orchestrator._get_or_create_job(db, session_decoupled_id, "SCRIPT")
+            from app.services.presentation_job_service import presentation_job_service
+            presentation_job_service.update_job_status(db, script_job.id, status="PENDING")
+            # Deleting script if it exists in DB just in case
+            db.query(PresentationScript).filter(PresentationScript.presentation_id == "pres-audit").delete()
+            db.commit()
+            
+            try:
+                await preparation_orchestrator.run_audio_generation(session_decoupled_id, "dummy-job-id")
+                assert False, "Should have raised ValueError because SCRIPT job is not COMPLETED"
+            except ValueError as val_err:
+                assert "Presentation script has not been generated. Please complete script generation first." in str(val_err)
+                assertions += 1
+                
+            # Test 2: Run preparation with mocked LLM generation
+            import app.modules.induction.services.script_pipeline as sp_mod
+            async def mock_generate_scripts(*args, **kwargs):
+                return {
+                    "welcome_flow": {
+                        "greeting": "Hello and welcome to KONE onboarding.",
+                        "summary": "Please stay muted during slides."
+                    },
+                    "slide_narrations": {
+                        "1": {"narration": "First slide: KONE is built on innovation and safety. Welcome."},
+                        "2": {"narration": "Second slide: Safety is our core priority. Report hazards immediately."}
+                    },
+                    "faq": [
+                        {"question": "What is the policy on safety?", "answer": "KONE has a zero-tolerance policy for safety violations."}
+                    ],
+                    "closing_script": {"summary": "That concludes KONE values and safety rules induction."}
+                }
+            original_gen = sp_mod.generate_induction_package_scripts
+            sp_mod.generate_induction_package_scripts = mock_generate_scripts
+            
+            try:
+                await preparation_orchestrator.run_preparation(session_decoupled_id, "dummy-prep-job-id")
+            finally:
+                sp_mod.generate_induction_package_scripts = original_gen
+            
+            # Verify script is ready in DB
+            db_script = db.query(PresentationScript).filter(PresentationScript.presentation_id == "pres-audit").first()
+            assert db_script is not None
+            assertions += 1
+            
+            # Verify SCRIPT job is completed
+            script_job = presentation_job_service.get_job_by_session(db, session_id=session_decoupled_id, job_type="SCRIPT")
+            assert script_job.status == "COMPLETED"
+            assertions += 1
+            
+            # Test 3: Run audio generation
+            await preparation_orchestrator.run_audio_generation(session_decoupled_id, "dummy-audio-job-id")
+            audio_job = presentation_job_service.get_job_by_session(db, session_id=session_decoupled_id, job_type="AUDIO")
+            assert audio_job.status == "COMPLETED"
+            assertions += 1
+            
+            # Test 4: Run package generation
+            await preparation_orchestrator.run_package_generation(session_decoupled_id)
+            pack_job = presentation_job_service.get_job_by_session(db, session_id=session_decoupled_id, job_type="PACKAGE")
+            assert pack_job.status == "COMPLETED"
+            assertions += 1
+            
+            sess_check = db.query(Session).filter(Session.id == session_decoupled_id).first()
+            assert sess_check.status == "READY"
+            assertions += 1
+            
+        finally:
+            # Cleanup decoupled session details
+            db.query(Meeting).filter(Meeting.session_id == session_decoupled_id).delete()
+            db.query(PresentationJob).filter(PresentationJob.session_id == session_decoupled_id).delete()
+            db.query(Session).filter(Session.id == session_decoupled_id).delete()
+            db.commit()
+
     finally:
         if os.path.exists(excel_path):
             os.remove(excel_path)
+        if os.path.exists("mock_deck.pptx"):
+            os.remove("mock_deck.pptx")
         clean_db(db, session_id)
         db.close()
         

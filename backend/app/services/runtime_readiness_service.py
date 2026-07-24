@@ -78,7 +78,7 @@ class RuntimeReadinessService:
                 has_audio_ref = manifest.get("audio_manifest") == "audio_manifest.json"
                 
                 # Verify audio files index is loaded
-                audio_files = manifest.get("audio_files", [])
+                audio_files = list(manifest.get("checksums", {}).keys())
                 if len(audio_files) > 0 and has_script_ref and has_metadata_ref and has_audio_ref:
                     audio_ready = True
                     audio_reason = None

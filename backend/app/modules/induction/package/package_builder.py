@@ -25,7 +25,8 @@ class PackageBuilder:
         slides_src = session_dir / "slides"
         if slides_src.exists():
             for img_file in slides_src.glob("*"):
-                shutil.copy(img_file, assets_dir / img_file.name)
+                if img_file.is_file():
+                    shutil.copy(img_file, assets_dir / img_file.name)
 
         # 2. Compile audio tracks
         audio_tracks = audio_manifest.get("tracks", [])

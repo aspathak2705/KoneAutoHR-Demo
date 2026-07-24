@@ -11,6 +11,10 @@ from app.schemas.meeting import (
 from app.repositories.meeting_repository import meeting_repository
 from app.services.session_service import session_service
 from app.db.unit_of_work import UnitOfWork
+from app.models.session import Session
+from app.models.meeting import Meeting
+from app.models.invitation_draft import InvitationDraft
+from app.modules.induction.employees.excel_parser import parse_employees_excel
 
 router = APIRouter(prefix="/meetings", tags=["Meeting Management"])
 
@@ -69,20 +73,85 @@ def get_meeting_by_session(session_id: str, db: DBSession = Depends(get_db)):
 
 @router.post("/session/{session_id}/generate-drafts", response_model=List[InvitationDraftResponse])
 async def generate_invitation_drafts(session_id: str, db: DBSession = Depends(get_db)):
-    # Microsoft Graph integration removed; return empty drafts list
-    return []
+    session = db.query(Session).filter(Session.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    
+    if not session.employee_list:
+        raise HTTPException(status_code=400, detail="Employee list not uploaded yet.")
+    
+    meeting = db.query(Meeting).filter(Meeting.session_id == session_id).first()
+    meeting_url = meeting.teams_meeting_url if meeting else "https://teams.microsoft.com/l/meetup-join/dummy"
+    meeting_date = meeting.meeting_date if meeting else "TBD"
+    meeting_time = meeting.meeting_time if meeting else "TBD"
+    organizer = meeting.organizer_name if meeting else "KONE Trainer"
+    passcode_info = f"<p>Meeting Passcode: <code>{meeting.meeting_passcode}</code></p>" if (meeting and meeting.meeting_passcode) else ""
+
+    try:
+        employees = parse_employees_excel(session.employee_list.storage_path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse employee Excel: {e}")
+
+    # Remove existing drafts
+    db.query(InvitationDraft).filter(InvitationDraft.session_id == session_id).delete()
+    db.commit()
+
+    created_drafts = []
+    with UnitOfWork(db):
+        for emp in employees:
+            name = emp.get("name") or "New Joiner"
+            email = emp.get("email")
+            if not email:
+                continue
+            
+            designation = emp.get("designation") or emp.get("role") or emp.get("title") or "Associate"
+            department = emp.get("department") or emp.get("dept") or "Operations"
+            location = emp.get("location") or emp.get("office") or "KONE Office"
+
+            subject = f"KONE Onboarding: Invitation to Induction Session — {name}"
+            body = (
+                f"<p>Dear {name},</p>"
+                f"<p>Welcome to KONE! We are thrilled to have you join our team as <strong>{designation}</strong> in the <strong>{department}</strong> department at our <strong>{location}</strong> office.</p>"
+                f"<p>You are invited to attend your personalized HR Induction Session scheduled on <strong>{meeting_date}</strong> at <strong>{meeting_time}</strong>. The session will be hosted by <strong>{organizer}</strong>.</p>"
+                f"<p>Please join the session using the Microsoft Teams link below:</p>"
+                f"<p><a href=\"{meeting_url}\" target=\"_blank\" style=\"display:inline-block;background-color:#0078d4;color:white;padding:8px 16px;text-decoration:none;border-radius:4px;font-weight:bold;\">Join Induction Meeting</a></p>"
+                f"{passcode_info}"
+                f"<p>We look forward to meeting you and helping you kickstart your journey at KONE.</p>"
+                f"<p>Best regards,<br/>KONE HR Team</p>"
+            )
+
+            draft = InvitationDraft(
+                session_id=session_id,
+                recipient_name=name,
+                recipient_email=email,
+                subject=subject,
+                body=body,
+                status="DRAFT"
+            )
+            db.add(draft)
+            created_drafts.append(draft)
+    
+    drafts = db.query(InvitationDraft).filter(InvitationDraft.session_id == session_id).all()
+    return drafts
 
 @router.get("/session/{session_id}/drafts", response_model=List[InvitationDraftResponse])
 def get_invitation_drafts(session_id: str, db: DBSession = Depends(get_db)):
-    # Microsoft Graph integration removed; return empty drafts list
-    return []
+    drafts = db.query(InvitationDraft).filter(InvitationDraft.session_id == session_id).all()
+    return drafts
 
 @router.put("/drafts/{draft_id}", response_model=InvitationDraftResponse)
 def update_invitation_draft(draft_id: str, draft_in: InvitationDraftUpdate, db: DBSession = Depends(get_db)):
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Invitation drafts are disabled as Microsoft Graph integration is removed."
-    )
+    draft = db.query(InvitationDraft).filter(InvitationDraft.id == draft_id).first()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Invitation draft not found.")
+    
+    with UnitOfWork(db):
+        draft.subject = draft_in.subject
+        draft.body = draft_in.body
+        draft.status = "EDITED"
+    
+    db.refresh(draft)
+    return draft
 
 from app.services.runtime_context_service import runtime_context_service
 from app.services.runtime_readiness_service import runtime_readiness_service

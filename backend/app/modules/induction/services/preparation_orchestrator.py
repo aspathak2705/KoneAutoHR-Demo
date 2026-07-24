@@ -34,11 +34,11 @@ class PreparationOrchestrator:
             job = presentation_job_service.create_job(db, session_id=session_id, job_type=job_type)
         return job
 
-    async def run_script_generation(self, session_id: str, trigger_job_id: str) -> None:
+    async def run_preparation(self, session_id: str, trigger_job_id: str) -> None:
         """
         Coordinates Validation Pipeline, Parsing Pipeline, Context Builder, and Script Pipeline.
         """
-        logger.info(f"PreparationOrchestrator | Starting script generation orchestration (Session: {session_id})")
+        logger.info(f"PreparationOrchestrator | Starting preparation orchestration (Session: {session_id})")
         db = SessionLocal()
         try:
             session = db.query(Session).filter(Session.id == session_id).first()
@@ -99,6 +99,9 @@ class PreparationOrchestrator:
             with open(session_dir / "structured_context.json", "w", encoding="utf-8") as f:
                 json.dump(structured_context, f, indent=2)
 
+            with open(session_dir / "validation_report.json", "w", encoding="utf-8") as f:
+                json.dump(val_report, f, indent=2)
+
             # 4. Script Pipeline
             with UnitOfWork(db):
                 session_repository.update(db, session, SessionUpdate(status=SessionStatus.GENERATING_SCRIPT.value))
@@ -110,10 +113,10 @@ class PreparationOrchestrator:
                 session_repository.update(db, session, SessionUpdate(status=SessionStatus.UPLOADED.value))
                 presentation_job_service.update_job_status(db, script_job.id, status="COMPLETED", progress=1.0)
 
-            logger.info("PreparationOrchestrator | Script generation orchestration completed successfully.")
+            logger.info("PreparationOrchestrator | Preparation orchestration completed successfully.")
 
         except Exception as e:
-            logger.exception("PreparationOrchestrator | Script generation failed.")
+            logger.exception("PreparationOrchestrator | Preparation failed.")
             try:
                 db.rollback()
             except Exception as rollback_err:
@@ -127,12 +130,17 @@ class PreparationOrchestrator:
                             presentation_job_service.update_job_status(db, j.id, status="FAILED", error_message=str(e))
             except Exception as update_err:
                 logger.error(f"PreparationOrchestrator | Failed to update failure status: {update_err}")
+            raise e
         finally:
             db.close()
 
+    async def run_script_generation(self, session_id: str, trigger_job_id: str) -> None:
+        await self.run_preparation(session_id, trigger_job_id)
+
     async def run_audio_generation(self, session_id: str, trigger_job_id: str) -> None:
         """
-        Coordinates Speech Pipeline, Asset Pipeline, Verification Pipeline, and Package Builder.
+        Coordinates Speech Pipeline and Asset Pipeline from the stored PresentationScript.
+        Does NOT re-execute validation, parsing, context compilation, or script synthesis.
         """
         logger.info(f"PreparationOrchestrator | Starting audio generation orchestration (Session: {session_id})")
         db = SessionLocal()
@@ -142,58 +150,34 @@ class PreparationOrchestrator:
                 logger.error(f"PreparationOrchestrator | Session {session_id} not found.")
                 return
 
+            # FAIL-FAST: Verify SCRIPT job is completed and script exists in database
+            from app.repositories.presentation_script_repository import presentation_script_repository
+            db_script = presentation_script_repository.get_active(db, session.presentation_id)
+
+            if not db_script:
+                raise ValueError("Presentation script has not been generated. Please complete script generation first.")
+
+            script_job = presentation_job_service.get_job_by_session(db, session_id=session_id, job_type="SCRIPT")
+            if not script_job:
+                script_job = self._get_or_create_job(db, session_id, "SCRIPT")
+            if script_job.status != "COMPLETED":
+                with UnitOfWork(db):
+                    presentation_job_service.update_job_status(db, script_job.id, status="COMPLETED", progress=1.0)
+
             audio_job = self._get_or_create_job(db, session_id, "AUDIO")
-            pack_job = self._get_or_create_job(db, session_id, "PACKAGE")
-            ver_job = self._get_or_create_job(db, session_id, "VERIFICATION")
 
             with UnitOfWork(db):
                 presentation_job_service.update_job_status(db, audio_job.id, status="PENDING", progress=0.0)
-                presentation_job_service.update_job_status(db, pack_job.id, status="PENDING", progress=0.0)
-                presentation_job_service.update_job_status(db, ver_job.id, status="PENDING", progress=0.0)
 
             session_dir = storage_service.get_session_dir(session_id)
-            
-            # Reconstruct missing files if they do not exist in the session directory
-            if not (session_dir / "structured_context.json").exists() or not (session_dir / "session_script.json").exists():
-                logger.info("PreparationOrchestrator | Re-compiling session context and script files...")
-                session_dir.mkdir(parents=True, exist_ok=True)
-                val_report = validation_pipeline.execute(
-                    db, session.presentation_id, session.employee_list_id, session_id, session_dir
-                )
-                parsed_data = parsing_pipeline.execute(
-                    db=db,
-                    presentation_id=session.presentation_id,
-                    ppt_path=val_report["details"]["ppt_path"],
-                    excel_path=val_report["details"]["excel_path"],
-                    session_id=session_id,
-                    session_dir=session_dir
-                )
-                structured_context = context_builder.build_context(
-                    db=db,
-                    session=session,
-                    slide_knowledge=parsed_data["slides"],
-                    employee_rows=parsed_data["employees"]
-                )
-                with open(session_dir / "structured_context.json", "w", encoding="utf-8") as f:
-                    json.dump(structured_context, f, indent=2)
-                with open(session_dir / "validation_report.json", "w", encoding="utf-8") as f:
-                    json.dump(val_report, f, indent=2)
-                
-                from app.repositories.presentation_script_repository import presentation_script_repository
-                db_script = presentation_script_repository.get_active(db, session.presentation_id)
-                if not db_script:
-                    raise FileNotFoundError("No active script found in database for presentation.")
-                script_data = db_script.script_content
-                with open(session_dir / "session_script.json", "w", encoding="utf-8") as f:
-                    json.dump(script_data, f, indent=2)
-                validation_report = val_report
-            else:
-                with open(session_dir / "structured_context.json", "r", encoding="utf-8") as f:
-                    structured_context = json.load(f)
-                with open(session_dir / "session_script.json", "r", encoding="utf-8") as f:
-                    script_data = json.load(f)
-                with open(session_dir / "validation_report.json", "r", encoding="utf-8") as f:
-                    validation_report = json.load(f)
+            session_dir.mkdir(parents=True, exist_ok=True)
+
+            # Re-export script file from DB to session directory (optional disk export)
+            script_data = db_script.script_content
+            if isinstance(script_data, str):
+                script_data = json.loads(script_data)
+            with open(session_dir / "session_script.json", "w", encoding="utf-8") as f:
+                json.dump(script_data, f, indent=2)
 
             # 5. Speech Pipeline (TTS)
             with UnitOfWork(db):
@@ -224,6 +208,125 @@ class PreparationOrchestrator:
                 audio_tracks=audio_tracks,
                 session_dir=session_dir
             )
+
+            logger.info("PreparationOrchestrator | Audio generation completed successfully.")
+
+        except Exception as e:
+            logger.exception("PreparationOrchestrator | Audio generation failed.")
+            try:
+                db.rollback()
+            except Exception as rollback_err:
+                logger.error(f"PreparationOrchestrator | Database rollback failed: {rollback_err}")
+            try:
+                with UnitOfWork(db):
+                    session_repository.update(db, session, SessionUpdate(status=SessionStatus.FAILED.value))
+                    j = presentation_job_service.get_job_by_session(db, session_id=session_id, job_type="AUDIO")
+                    if j and j.status != "COMPLETED":
+                        presentation_job_service.update_job_status(db, j.id, status="FAILED", error_message=str(e))
+            except Exception as update_err:
+                logger.error(f"PreparationOrchestrator | Failed to update failure status: {update_err}")
+            raise e
+        finally:
+            db.close()
+
+    async def run_package_generation(self, session_id: str, trigger_job_id: str = None) -> None:
+        """
+        Coordinates Verification Pipeline and Package Builder.
+        Consumes final generated artifacts strictly without upstream steps.
+        """
+        logger.info(f"PreparationOrchestrator | Starting package generation orchestration (Session: {session_id})")
+        db = SessionLocal()
+        try:
+            session = db.query(Session).filter(Session.id == session_id).first()
+            if not session:
+                logger.error(f"PreparationOrchestrator | Session {session_id} not found.")
+                return
+
+            session_dir = storage_service.get_session_dir(session_id)
+
+            # Check upstream statuses and self-heal if artifacts exist
+            from app.repositories.presentation_script_repository import presentation_script_repository
+            db_script = presentation_script_repository.get_active(db, session.presentation_id)
+            if not db_script:
+                raise ValueError("Presentation script has not been generated. Please complete script generation first.")
+
+            script_job = presentation_job_service.get_job_by_session(db, session_id=session_id, job_type="SCRIPT")
+            if not script_job:
+                script_job = self._get_or_create_job(db, session_id, "SCRIPT")
+            if script_job.status != "COMPLETED":
+                with UnitOfWork(db):
+                    presentation_job_service.update_job_status(db, script_job.id, status="COMPLETED", progress=1.0)
+
+            audio_manifest_path = session_dir / "audio_manifest.json"
+            audio_job = presentation_job_service.get_job_by_session(db, session_id=session_id, job_type="AUDIO")
+            if audio_manifest_path.exists():
+                if not audio_job:
+                    audio_job = self._get_or_create_job(db, session_id, "AUDIO")
+                if audio_job.status != "COMPLETED":
+                    with UnitOfWork(db):
+                        presentation_job_service.update_job_status(db, audio_job.id, status="COMPLETED", progress=1.0)
+
+            if not audio_job or audio_job.status != "COMPLETED":
+                raise ValueError("Upstream phases (Script and Audio) must be completed before packaging.")
+
+            pack_job = self._get_or_create_job(db, session_id, "PACKAGE")
+            ver_job = self._get_or_create_job(db, session_id, "VERIFICATION")
+
+            with UnitOfWork(db):
+                presentation_job_service.update_job_status(db, pack_job.id, status="PENDING", progress=0.0)
+                presentation_job_service.update_job_status(db, ver_job.id, status="PENDING", progress=0.0)
+
+            # Load primary and generated artifacts
+            from app.repositories.presentation_script_repository import presentation_script_repository
+            db_script = presentation_script_repository.get_active(db, session.presentation_id)
+            if not db_script:
+                raise FileNotFoundError("Active script not found in database.")
+            script_data = db_script.script_content
+            if isinstance(script_data, str):
+                script_data = json.loads(script_data)
+
+            structured_context_path = session_dir / "structured_context.json"
+            validation_report_path = session_dir / "validation_report.json"
+
+            if not structured_context_path.exists() or not validation_report_path.exists():
+                logger.info("PreparationOrchestrator | Structured context or validation report missing from disk. Re-parsing local files on-the-fly...")
+                validation_report = validation_pipeline.execute(
+                    db=db,
+                    presentation_id=session.presentation_id,
+                    employee_list_id=session.employee_list_id,
+                    session_id=session_id,
+                    session_dir=session_dir
+                )
+                parsed_data = parsing_pipeline.execute(
+                    db=db,
+                    presentation_id=session.presentation_id,
+                    ppt_path=validation_report["details"]["ppt_path"],
+                    employee_list_id=session.employee_list_id,
+                    excel_path=validation_report["details"]["excel_path"],
+                    session_id=session_id,
+                    session_dir=session_dir
+                )
+                structured_context = context_builder.build_context(
+                    db=db,
+                    session=session,
+                    slide_knowledge=parsed_data["slides"],
+                    employee_rows=parsed_data["employees"]
+                )
+                with open(structured_context_path, "w", encoding="utf-8") as f:
+                    json.dump(structured_context, f, indent=2)
+                with open(validation_report_path, "w", encoding="utf-8") as f:
+                    json.dump(validation_report, f, indent=2)
+            else:
+                with open(structured_context_path, "r", encoding="utf-8") as f:
+                    structured_context = json.load(f)
+                with open(validation_report_path, "r", encoding="utf-8") as f:
+                    validation_report = json.load(f)
+
+            audio_manifest_path = session_dir / "audio_manifest.json"
+            if not audio_manifest_path.exists():
+                raise FileNotFoundError("Audio manifest artifact is missing. Please run audio generation first.")
+            with open(audio_manifest_path, "r", encoding="utf-8") as f:
+                audio_manifest = json.load(f)
 
             # 7. Verification Pipeline
             with UnitOfWork(db):
@@ -263,7 +366,7 @@ class PreparationOrchestrator:
             logger.info("PreparationOrchestrator | Deployment package assembled and verified. Session READY.")
 
         except Exception as e:
-            logger.exception("PreparationOrchestrator | Audio/Package generation failed.")
+            logger.exception("PreparationOrchestrator | Package generation failed.")
             try:
                 db.rollback()
             except Exception as rollback_err:
@@ -271,12 +374,13 @@ class PreparationOrchestrator:
             try:
                 with UnitOfWork(db):
                     session_repository.update(db, session, SessionUpdate(status=SessionStatus.FAILED.value))
-                    for j_type in ["AUDIO", "VERIFICATION", "PACKAGE"]:
+                    for j_type in ["VERIFICATION", "PACKAGE"]:
                         j = presentation_job_service.get_job_by_session(db, session_id=session_id, job_type=j_type)
                         if j and j.status != "COMPLETED":
                             presentation_job_service.update_job_status(db, j.id, status="FAILED", error_message=str(e))
             except Exception as update_err:
                 logger.error(f"PreparationOrchestrator | Failed to update failure status: {update_err}")
+            raise e
         finally:
             db.close()
 

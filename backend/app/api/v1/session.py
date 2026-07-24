@@ -85,6 +85,30 @@ async def trigger_audio_generation(
     background_tasks.add_task(preparation_orchestrator.run_audio_generation, id, job.id)
     return {"message": "Audio generation pipeline started.", "job_id": job.id, "job_type": "AUDIO"}
 
+@router.post("/{id}/generate-package")
+async def trigger_package_generation(
+    id: str,
+    background_tasks: BackgroundTasks,
+    uow: UnitOfWork = Depends(get_uow)
+):
+    db = uow.db
+    # Check if package job already exists
+    job = presentation_job_service.get_job_by_session(db, session_id=id, job_type="PACKAGE")
+    if job:
+        presentation_job_service.update_job_status(db, job.id, status="PENDING", progress=0.0, error_message=None)
+    else:
+        job = presentation_job_service.create_job(db, session_id=id, job_type="PACKAGE")
+        
+    # Also reset verification job
+    ver_job = presentation_job_service.get_job_by_session(db, session_id=id, job_type="VERIFICATION")
+    if ver_job:
+        presentation_job_service.update_job_status(db, ver_job.id, status="PENDING", progress=0.0, error_message=None)
+    else:
+        ver_job = presentation_job_service.create_job(db, session_id=id, job_type="VERIFICATION")
+
+    background_tasks.add_task(preparation_orchestrator.run_package_generation, id, job.id)
+    return {"message": "Packaging pipeline started.", "job_id": job.id, "job_type": "PACKAGE"}
+
 @router.get("/{id}/jobs")
 def get_session_jobs(id: str, uow: UnitOfWork = Depends(get_uow)):
     jobs = presentation_job_service.get_all_jobs_by_session(uow.db, id)

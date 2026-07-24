@@ -60,7 +60,22 @@ class VerificationPipeline:
         # 6. Every audio generated and hashes match
         audios_valid = True
         audio_tracks = audio_manifest.get("tracks", []) if audio_manifest else []
-        expected_audio_labels = ["greeting", "intro", "closing"]
+        
+        expected_audio_labels = []
+        welcome_flow = script_data.get("welcome_flow", {}) if isinstance(script_data, dict) else {}
+        if isinstance(welcome_flow, dict):
+            if welcome_flow.get("greeting"):
+                expected_audio_labels.append("greeting")
+            if welcome_flow.get("summary"):
+                expected_audio_labels.append("intro")
+                
+        closing_script = script_data.get("closing_script", {}) if isinstance(script_data, dict) else {}
+        if isinstance(closing_script, dict):
+            if closing_script.get("summary"):
+                expected_audio_labels.append("closing")
+        elif isinstance(closing_script, str) and closing_script:
+            expected_audio_labels.append("closing")
+            
         for s in slides_data:
             expected_audio_labels.append(f"slide_{s['slide_number']}")
 

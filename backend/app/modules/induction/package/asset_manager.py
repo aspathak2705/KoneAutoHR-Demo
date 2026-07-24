@@ -41,7 +41,7 @@ class AssetManager:
         checksum = self.compute_md5(content)
 
         # 2. Check for existing versioning
-        existing_assets = presentation_asset_repository.get_all_by_presentation(db, presentation_id)
+        existing_assets = presentation_asset_repository.get_by_presentation(db, presentation_id)
         version = 1
         for asset in existing_assets:
             if asset.storage_uri.endswith(relative_path):

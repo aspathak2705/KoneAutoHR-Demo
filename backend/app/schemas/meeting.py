@@ -15,7 +15,7 @@ class MeetingCreate(BaseSchema):
     @model_validator(mode="after")
     def validate_meeting_url(self) -> "MeetingCreate":
         url = self.teams_meeting_url
-        if "teams.microsoft.com" not in url and "localhost" not in url and "127.0.0.1" not in url:
+        if "teams.microsoft.com" not in url and "teams.live.com" not in url and "localhost" not in url and "127.0.0.1" not in url:
             raise ValueError("Meeting URL must be a valid Microsoft Teams join link.")
         return self
 
