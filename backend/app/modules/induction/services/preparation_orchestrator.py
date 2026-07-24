@@ -8,6 +8,7 @@ from app.db.database import SessionLocal
 from app.models.session import Session
 from app.core.constants import JobStatus, SessionStatus
 from app.repositories.session_repository import session_repository
+from app.schemas.session import SessionUpdate
 from app.services.presentation_job_service import presentation_job_service
 from app.services.storage_service import storage_service
 from app.db.unit_of_work import UnitOfWork
@@ -59,7 +60,7 @@ class PreparationOrchestrator:
 
             # 1. Validation Pipeline
             with UnitOfWork(db):
-                session_repository.update(db, session, status=SessionStatus.VALIDATING.value)
+                session_repository.update(db, session, SessionUpdate(status=SessionStatus.VALIDATING.value))
                 presentation_job_service.update_job_status(db, val_job.id, status="PROCESSING", progress=0.1)
 
             val_report = validation_pipeline.execute(
@@ -71,7 +72,7 @@ class PreparationOrchestrator:
 
             # 2. Parsing Pipeline
             with UnitOfWork(db):
-                session_repository.update(db, session, status=SessionStatus.PARSING.value)
+                session_repository.update(db, session, SessionUpdate(status=SessionStatus.PARSING.value))
                 presentation_job_service.update_job_status(db, parse_job.id, status="PROCESSING", progress=0.1)
 
             parsed_data = parsing_pipeline.execute(
@@ -100,25 +101,32 @@ class PreparationOrchestrator:
 
             # 4. Script Pipeline
             with UnitOfWork(db):
-                session_repository.update(db, session, status=SessionStatus.GENERATING_SCRIPT.value)
+                session_repository.update(db, session, SessionUpdate(status=SessionStatus.GENERATING_SCRIPT.value))
                 presentation_job_service.update_job_status(db, script_job.id, status="PROCESSING", progress=0.1)
 
             await script_pipeline.execute(db, structured_context, session_dir)
 
             with UnitOfWork(db):
-                session_repository.update(db, session, status=SessionStatus.UPLOADED.value)
+                session_repository.update(db, session, SessionUpdate(status=SessionStatus.UPLOADED.value))
                 presentation_job_service.update_job_status(db, script_job.id, status="COMPLETED", progress=1.0)
 
             logger.info("PreparationOrchestrator | Script generation orchestration completed successfully.")
 
         except Exception as e:
             logger.exception("PreparationOrchestrator | Script generation failed.")
-            with UnitOfWork(db):
-                session_repository.update(db, session, status=SessionStatus.FAILED.value)
-                for j_type in ["VALIDATION", "PARSING", "SCRIPT"]:
-                    j = presentation_job_service.get_job_by_session(db, session_id=session_id, job_type=j_type)
-                    if j and j.status != "COMPLETED":
-                        presentation_job_service.update_job_status(db, j.id, status="FAILED", error_message=str(e))
+            try:
+                db.rollback()
+            except Exception as rollback_err:
+                logger.error(f"PreparationOrchestrator | Database rollback failed: {rollback_err}")
+            try:
+                with UnitOfWork(db):
+                    session_repository.update(db, session, SessionUpdate(status=SessionStatus.FAILED.value))
+                    for j_type in ["VALIDATION", "PARSING", "SCRIPT"]:
+                        j = presentation_job_service.get_job_by_session(db, session_id=session_id, job_type=j_type)
+                        if j and j.status != "COMPLETED":
+                            presentation_job_service.update_job_status(db, j.id, status="FAILED", error_message=str(e))
+            except Exception as update_err:
+                logger.error(f"PreparationOrchestrator | Failed to update failure status: {update_err}")
         finally:
             db.close()
 
@@ -145,16 +153,51 @@ class PreparationOrchestrator:
 
             session_dir = storage_service.get_session_dir(session_id)
             
-            with open(session_dir / "structured_context.json", "r", encoding="utf-8") as f:
-                structured_context = json.load(f)
-            with open(session_dir / "session_script.json", "r", encoding="utf-8") as f:
-                script_data = json.load(f)
-            with open(session_dir / "validation_report.json", "r", encoding="utf-8") as f:
-                validation_report = json.load(f)
+            # Reconstruct missing files if they do not exist in the session directory
+            if not (session_dir / "structured_context.json").exists() or not (session_dir / "session_script.json").exists():
+                logger.info("PreparationOrchestrator | Re-compiling session context and script files...")
+                session_dir.mkdir(parents=True, exist_ok=True)
+                val_report = validation_pipeline.execute(
+                    db, session.presentation_id, session.employee_list_id, session_id, session_dir
+                )
+                parsed_data = parsing_pipeline.execute(
+                    db=db,
+                    presentation_id=session.presentation_id,
+                    ppt_path=val_report["details"]["ppt_path"],
+                    excel_path=val_report["details"]["excel_path"],
+                    session_id=session_id,
+                    session_dir=session_dir
+                )
+                structured_context = context_builder.build_context(
+                    db=db,
+                    session=session,
+                    slide_knowledge=parsed_data["slides"],
+                    employee_rows=parsed_data["employees"]
+                )
+                with open(session_dir / "structured_context.json", "w", encoding="utf-8") as f:
+                    json.dump(structured_context, f, indent=2)
+                with open(session_dir / "validation_report.json", "w", encoding="utf-8") as f:
+                    json.dump(val_report, f, indent=2)
+                
+                from app.repositories.presentation_script_repository import presentation_script_repository
+                db_script = presentation_script_repository.get_active(db, session.presentation_id)
+                if not db_script:
+                    raise FileNotFoundError("No active script found in database for presentation.")
+                script_data = db_script.script_content
+                with open(session_dir / "session_script.json", "w", encoding="utf-8") as f:
+                    json.dump(script_data, f, indent=2)
+                validation_report = val_report
+            else:
+                with open(session_dir / "structured_context.json", "r", encoding="utf-8") as f:
+                    structured_context = json.load(f)
+                with open(session_dir / "session_script.json", "r", encoding="utf-8") as f:
+                    script_data = json.load(f)
+                with open(session_dir / "validation_report.json", "r", encoding="utf-8") as f:
+                    validation_report = json.load(f)
 
             # 5. Speech Pipeline (TTS)
             with UnitOfWork(db):
-                session_repository.update(db, session, status=SessionStatus.GENERATING_AUDIO.value)
+                session_repository.update(db, session, SessionUpdate(status=SessionStatus.GENERATING_AUDIO.value))
                 presentation_job_service.update_job_status(db, audio_job.id, status="PROCESSING", progress=0.1)
 
             voice = script_data.get("ai_persona", {}).get("tone", "en-US-AriaNeural")
@@ -172,7 +215,7 @@ class PreparationOrchestrator:
 
             # 6. Asset Pipeline (Catalog & Hash)
             with UnitOfWork(db):
-                session_repository.update(db, session, status=SessionStatus.REGISTERING_ASSETS.value)
+                session_repository.update(db, session, SessionUpdate(status=SessionStatus.REGISTERING_ASSETS.value))
                 
             audio_manifest = asset_pipeline.execute(
                 db=db,
@@ -184,7 +227,7 @@ class PreparationOrchestrator:
 
             # 7. Verification Pipeline
             with UnitOfWork(db):
-                session_repository.update(db, session, status=SessionStatus.VERIFYING.value)
+                session_repository.update(db, session, SessionUpdate(status=SessionStatus.VERIFYING.value))
                 presentation_job_service.update_job_status(db, ver_job.id, status="PROCESSING", progress=0.1)
 
             ver_report = verification_pipeline.execute(
@@ -214,19 +257,26 @@ class PreparationOrchestrator:
             )
 
             with UnitOfWork(db):
-                session_repository.update(db, session, status=SessionStatus.READY.value)
+                session_repository.update(db, session, SessionUpdate(status=SessionStatus.READY.value))
                 presentation_job_service.update_job_status(db, pack_job.id, status="COMPLETED", progress=1.0)
 
             logger.info("PreparationOrchestrator | Deployment package assembled and verified. Session READY.")
 
         except Exception as e:
             logger.exception("PreparationOrchestrator | Audio/Package generation failed.")
-            with UnitOfWork(db):
-                session_repository.update(db, session, status=SessionStatus.FAILED.value)
-                for j_type in ["AUDIO", "VERIFICATION", "PACKAGE"]:
-                    j = presentation_job_service.get_job_by_session(db, session_id=session_id, job_type=j_type)
-                    if j and j.status != "COMPLETED":
-                        presentation_job_service.update_job_status(db, j.id, status="FAILED", error_message=str(e))
+            try:
+                db.rollback()
+            except Exception as rollback_err:
+                logger.error(f"PreparationOrchestrator | Database rollback failed: {rollback_err}")
+            try:
+                with UnitOfWork(db):
+                    session_repository.update(db, session, SessionUpdate(status=SessionStatus.FAILED.value))
+                    for j_type in ["AUDIO", "VERIFICATION", "PACKAGE"]:
+                        j = presentation_job_service.get_job_by_session(db, session_id=session_id, job_type=j_type)
+                        if j and j.status != "COMPLETED":
+                            presentation_job_service.update_job_status(db, j.id, status="FAILED", error_message=str(e))
+            except Exception as update_err:
+                logger.error(f"PreparationOrchestrator | Failed to update failure status: {update_err}")
         finally:
             db.close()
 

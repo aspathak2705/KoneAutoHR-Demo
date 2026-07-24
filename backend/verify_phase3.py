@@ -80,7 +80,7 @@ async def run_verification():
         )
         assert dummy.meeting_state == MeetingState.CONNECTED
         steps["builder"].complete(True, "SnapshotBuilder compiled successfully")
-        print("[✓] Snapshot Builder Verified")
+        print("[OK] Snapshot Builder Verified")
     except Exception as e:
         steps["builder"].complete(False, str(e))
         print(f"[X] Snapshot Builder Verification Failed: {e}")
@@ -94,7 +94,7 @@ async def run_verification():
     await bot.initialize()
     page = bot.context.page
     steps["init"].complete(True, "Browser process launched headless")
-    print("[✓] Browser Initialized")
+    print("[OK] Browser Initialized")
 
     try:
         # STAGE 1: Lobby Screen
@@ -116,20 +116,20 @@ async def run_verification():
         steps["dom"].start()
         dom = await dom_analyzer.analyze(page)
         steps["dom"].complete(True, f"Scraped {dom.total_interactive_count} interactive nodes")
-        print("[✓] DOM Analyzer Verified")
+        print("[OK] DOM Analyzer Verified")
 
         # Test Accessibility Analyzer
         steps["accessibility"].start()
         acc = await accessibility_analyzer.analyze(page)
         steps["accessibility"].complete(len(acc.nodes) > 0, f"Found {len(acc.nodes)} accessibility nodes")
-        print("[✓] Accessibility Analyzer Verified")
+        print("[OK] Accessibility Analyzer Verified")
 
         # Test Meeting State Analyzer (Lobby)
         steps["meeting_state"].start()
         m_state = await meeting_state_analyzer.analyze(page, dom)
         assert m_state["state"] == MeetingState.LOBBY
         steps["meeting_state"].complete(True, "Inferred MeetingState.LOBBY from DOM text")
-        print("[✓] Meeting State Analyzer Verified (LOBBY)")
+        print("[OK] Meeting State Analyzer Verified (LOBBY)")
         steps["lobby_update"].complete(True, "Transition to LOBBY verified")
 
         # STAGE 2: Connecting Screen
@@ -143,7 +143,7 @@ async def run_verification():
         m_state2 = await meeting_state_analyzer.analyze(page, dom2)
         assert m_state2["state"] == MeetingState.CONNECTING
         steps["connecting_update"].complete(True, "Transition to CONNECTING verified")
-        print("[✓] Dynamic Connecting State Update")
+        print("[OK] Dynamic Connecting State Update")
 
         # STAGE 3: Connected Screen with Interactive Buttons
         print("\n--- STAGE 3: Connected Screen & Accessibility Focus ---")
@@ -169,7 +169,7 @@ async def run_verification():
         m_state3 = await meeting_state_analyzer.analyze(page, dom3)
         assert m_state3["state"] == MeetingState.CONNECTED
         steps["connected_update"].complete(True, "Transition to CONNECTED verified")
-        print("[✓] Dynamic Connected State Update")
+        print("[OK] Dynamic Connected State Update")
 
         # Confirm accessibility descriptions and focus
         acc3 = await accessibility_analyzer.analyze(page)
@@ -177,7 +177,7 @@ async def run_verification():
         assert mute_node is not None
         assert mute_node.description == "Toggles mic status"
         assert mute_node.focused is True
-        print("[✓] Accessibility Focus and Description Asserted")
+        print("[OK] Accessibility Focus and Description Asserted")
 
         # STAGE 4: PowerPoint Live Presentation Mode
         print("\n--- STAGE 4: PowerPoint Live Presentation ---")
@@ -198,7 +198,7 @@ async def run_verification():
         p_state = await presentation_analyzer.analyze(page)
         assert p_state["mode"] == PresentationMode.POWERPOINT_SHARED
         steps["presentation"].complete(True, "Inferred POWERPOINT_SHARED mode")
-        print("[✓] Presentation Analyzer Verified (POWERPOINT_SHARED)")
+        print("[OK] Presentation Analyzer Verified (POWERPOINT_SHARED)")
 
         # STAGE 5: Video Grid Playback
         print("\n--- STAGE 5: Video Grid Playback ---")
@@ -215,7 +215,7 @@ async def run_verification():
         
         p_state_video = await presentation_analyzer.analyze(page)
         assert p_state_video["mode"] == PresentationMode.VIDEO_PLAYBACK
-        print("[✓] Presentation Analyzer Verified (VIDEO_PLAYBACK)")
+        print("[OK] Presentation Analyzer Verified (VIDEO_PLAYBACK)")
 
         # STAGE 6: No Presentation (None)
         print("\n--- STAGE 6: No Presentation ---")
@@ -231,7 +231,7 @@ async def run_verification():
         
         p_state_none = await presentation_analyzer.analyze(page)
         assert p_state_none["mode"] == PresentationMode.NONE
-        print("[✓] Presentation Analyzer Verified (NONE)")
+        print("[OK] Presentation Analyzer Verified (NONE)")
         steps["presentation_update"].complete(True, "All presentation modes detected successfully")
 
         # 2. Verify Semantic Browser Orchestration Directly
@@ -248,7 +248,7 @@ async def run_verification():
         assert type(snap.chat_open) is bool
         
         steps["orchestrator"].complete(True, "SemanticBrowser facade orchestrated analyzers directly & verified snapshot structure")
-        print("[✓] Semantic Browser Orchestrator & Snapshot Consistency Verified")
+        print("[OK] Semantic Browser Orchestrator & Snapshot Consistency Verified")
 
         # 3. Verify Rolling History In Service
         print("\n--- STAGE 8: Rolling History ---")
@@ -268,7 +268,7 @@ async def run_verification():
         # Assert length equals the configuration limits rather than hardcoded 10
         assert len(history) == semantic_browser_config.history_size
         steps["history"].complete(True, f"Rolling memory capped successfully at semantic_browser_config.history_size ({semantic_browser_config.history_size}) items")
-        print("[✓] Rolling History Verified via Config Limits")
+        print("[OK] Rolling History Verified via Config Limits")
 
     finally:
         # Shutdown Browser
@@ -279,7 +279,7 @@ async def run_verification():
         # Let Playwright event loops clear cleanly before exiting loop
         await asyncio.sleep(1.5)
         steps["shutdown"].complete(True, "Asynchronous browser resources closed cleanly")
-        print("[✓] Browser Shutdown Completed")
+        print("[OK] Browser Shutdown Completed")
 
     # DISPLAY SUMMARY PANEL
     print("\n" + "=" * 50)
@@ -290,7 +290,7 @@ async def run_verification():
     for key, step in steps.items():
         if not step.success:
             passed_all = False
-        icon = "[✓]" if step.success else "[X]"
+        icon = "[OK]" if step.success else "[X]"
         print(f"{icon:<4} {step.name:<30} | {step.details}")
         
     print("-" * 50)

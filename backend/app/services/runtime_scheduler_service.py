@@ -173,6 +173,16 @@ class RuntimeSchedulerService:
                 rt.last_error = None
                 db.commit()
                 recovered["reset"] += 1
+                try:
+                    from app.core.cleanup_manager import cleanup_manager
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(cleanup_manager.cleanup_session(rt.session_id))
+                    except RuntimeError:
+                        # Fallback for no running event loop
+                        asyncio.run(cleanup_manager.cleanup_session(rt.session_id))
+                except Exception as ex:
+                    logger.error(f"[RuntimeRecovery] Failed to trigger cleanup for stale session {rt.session_id}: {ex}")
 
         if any(recovered.values()):
             logger.info(f"[RuntimeRecovery] Startup recovery completed: {recovered}")

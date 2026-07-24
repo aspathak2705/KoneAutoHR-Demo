@@ -1,6 +1,4 @@
 from typing import Dict, Any, Optional
-from app.modules.induction.llm.client import llm_client
-from app.core.config import settings
 from loguru import logger
 
 class GreetingAgent:
@@ -12,6 +10,7 @@ class GreetingAgent:
     ) -> str:
         """
         Generates welcome statement personalized for the new hire joiner.
+        Always returns deterministic greetings to guarantee consistency and minimize latency.
         """
         trainer_name = presenter.get("ai_trainer_name", "KONE Trainer")
         company = presenter.get("company_name", "KONE")
@@ -19,41 +18,23 @@ class GreetingAgent:
         emp_role = employee.get("role", "New Hire")
         emp_dept = employee.get("department", "General")
 
-        prompt = f"""
-        Generate a warm, professional onboarding greeting welcoming a new hire.
-        Trainer: {trainer_name} representing {company}
-        Employee: {emp_name} joining as {emp_role} in the {emp_dept} department.
-        Base script template to use:
-        Greeting: "{opening_script.get('greeting', '')}"
-        Presenter Intro: "{opening_script.get('presenter_intro', '')}"
-        Employee Welcome: "{opening_script.get('employee_welcome', '')}"
-        Rules: "{opening_script.get('session_rules', '')}"
-        Agenda: "{opening_script.get('agenda', '')}"
-        
-        Respond ONLY in the following JSON format:
-        {{
-            "greeting_text": "Complete conversational paragraph welcome script"
-        }}
-        """
-        
-        if settings.LLM_API_KEY:
-            try:
-                res = await llm_client.generate_json(prompt, name="greeting_agent")
-                text = res.get("greeting_text")
-                if text:
-                    logger.info("GreetingAgent | Generated personalized greeting via LLM.")
-                    return text
-            except Exception as e:
-                logger.error(f"GreetingAgent | LLM generation failed: {e}. Falling back to template.")
+        greeting = opening_script.get("greeting", "Hello and welcome!")
+        intro = opening_script.get("presenter_intro", "I am your AI HR Trainer {trainer_name}, here to guide you today.")
+        rules = opening_script.get("session_rules", "Please stay muted during slides and use chat for questions.")
+        agenda = opening_script.get("agenda", "Today we will cover company values, safety policies, and key onboarding steps.")
 
-        # Deterministic fallback
-        fallback = (
-            f"{opening_script.get('greeting', 'Hello!')} I am {trainer_name} from {company}. "
-            f"A warm welcome to {emp_name} joining us as {emp_role} in {emp_dept}. "
-            f"Here are the rules: {opening_script.get('session_rules', '')}. "
-            f"Today we will cover: {opening_script.get('agenda', '')}."
+        # Structured welcome greeting delivery
+        welcome_text = (
+            f"{greeting} {intro} "
+            f"A very warm welcome to {emp_name}, joining us as {emp_role} in the {emp_dept} department! "
+            f"Before we begin, here are the session guidelines: {rules} "
+            f"For our agenda today: {agenda} Let's get started."
         )
-        logger.info("GreetingAgent | Loaded template-based greeting fallback.")
-        return fallback
+        
+        # Replace layout placeholders globally across all greeting parts
+        welcome_text = welcome_text.replace("{trainer_name}", trainer_name).replace("{company_name}", company)
+        
+        logger.info("GreetingAgent | Generated deterministic welcome greeting with resolved placeholders.")
+        return welcome_text
 
 greeting_agent = GreetingAgent()

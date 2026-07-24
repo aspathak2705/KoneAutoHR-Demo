@@ -205,13 +205,21 @@ async def previous_runtime_slide(session_id: str, db: DBSession = Depends(get_db
 @router.post("/{session_id}/ask")
 async def ask_attendee_question(session_id: str, req: AskQuestionRequest, db: DBSession = Depends(get_db)):
     try:
-        res = await qa_service.ask_question(
-            db=db,
-            session_id=session_id,
-            speaker_name=req.speaker_name,
-            question_text=req.question_text
-        )
-        return res
+        coordinator = runtime_service.get_coordinator(db, session_id)
+        answer = await coordinator.inject_question(req.speaker_name, req.question_text)
+        
+        config = db.query(OrganizationConfig).first()
+        trainer = config.ai_trainer_name if config else "KONE Trainer"
+        return {
+            "question": {
+                "speaker": req.speaker_name,
+                "text": req.question_text
+            },
+            "answer": {
+                "speaker": trainer,
+                "text": answer
+            }
+        }
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

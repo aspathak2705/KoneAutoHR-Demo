@@ -6,7 +6,8 @@ from app.modules.meeting_bot.teams.meeting_lifecycle import meeting_lifecycle
 from app.modules.meeting_bot.health_monitor import health_monitor
 
 class MeetingBot:
-    def __init__(self):
+    def __init__(self, session_id: str = "default_session"):
+        self.session_id = session_id
         self.context = MeetingBotContext()
 
     def set_state(self, state: BotState) -> None:
@@ -23,7 +24,7 @@ class MeetingBot:
 
         self.set_state(BotState.INITIALIZING)
         try:
-            session = await browser_manager.launch()
+            session = await browser_manager.launch(self.session_id)
             self.context.browser = session.browser
             self.context.browser_context = session.context
             self.context.page = session.page

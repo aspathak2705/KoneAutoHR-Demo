@@ -74,7 +74,7 @@ async def run_verification():
         assert len(obs1.events) == 0
         
         steps["stage1"].complete(True, "Resolved ObservationState.WAITING with zero initial transition events")
-        print("[✓] Stage 1 Verified")
+        print("[OK] Stage 1 Verified")
         
         # Reset timeline history to clean test start before starting transition stages
         from app.modules.presentation_observer.analyzers.timeline_tracker import timeline_tracker
@@ -112,7 +112,7 @@ async def run_verification():
         assert ObservationEvent.RECORDING_STARTED not in obs2.events
         
         steps["stage2"].complete(True, "Resolved PRESENTATION_STARTED, ACTIVE state, and signature presence")
-        print("[✓] Stage 2 Verified")
+        print("[OK] Stage 2 Verified")
         
         # STAGE 3: Mutate DOM to trigger Slide Change
         print("\n--- STAGE 3: Slide Change ---")
@@ -141,7 +141,7 @@ async def run_verification():
         assert obs3.timeline_index > obs2.timeline_index
         
         steps["stage3"].complete(True, "Resolved SLIDE_CHANGED event on signature shift")
-        print("[✓] Stage 3 Verified")
+        print("[OK] Stage 3 Verified")
         
         # STAGE 3B: No Slide Change on identical content
         print("\n--- STAGE 3B: Unchanged Slide Content ---")
@@ -152,7 +152,7 @@ async def run_verification():
         assert snap3b.presentation_content_signature == sig3
         
         steps["stage3b"].complete(True, "No SLIDE_CHANGED event emitted when presentation signature remains unchanged")
-        print("[✓] Stage 3B Verified")
+        print("[OK] Stage 3B Verified")
         
         # STAGE 4: Chat Panel Opens
         print("\n--- STAGE 4: Chat Pane Toggle ---")
@@ -176,7 +176,7 @@ async def run_verification():
         assert ObservationEvent.RECORDING_STARTED not in obs4.events
         
         steps["stage4"].complete(True, "Resolved CHAT_OPENED event")
-        print("[✓] Stage 4 Verified")
+        print("[OK] Stage 4 Verified")
         
         # STAGE 5: Participant list pane opens
         print("\n--- STAGE 5: Participants List Toggle ---")
@@ -196,7 +196,7 @@ async def run_verification():
         obs5 = await presentation_observer_service.run_observation_cycle()
         assert ObservationEvent.PARTICIPANTS_OPENED in obs5.events
         steps["stage5"].complete(True, "Resolved PARTICIPANTS_OPENED event")
-        print("[✓] Stage 5 Verified")
+        print("[OK] Stage 5 Verified")
         
         # STAGE 6: Recording activates
         print("\n--- STAGE 6: Recording Activates ---")
@@ -217,7 +217,7 @@ async def run_verification():
         obs6 = await presentation_observer_service.run_observation_cycle()
         assert ObservationEvent.RECORDING_STARTED in obs6.events
         steps["stage6"].complete(True, "Resolved RECORDING_STARTED event")
-        print("[✓] Stage 6 Verified")
+        print("[OK] Stage 6 Verified")
         
         # STAGE 7: PowerPoint disappears (Presentation Ended)
         print("\n--- STAGE 7: Presentation Ended ---")
@@ -240,7 +240,7 @@ async def run_verification():
         assert latest == obs7
         
         steps["stage7"].complete(True, "Resolved PRESENTATION_ENDED event, LOST state, and service cache consistency")
-        print("[✓] Stage 7 Verified")
+        print("[OK] Stage 7 Verified")
         
         # STAGE 8: Timeline Audit
         print("\n--- STAGE 8: Timeline Audit ---")
@@ -262,7 +262,7 @@ async def run_verification():
         assert timeline == expected
         
         steps["stage8"].complete(True, "All transition events registered in correct chronological order")
-        print("[✓] Stage 8 Verified")
+        print("[OK] Stage 8 Verified")
         
     finally:
         print("\nClosing browser context...")
@@ -276,7 +276,7 @@ async def run_verification():
     for key, step in steps.items():
         if not step.success:
             passed_all = False
-        icon = "[✓]" if step.success else "[X]"
+        icon = "[OK]" if step.success else "[X]"
         print(f"{icon:<4} {step.name:<45} | {step.details}")
     print("-" * 50)
     status_str = "PASSED" if passed_all else "FAILED"

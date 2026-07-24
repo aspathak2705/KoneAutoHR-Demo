@@ -13,3 +13,4 @@ class ObservationContext:
         self.presentation_start_time: Optional[float] = None
         self.last_event_timestamp: float = time.time()
         self.current_timeline_index: int = 0
+        self.timeline = []

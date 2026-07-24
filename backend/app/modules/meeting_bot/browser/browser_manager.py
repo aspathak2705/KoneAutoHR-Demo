@@ -8,17 +8,18 @@ from app.modules.meeting_bot.config import meeting_bot_config
 from loguru import logger
 
 class BrowserManager:
-    async def launch(self) -> BrowserSession:
+    async def launch(self, session_id: str = "default_session") -> BrowserSession:
         """
         Launches Playwright Chromium with persistent context to inject user preferences
         and suppress protocol launcher prompts.
         """
-        logger.info(f"BrowserManager | Launching persistent Chromium (headless={meeting_bot_config.headless})")
+        logger.info(f"BrowserManager | Session: {session_id} | Launching persistent Chromium (headless={meeting_bot_config.headless})")
         
         playwright_instance = await async_playwright().start()
         
-        # Create temp folder for persistent user profile
-        temp_dir = Path(tempfile.gettempdir()) / "autohr_bot_profile"
+        # Create separate persistent user profile folder per session ID to isolate browser storage
+        from app.services.storage_service import storage_service
+        temp_dir = storage_service.get_session_dir(session_id) / "profile"
         temp_dir.mkdir(parents=True, exist_ok=True)
         
         # Write user Preferences JSON directly to bypass Teams app deep link popups

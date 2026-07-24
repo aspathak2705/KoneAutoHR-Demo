@@ -4,13 +4,12 @@ from sqlalchemy.orm import Session as DBSession
 from loguru import logger
 
 from app.modules.induction_runtime.models.runtime_state import RuntimeState
-from app.modules.induction_runtime.models.session_event import SessionEvent
-from app.modules.induction_runtime.event_bus.runtime_event_bus import runtime_event_bus
+from app.modules.induction_runtime.config.runtime_config import RuntimeConfig
 
 from app.modules.induction_runtime.orchestrator.session_manager import RuntimeSessionManager
 from app.modules.induction_runtime.orchestrator.conversation_orchestrator import ConversationOrchestrator
 from app.modules.induction_runtime.context.employee_context_manager import EmployeeContextManager
-from app.modules.induction_runtime.context.presenter_context_manager import PresenterContextManager
+from app.modules.induction_runtime.context.trainer_context_manager import TrainerContextManager
 from app.modules.induction_runtime.context.session_memory import SessionMemory
 from app.modules.induction_runtime.narrator.voice_output_interface import VoiceOutputInterface, DefaultVoiceOutput
 from app.modules.induction_runtime.narrator.presentation_flow_controller import PresentationFlowController
@@ -24,16 +23,26 @@ from app.modules.presentation_observer.models.observation_state import Observati
 from app.modules.presentation_observer.models.observation_event import ObservationEvent
 
 class RuntimeCoordinator:
-    def __init__(self, db: DBSession, session_id: str, voice_output: Optional[VoiceOutputInterface] = None):
-        self.db = db
+    """
+    Master Orchestrator / Coordinator.
+    CRITICAL RULE: The RuntimeCoordinator is the only module allowed to invoke multiple runtime components during a session.
+    """
+    def __init__(
+        self, 
+        db: Optional[DBSession], 
+        session_id: str, 
+        voice_output: Optional[VoiceOutputInterface] = None,
+        config: Optional[RuntimeConfig] = None
+    ):
         self.session_id = session_id
-        self.voice_output = voice_output or DefaultVoiceOutput()
+        self.voice_output = voice_output or DefaultVoiceOutput(session_id)
+        self.config = config or RuntimeConfig()
         
         # Instantiate subcomponents
         self.session_manager = RuntimeSessionManager()
         self.conversation_orchestrator = ConversationOrchestrator()
         self.employee_context = EmployeeContextManager()
-        self.presenter_context = PresenterContextManager()
+        self.presenter_context = TrainerContextManager()
         self.memory = SessionMemory()
         self.flow_controller = PresentationFlowController(self.voice_output)
 
@@ -54,17 +63,18 @@ class RuntimeCoordinator:
         
         # Load from database using existing RuntimeService context builders
         from app.services.runtime_service import runtime_service
+        from app.db.database import SessionLocal
         try:
-            ctx = runtime_service.get_runtime_context(self.db, self.session_id)
+            with SessionLocal() as db:
+                ctx = runtime_service.get_runtime_context(db, self.session_id)
             
             # 1. Load employee register files
-            # Note: excel path is read during get_runtime_context and profiles mapped
             self.employee_context.employees_list = ctx.get("employees", [])
             logger.info(f"RuntimeCoordinator | Standardized {len(self.employee_context.employees_list)} employee context records.")
 
             # 2. Load presenter configurations
             self.presenter_context.profile = ctx.get("persona", {})
-            logger.info(f"RuntimeCoordinator | Standardized Presenter Context: {self.presenter_context.get_profile_summary()}")
+            logger.info(f"RuntimeCoordinator | Standardized Trainer Context: {self.presenter_context.get_profile_summary()}")
 
             # 3. Load presentation script
             script_data = ctx.get("script", {})
@@ -91,8 +101,6 @@ class RuntimeCoordinator:
             # 5. Load FAQ records
             self.faq_records = ctx.get("faq", [])
             logger.info(f"RuntimeCoordinator | Loaded {len(self.faq_records)} policy FAQs.")
-            
-            runtime_event_bus.publish(SessionEvent.SESSION_STARTED, {"session_id": self.session_id})
         except Exception as e:
             logger.error(f"RuntimeCoordinator | Context preloading failed: {e}")
             raise
@@ -106,34 +114,35 @@ class RuntimeCoordinator:
         # Transition 1: Lobby -> Waiting for Presentation Started
         if observation.observation_state == ObservationState.WAITING:
             if self.session_manager.state == RuntimeState.CREATED:
-                self.session_manager.set_state(RuntimeState.WAITING_FOR_PRESENTATION)
+                self.session_manager.transition_to(RuntimeState.WAITING_FOR_PRESENTATION)
 
         # Transition 2: Presentation starts -> INTRODUCTION
         if ObservationEvent.PRESENTATION_STARTED in observation.events:
-            self.session_manager.set_state(RuntimeState.INTRODUCTION)
-            runtime_event_bus.publish(SessionEvent.PRESENTATION_STARTED, {"session_id": self.session_id})
-            
-            # Start Greeting Agentwelcome flow
-            asyncio.create_task(self._run_greeting_flow())
-            return
+            if self.session_manager.state in [RuntimeState.CREATED, RuntimeState.WAITING_FOR_PRESENTATION]:
+                self.session_manager.transition_to(RuntimeState.INTRODUCTION)
+                # Start Greeting Agent welcome flow
+                asyncio.create_task(self._run_greeting_flow())
+                return
 
         # Transition 3: Slide Change detected -> PRESENTING
         if ObservationEvent.SLIDE_CHANGED in observation.events:
             if self.session_manager.state == RuntimeState.PRESENTING:
                 # Slide index changed
                 slide_num = observation.timeline_index
-                self.memory.record_slide_reached(slide_num, f"Slide {slide_num}")
-                
-                # Interrupt active voice narration
-                self.voice_output.interrupt()
-                
-                # Speak new slide narration
-                asyncio.create_task(self._speak_slide_narration(slide_num))
+                if slide_num != self.memory.current_slide_number:
+                    self.memory.record_slide_reached(slide_num, f"Slide {slide_num}")
+                    
+                    # Interrupt active voice narration
+                    if self.config.voice_enabled:
+                        self.voice_output.interrupt()
+                    
+                    # Speak new slide narration
+                    asyncio.create_task(self._speak_slide_narration(slide_num))
 
         # Transition 4: Presentation ends -> QUESTION_ANSWER / COMPLETED
         if ObservationEvent.PRESENTATION_ENDED in observation.events:
             if self.session_manager.is_active():
-                self.session_manager.set_state(RuntimeState.QUESTION_ANSWER)
+                self.session_manager.transition_to(RuntimeState.QUESTION_ANSWER)
                 
                 # Run closing agent greeting farewell
                 asyncio.create_task(self._run_closing_flow())
@@ -144,10 +153,14 @@ class RuntimeCoordinator:
         """
         logger.info(f"RuntimeCoordinator | Question received from {speaker}: '{question_text}'")
         self.memory.record_question(speaker, question_text)
-        runtime_event_bus.publish(SessionEvent.QUESTION_RECEIVED, {"session_id": self.session_id, "question": question_text})
 
-        # Interrupt current narration
-        self.voice_output.interrupt()
+        if not self.config.allow_questions:
+            logger.warning("RuntimeCoordinator | Question injection rejected: allow_questions is disabled.")
+            return "Questions are currently disabled."
+
+        # Interrupt current narration if voice is active
+        if self.config.voice_enabled:
+            self.voice_output.interrupt()
         
         # Call QAAgent to generate answer
         answer = await qa_agent.answer_question(question_text, self.faq_records, self.presenter_context.profile)
@@ -155,9 +168,30 @@ class RuntimeCoordinator:
         # Save to memory and play back answer
         self.memory.record_answer(question_text, answer)
         
-        # Speak the answer
-        self.voice_output.say(answer)
-        runtime_event_bus.publish(SessionEvent.QUESTION_ANSWERED, {"session_id": self.session_id, "question": question_text, "answer": answer})
+        # Persist message history in database
+        from app.db.database import SessionLocal
+        from app.models.runtime_message import RuntimeMessage
+        try:
+            with SessionLocal() as db:
+                emp_msg = RuntimeMessage(
+                    session_id=self.session_id,
+                    speaker_name=speaker,
+                    message_text=question_text
+                )
+                db.add(emp_msg)
+                ai_msg = RuntimeMessage(
+                    session_id=self.session_id,
+                    speaker_name=self.presenter_context.profile.get("ai_trainer_name", "KONE Trainer"),
+                    message_text=answer
+                )
+                db.add(ai_msg)
+                db.commit()
+        except Exception as e:
+            logger.error(f"RuntimeCoordinator | Failed to persist message to database: {e}")
+
+        # Speak the answer if allowed
+        if self.config.voice_enabled:
+            self.voice_output.say(answer)
         return answer
 
     async def _run_greeting_flow(self) -> None:
@@ -173,13 +207,16 @@ class RuntimeCoordinator:
         
         def on_welcome_complete():
             logger.info("RuntimeCoordinator | Welcome greeting completed. Advancing to slide presentation.")
-            self.session_manager.set_state(RuntimeState.PRESENTING)
+            self.session_manager.transition_to(RuntimeState.PRESENTING)
             
             # Start narration of slide 1
             self.memory.record_slide_reached(1, "Slide 1")
             asyncio.create_task(self._speak_slide_narration(1))
 
-        self.voice_output.say(welcome_text, on_welcome_complete)
+        if self.config.voice_enabled:
+            self.voice_output.say(welcome_text, on_welcome_complete)
+        else:
+            on_welcome_complete()
 
     async def _speak_slide_narration(self, slide_num: int) -> None:
         """
@@ -190,15 +227,21 @@ class RuntimeCoordinator:
             return
             
         raw_narration = slide.get("narration", "")
-        # Format raw narration to sound conversational
+        # Format raw narration
         spoken_text = await presentation_agent.format_narration(
             slide.get("title", f"Slide {slide_num}"),
             raw_narration,
             self.presenter_context.profile
         )
         
+        # Update slide narration in-place to carry the resolved placeholders
+        slide["narration"] = spoken_text
+        
         self._current_narration_text = spoken_text
-        self.flow_controller.trigger_slide_narration(slide_num, lambda: logger.info(f"Finished slide {slide_num} narration."))
+        if self.config.voice_enabled:
+            self.flow_controller.trigger_slide_narration(slide_num, lambda: logger.info(f"Finished slide {slide_num} narration."))
+        else:
+            logger.info(f"RuntimeCoordinator | Speaking disabled. Bypassed narration: {spoken_text}")
 
     async def _run_closing_flow(self) -> None:
         """
@@ -212,7 +255,9 @@ class RuntimeCoordinator:
         
         def on_farewell_complete():
             logger.info("RuntimeCoordinator | Farewell narration completed. Ending session.")
-            self.session_manager.set_state(RuntimeState.COMPLETED)
-            runtime_event_bus.publish(SessionEvent.SESSION_COMPLETED, {"session_id": self.session_id})
+            self.session_manager.transition_to(RuntimeState.COMPLETED)
 
-        self.voice_output.say(farewell, on_farewell_complete)
+        if self.config.voice_enabled:
+            self.voice_output.say(farewell, on_farewell_complete)
+        else:
+            on_farewell_complete()

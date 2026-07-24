@@ -4,7 +4,8 @@ from pathlib import Path
 from loguru import logger
 
 class AudioController:
-    def __init__(self):
+    def __init__(self, session_id: str):
+        self.session_id = session_id
         self.process = None
         self.current_track = None
 
@@ -20,7 +21,6 @@ class AudioController:
             "powershell"
         ]
         for p in paths:
-            # If it's a relative/executable name, assume it works if absolute doesn't exist
             if not os.path.isabs(p) or os.path.exists(p):
                 return p
         return "powershell"
@@ -30,20 +30,29 @@ class AudioController:
         Plays MP3 audio file using native Windows Media player in background process.
         """
         self.stop_audio()
+
+        # Secure sandbox path resolution
+        from app.services.storage_service import storage_service
+        base_dir = storage_service.get_session_dir(self.session_id) / "audio"
+        base_dir = base_dir.resolve()
         
-        path = Path(audio_path).resolve()
-        if not path.exists():
-            logger.error(f"AudioController | File not found: {audio_path}")
+        # Guard against traversal (e.g. absolute paths or ../ paths)
+        target_path = Path(base_dir / audio_path).resolve()
+        if not str(target_path).startswith(str(base_dir)):
+            raise ValueError(f"Security Warning: Audio path traversal attempt blocked: {audio_path}")
+
+        if not target_path.exists():
+            logger.error(f"AudioController | File not found: {target_path}")
             return
-            
-        logger.info(f"AudioController | Playing: {path}")
+
+        logger.info(f"AudioController | Session: {self.session_id} | Playing: {target_path}")
         self.current_track = audio_path
 
         # PowerShell media player script
         ps_cmd = (
             f'Add-Type -AssemblyName PresentationCore; '
             f'$player = New-Object System.Windows.Media.MediaPlayer; '
-            f'$player.Open("{str(path)}"); '
+            f'$player.Open("{str(target_path)}"); '
             f'$player.Play(); '
             f'while ($player.Position -lt $player.NaturalDuration.TimeSpan) {{ Start-Sleep -Milliseconds 200 }}'
         )
@@ -60,13 +69,13 @@ class AudioController:
         Kills the playback process.
         """
         if self.process:
-            logger.info("AudioController | Stopping audio playback.")
+            logger.info(f"AudioController | Session: {self.session_id} | Stopping audio playback.")
             try:
                 self.process.terminate()
                 self.process.wait(timeout=2)
             except Exception:
                 try:
-                    self.process.kill()
+                    self.process.process.kill()
                 except Exception:
                     pass
             self.process = None
@@ -79,4 +88,15 @@ class AudioController:
         if self.current_track:
             self.play_audio(self.current_track)
 
-audio_controller = AudioController()
+# Isolated AudioController registry per session ID
+_audio_controllers = {}
+
+def get_audio_controller(session_id: str) -> AudioController:
+    if session_id not in _audio_controllers:
+        _audio_controllers[session_id] = AudioController(session_id)
+    return _audio_controllers[session_id]
+
+def cleanup_audio_controller(session_id: str) -> None:
+    ctrl = _audio_controllers.pop(session_id, None)
+    if ctrl:
+        ctrl.stop_audio()

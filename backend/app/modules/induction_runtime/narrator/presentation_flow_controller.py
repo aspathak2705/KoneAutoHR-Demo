@@ -41,5 +41,6 @@ class PresentationFlowController:
             return False
 
         logger.info(f"PresentationFlowController | Triggering narration playback for Slide {slide_num}")
-        self.voice_output.say(narration, completion_callback)
+        audio_file = f"slide_{slide_num}.mp3"
+        self.voice_output.say(narration, completion_callback, audio_file=audio_file)
         return True

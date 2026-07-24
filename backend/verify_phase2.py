@@ -128,7 +128,7 @@ async def run_verification():
         success = await generate_test_audio(TEST_SCRIPT, audio_path)
         if success:
             steps["audio_gen"].complete(True, "MP3 compiled to temporary path")
-            print("[✓] Step 1: Test MP3 Generated")
+            print("[OK] Step 1: Test MP3 Generated")
         else:
             steps["audio_gen"].complete(False, "Failed to compile MP3")
             print("[X] Step 1: Test MP3 Generation Failed")
@@ -143,7 +143,7 @@ async def run_verification():
         await screen_capture.capture_step(bot.context.page, "verification_session", "browser_started")
         
         steps["browser_start"].complete(True, "Chromium profile initialized")
-        print("[✓] Step 2: Browser Started")
+        print("[OK] Step 2: Browser Started")
 
         # STEP 3: Join Lifecycle (Navigation + Devices config + Name fill + Click join)
         steps["join_lifecycle"].start()
@@ -160,7 +160,7 @@ async def run_verification():
         device_details = f"Mic disabled: {device_info.microphone_disabled if hasattr(device_info, 'microphone_disabled') else False}, Cam disabled: {device_info.camera_disabled if hasattr(device_info, 'camera_disabled') else False}"
         
         steps["join_lifecycle"].complete(True, device_details)
-        print(f"[✓] Step 3: Join Request Sent ({device_details})")
+        print(f"[OK] Step 3: Join Request Sent ({device_details})")
 
         # STEP 4: Lobby Wait
         steps["lobby_wait"].start()
@@ -175,28 +175,28 @@ async def run_verification():
         if bot.context.state == BotState.CONNECTED:
             steps["lobby_wait"].complete(True, "Admitted successfully")
             steps["connected"].complete(True, "Active meeting state established")
-            print("[✓] Step 4: Admitted by Organizer")
-            print("[✓] Step 5: Connected to Meeting")
+            print("[OK] Step 4: Admitted by Organizer")
+            print("[OK] Step 5: Connected to Meeting")
 
             # STEP 5: Screenshot Check
             steps["screenshot"].start()
             print("Capturing Page Screen Frame...")
             frame_path = await screen_capture.capture_frame(bot.context.page, "verification_session")
             steps["screenshot"].complete(True, f"Saved: {frame_path}")
-            print("[✓] Step 6: Screenshot Captured")
+            print("[OK] Step 6: Screenshot Captured")
 
             # STEP 6: Participants Check
             steps["participants"].start()
             p_count = await participant_monitor.participant_count(bot.context.page)
             p_list = await participant_monitor.get_participants(bot.context.page)
             steps["participants"].complete(True, f"Found {p_count} participants: {p_list}")
-            print(f"[✓] Step 7: Participant Monitor Active ({p_count} found)")
+            print(f"[OK] Step 7: Participant Monitor Active ({p_count} found)")
 
             # STEP 7: Chat Check
             steps["chat"].start()
             chat_msgs = await chat_monitor.get_messages(bot.context.page)
             steps["chat"].complete(True, f"Parsed {len(chat_msgs)} messages")
-            print(f"[✓] Step 8: Chat Monitor Active ({len(chat_msgs)} found)")
+            print(f"[OK] Step 8: Chat Monitor Active ({len(chat_msgs)} found)")
 
             # STEP 8: Audio Play Check
             steps["audio_play"].start()
@@ -205,7 +205,7 @@ async def run_verification():
             await asyncio.sleep(4)
             audio_controller.stop_audio()
             steps["audio_play"].complete(True, "Audio process ran successfully")
-            print("[✓] Step 9: Audio Playback Successful")
+            print("[OK] Step 9: Audio Playback Successful")
         else:
             steps["lobby_wait"].complete(False, f"Lobby timeout. State: {bot.context.state}")
             steps["connected"].complete(False, "Not connected")
@@ -254,7 +254,7 @@ async def run_verification():
         # Buffer to allow all Playwright event loop structures to clear completely
         await asyncio.sleep(1.5)
         steps["shutdown"].complete(True, "Playwright context and sub-processes terminated")
-        print("[✓] Step 10: Graceful Shutdown")
+        print("[OK] Step 10: Graceful Shutdown")
 
         # STEP 10: State transitions audit check
         steps["state_flow"].start()
@@ -275,7 +275,7 @@ async def run_verification():
         if not step.success and key not in ["lobby_wait", "connected", "screenshot", "participants", "chat", "audio_play"]:
             passed_all = False
             
-        icon = "[✓]" if step.success else "[X]"
+        icon = "[OK]" if step.success else "[X]"
         if not step.success and key in ["lobby_wait", "connected"]:
             icon = "[⚠]"
             

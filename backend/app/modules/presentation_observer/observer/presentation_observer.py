@@ -4,6 +4,7 @@ from app.modules.presentation_observer.observer.observation_context import Obser
 from app.modules.presentation_observer.analyzers.state_tracker import state_tracker
 from app.modules.presentation_observer.analyzers.change_detector import change_detector
 from app.modules.presentation_observer.analyzers.timeline_tracker import timeline_tracker
+from app.modules.presentation_observer.models.observation_event import ObservationEvent
 from app.modules.presentation_observer.observer.observation_builder import ObservationBuilder
 
 class PresentationObserver:
@@ -21,8 +22,14 @@ class PresentationObserver:
         events, flags = change_detector.detect_changes(snapshot, self.context)
         
         # 3. Timeline recording
-        timeline_tracker.record_events(events)
-        self.context.current_timeline_index = len(timeline_tracker.get_timeline())
+        from app.modules.presentation_observer.config import presentation_observer_config
+        for event in events:
+            if event != ObservationEvent.NONE:
+                self.context.timeline.append(event)
+        limit = presentation_observer_config.timeline_size
+        if len(self.context.timeline) > limit:
+            self.context.timeline = self.context.timeline[-limit:]
+        self.context.current_timeline_index = len(self.context.timeline)
         
         # 4. Assemble Observation
         obs = ObservationBuilder.build(

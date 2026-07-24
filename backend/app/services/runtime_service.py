@@ -9,6 +9,20 @@ from app.modules.induction.employees.excel_parser import parse_employees_excel
 from loguru import logger
 
 class RuntimeService:
+    def __init__(self):
+        self._coordinators = {}
+
+    def get_coordinator(self, db: DBSession, session_id: str):
+        if session_id not in self._coordinators:
+            from app.modules.induction_runtime.orchestrator.runtime_coordinator import RuntimeCoordinator
+            coordinator = RuntimeCoordinator(db, session_id)
+            coordinator.initialize()
+            self._coordinators[session_id] = coordinator
+        return self._coordinators[session_id]
+
+    def remove_coordinator(self, session_id: str) -> None:
+        self._coordinators.pop(session_id, None)
+
     def get_runtime_context(self, db: DBSession, session_id: str) -> Dict[str, Any]:
         """
         Sprint 2: Loads all prepared assets into memory and constructs
@@ -31,13 +45,29 @@ class RuntimeService:
 
         # 4. Load Presentation Script
         script = presentation_script_repository.get_active(db, presentation.id)
-        if not script or script.status != "COMPLETED":
+        if not script or script.status not in ["ACTIVE", "COMPLETED"]:
             raise ValueError("AI presentation script has not been generated or is not ready.")
+
+        script_payload = script.script_content
+        if isinstance(script_payload, str):
+            try:
+                import json
+                script_payload = json.loads(script_payload)
+            except Exception:
+                script_payload = {}
 
         # 5. Load FAQ / Questions
         faq = presentation_question_repository.get_active(db, presentation.id)
-        if not faq or faq.status != "COMPLETED":
+        if not faq or faq.status not in ["ACTIVE", "COMPLETED"]:
             raise ValueError("Expected employee FAQs have not been prepared.")
+
+        faq_payload = faq.questions_content
+        if isinstance(faq_payload, str):
+            try:
+                import json
+                faq_payload = json.loads(faq_payload)
+            except Exception:
+                faq_payload = []
 
         # 6. Load Employees
         if not session.employee_list:
@@ -79,13 +109,13 @@ class RuntimeService:
             },
             "script": {
                 "id": script.id,
-                "welcome_flow": script.script_content.get("welcome_flow"),
-                "slide_narrations": script.script_content.get("slide_narrations"),
-                "closing_script": script.script_content.get("closing_script")
+                "welcome_flow": script_payload.get("welcome_flow") if isinstance(script_payload, dict) else {},
+                "slide_narrations": script_payload.get("slide_narrations") if isinstance(script_payload, dict) else {},
+                "closing_script": script_payload.get("closing_script") if isinstance(script_payload, dict) else ""
             },
             "faq": [
                 {"question": q.get("question"), "answer": q.get("answer")}
-                for q in faq.questions_content
+                for q in faq_payload if isinstance(q, dict)
             ],
             "employees": [
                 {

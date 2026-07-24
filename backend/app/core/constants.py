@@ -1,6 +1,7 @@
 from enum import Enum
 
 class SessionStatus(str, Enum):
+    PENDING = "PENDING"
     UPLOADED = "UPLOADED"
     VALIDATING = "VALIDATING"
     PARSING = "PARSING"

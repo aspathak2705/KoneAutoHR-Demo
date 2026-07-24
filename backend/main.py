@@ -8,11 +8,12 @@ if sys.platform == "win32":
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from app.core.config import settings
+from app.core.dependencies import verify_token
 from app.core.logging import setup_logging
 from app.api.v1 import health, session, upload, presentation, employee_list, presentation_script, presentation_questions
 from app.modules.induction.router import router as induction_router
@@ -47,11 +48,7 @@ async def lifespan(app: FastAPI):
     from app.models.employee_list import EmployeeList
     from app.models.organization_config import OrganizationConfig
 
-    try:
-        Base.metadata.create_all(bind=engine)
-        logger.info("Database Initialization | Metadata verified and tables checked.")
-    except Exception as e:
-        logger.error(f"Database Initialization | Error creating tables: {e}")
+    # Database tables established purely via migrations. metadata.create_all deleted.
 
     try:
         from alembic.config import Config
@@ -99,10 +96,10 @@ app.add_middleware(RequestIDMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex="https?://.*",
+    allow_origins=settings.allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Accept", "X-Requested-With", "X-AutoHR-Token"],
 )
 
 register_exception_handlers(app)
@@ -119,23 +116,23 @@ from app.api.v1.presentation_observer import router as presentation_observer_rou
 from app.api.v1.induction_runtime import router as induction_runtime_router
 
 app.include_router(health.router, prefix="/api/v1")
-app.include_router(session.router, prefix="/api/v1")
-app.include_router(upload.router, prefix="/api/v1")
-app.include_router(induction_router, prefix="/api/v1")
-app.include_router(presentation.router, prefix="/api/v1")
-app.include_router(employee_list.router, prefix="/api/v1")
-app.include_router(presentation_script.router, prefix="/api/v1")
-app.include_router(presentation_questions.router, prefix="/api/v1")
-app.include_router(configuration_router, prefix="/api/v1")
-app.include_router(analytics_router, prefix="/api/v1")
-app.include_router(meetings_router, prefix="/api/v1")
-app.include_router(runtime_router, prefix="/api/v1")
-app.include_router(assets.router, prefix="/api/v1")
-app.include_router(presentation_runtime.router, prefix="/api/v1")
-app.include_router(meeting_bot_router, prefix="/api/v1")
-app.include_router(semantic_browser_router, prefix="/api/v1/semantic-browser")
-app.include_router(presentation_observer_router, prefix="/api/v1/presentation-observer")
-app.include_router(induction_runtime_router, prefix="/api/v1")
+app.include_router(session.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(upload.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(induction_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(presentation.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(employee_list.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(presentation_script.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(presentation_questions.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(configuration_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(analytics_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(meetings_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(runtime_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(assets.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(presentation_runtime.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(meeting_bot_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(semantic_browser_router, prefix="/api/v1/semantic-browser", dependencies=[Depends(verify_token)])
+app.include_router(presentation_observer_router, prefix="/api/v1/presentation-observer", dependencies=[Depends(verify_token)])
+app.include_router(induction_runtime_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 
 if __name__ == "__main__":
     import uvicorn
