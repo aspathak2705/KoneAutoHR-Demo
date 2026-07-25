@@ -12,16 +12,55 @@ class RuntimeService:
     def __init__(self):
         self._coordinators = {}
 
-    def get_coordinator(self, db: DBSession, session_id: str):
-        if session_id not in self._coordinators:
-            from app.modules.induction_runtime.orchestrator.runtime_coordinator import RuntimeCoordinator
-            coordinator = RuntimeCoordinator(db, session_id)
-            coordinator.initialize()
+    def create_runtime_and_coordinator(self, db: DBSession, session_id: str):
+        """
+        Creates a new Runtime entry and initializes RuntimeCoordinator.
+        Returns the coordinator in NOT_CREATED state, ready for prepare_runtime().
+        """
+        from app.modules.induction_runtime.orchestrator.runtime_coordinator import RuntimeCoordinator
+        from app.models.runtime import Runtime
+        import uuid
+        
+        logger.info(f"RuntimeService | START create_runtime_and_coordinator for session {session_id}")
+        
+        try:
+            # Create Runtime database entry
+            runtime_id = str(uuid.uuid4())
+            runtime = Runtime(
+                id=runtime_id,
+                session_id=session_id,
+                state="NOT_CREATED"
+            )
+            db.add(runtime)
+            db.commit()
+            logger.info(f"RuntimeService | Created Runtime entry: {runtime_id}")
+            
+            # Create coordinator with runtime_id
+            coordinator = RuntimeCoordinator(db, session_id, runtime_id=runtime_id)
             self._coordinators[session_id] = coordinator
+            
+            logger.info(f"RuntimeService | SUCCESS created coordinator for session {session_id}")
+            return coordinator
+        except Exception as e:
+            logger.error(f"RuntimeService | FAILED create_runtime_and_coordinator: {e}")
+            raise
+
+    def get_coordinator(self, db: DBSession, session_id: str):
+        """
+        Retrieves cached coordinator or creates a new one.
+        Note: For new sessions, use create_runtime_and_coordinator instead.
+        """
+        if session_id not in self._coordinators:
+            logger.info(f"RuntimeService | Coordinator not cached for {session_id}, creating new one")
+            self._coordinators[session_id] = self.create_runtime_and_coordinator(db, session_id)
         return self._coordinators[session_id]
 
     def remove_coordinator(self, session_id: str) -> None:
+        """
+        Removes coordinator from cache when session completes.
+        """
         self._coordinators.pop(session_id, None)
+        logger.info(f"RuntimeService | Removed coordinator from cache for session {session_id}")
 
     def get_runtime_context(self, db: DBSession, session_id: str) -> Dict[str, Any]:
         """
