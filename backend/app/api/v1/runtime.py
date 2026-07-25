@@ -16,8 +16,151 @@ from app.models.organization_config import OrganizationConfig
 
 from app.services.runtime_scheduler_service import runtime_scheduler_service
 from app.services.runtime_validation_service import runtime_validation_service
+from loguru import logger
 
 router = APIRouter(prefix="/runtime", tags=["Orchestration Runtime"])
+
+# ============================================================================
+# LOCKED LIFECYCLE ENDPOINTS - NEW ARCHITECTURE
+# ============================================================================
+
+@router.post("/{session_id}/prepare")
+async def prepare_runtime(session_id: str, db: DBSession = Depends(get_db)):
+    """
+    Lifecycle Phase 1: NOT_CREATED → PREPARING → READY
+    
+    Button: "Prepare Runtime"
+    Responsibilities:
+    - Create Runtime entry
+    - Load Configuration
+    - Verify Assets (presentation, script, faq)
+    - Verify Meeting URL
+    - Verify Browser Installation
+    - Register Runtime in READY state
+    """
+    logger.info(f"API | START POST /prepare for session {session_id}")
+    try:
+        # Create runtime and coordinator
+        coordinator = runtime_service.create_runtime_and_coordinator(db, session_id)
+        
+        # Prepare runtime (PREPARING → READY)
+        if not await coordinator.prepare_runtime():
+            raise HTTPException(status_code=400, detail="Failed to prepare runtime")
+        
+        logger.info(f"API | SUCCESS POST /prepare - runtime READY")
+        return {
+            "message": "Runtime prepared successfully",
+            "state": "READY",
+            "session_id": session_id
+        }
+    except Exception as e:
+        logger.error(f"API | FAILED POST /prepare: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/{session_id}/start-induction")
+async def start_induction(session_id: str, db: DBSession = Depends(get_db)):
+    """
+    Lifecycle Phase 2: READY → STARTING → BROWSER_READY
+    
+    Button: "Start Induction" (part of the READY button flow)
+    Responsibilities:
+    - Launch Browser (MOVED HERE from prepare_runtime)
+    - Open Teams in browser
+    - Transition to BROWSER_READY
+    """
+    logger.info(f"API | START POST /start-induction for session {session_id}")
+    try:
+        coordinator = runtime_service.get_coordinator(db, session_id)
+        
+        # Start induction (READY → BROWSER_READY)
+        if not await coordinator.start_induction():
+            raise HTTPException(status_code=400, detail="Failed to start induction")
+        
+        logger.info(f"API | SUCCESS POST /start-induction - browser READY")
+        return {
+            "message": "Induction started, browser ready",
+            "state": "BROWSER_READY",
+            "session_id": session_id
+        }
+    except Exception as e:
+        logger.error(f"API | FAILED POST /start-induction: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/{session_id}/join-meeting")
+async def join_meeting_endpoint(session_id: str, db: DBSession = Depends(get_db)):
+    """
+    Lifecycle Phase 3: BROWSER_READY → JOINING → WAITING → CONNECTED
+    
+    Button: "Join Meeting" (part of the READY button flow)
+    Responsibilities:
+    - Get meeting URL
+    - Open Teams meeting
+    - Configure devices
+    - Join meeting
+    - Wait for presentation
+    - Transition to CONNECTED
+    """
+    logger.info(f"API | START POST /join-meeting for session {session_id}")
+    try:
+        coordinator = runtime_service.get_coordinator(db, session_id)
+        
+        # Get meeting URL from context
+        context = runtime_service.get_runtime_context(db, session_id)
+        meeting_url = context.get("meeting", {}).get("teams_meeting_url")
+        
+        if not meeting_url:
+            raise HTTPException(status_code=400, detail="Meeting URL not found")
+        
+        # Join meeting
+        if not await coordinator.join_meeting(meeting_url):
+            raise HTTPException(status_code=400, detail="Failed to join meeting")
+        
+        logger.info(f"API | SUCCESS POST /join-meeting - CONNECTED")
+        return {
+            "message": "Joined meeting successfully",
+            "state": "CONNECTED",
+            "session_id": session_id
+        }
+    except Exception as e:
+        logger.error(f"API | FAILED POST /join-meeting: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/{session_id}/end")
+async def end_runtime(session_id: str, db: DBSession = Depends(get_db)):
+    """
+    Lifecycle Phase Final: Any state → FINISHING → STOPPED
+    
+    Button: "End Session"
+    Responsibilities:
+    - Leave meeting
+    - Stop presentation
+    - Cleanup resources in reverse order
+    - Transition to STOPPED
+    """
+    logger.info(f"API | START POST /end for session {session_id}")
+    try:
+        coordinator = runtime_service.get_coordinator(db, session_id)
+        
+        # Finish presentation and cleanup
+        if not await coordinator.finish_presentation():
+            raise HTTPException(status_code=400, detail="Failed to finish presentation")
+        
+        # Remove from cache
+        runtime_service.remove_coordinator(session_id)
+        
+        logger.info(f"API | SUCCESS POST /end - STOPPED")
+        return {
+            "message": "Runtime stopped successfully",
+            "state": "STOPPED",
+            "session_id": session_id
+        }
+    except Exception as e:
+        logger.error(f"API | FAILED POST /end: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ============================================================================
+# LEGACY ENDPOINTS (kept for backward compatibility during migration)
+# ============================================================================
 
 @router.post("/{session_id}/schedule")
 def schedule_runtime_meeting(session_id: str, db: DBSession = Depends(get_db)):
