@@ -61,6 +61,9 @@ class SpeechRuntimeService:
         self._paused_states.pop(session_id, None)
         self._update_speech_state(session_id, "IDLE")
 
+    def stop_speaking(self, session_id: str) -> None:
+        self.cancel(session_id)
+
     def retry(self, session_id: str, narration_text: str) -> None:
         """
         Retries narration speech playback from start.

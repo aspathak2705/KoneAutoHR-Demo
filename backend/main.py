@@ -6,6 +6,12 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+print("=" * 60)
+print("MAIN.PY IMPORTED")
+print(sys.executable)
+print(asyncio.get_event_loop_policy())
+print("=" * 60)
+
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Depends
@@ -109,11 +115,9 @@ from app.modules.analytics.analytics_router import router as analytics_router
 from app.api.v1.meetings import router as meetings_router
 from app.api.v1.runtime import router as runtime_router
 from app.api.v1 import assets
-from app.api.v1 import presentation_runtime
 from app.api.v1.meeting_bot import router as meeting_bot_router
 from app.api.v1.semantic_browser import router as semantic_browser_router
 from app.api.v1.presentation_observer import router as presentation_observer_router
-from app.api.v1.induction_runtime import router as induction_runtime_router
 
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(session.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
@@ -128,11 +132,9 @@ app.include_router(analytics_router, prefix="/api/v1", dependencies=[Depends(ver
 app.include_router(meetings_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 app.include_router(runtime_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 app.include_router(assets.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
-app.include_router(presentation_runtime.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 app.include_router(meeting_bot_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 app.include_router(semantic_browser_router, prefix="/api/v1/semantic-browser", dependencies=[Depends(verify_token)])
 app.include_router(presentation_observer_router, prefix="/api/v1/presentation-observer", dependencies=[Depends(verify_token)])
-app.include_router(induction_runtime_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 
 if __name__ == "__main__":
     import uvicorn

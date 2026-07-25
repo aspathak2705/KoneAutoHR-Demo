@@ -17,6 +17,10 @@ class MeetingBotService:
         """
         Retrieves or creates the active bot instance for a given session ID.
         """
+        if session_id == "default_session" and session_id not in self._bots:
+            for active_id, bot in self._bots.items():
+                if bot.context.state.value not in ["CREATED", "STOPPED", "FAILED"]:
+                    return bot
         if session_id not in self._bots:
             self._bots[session_id] = MeetingBot(session_id)
         return self._bots[session_id]

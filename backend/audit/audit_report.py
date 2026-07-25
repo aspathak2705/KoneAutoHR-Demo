@@ -3,6 +3,14 @@ import datetime
 from pathlib import Path
 from app.core.logging import logger
 
+
+def _fmt_ms(value) -> str:
+    try:
+        return f"{float(value):.2f} ms"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
 def generate_reports(report_data: dict, reports_dir: Path) -> tuple[Path, Path]:
     """
     Generates human-readable Markdown and CI-friendly JSON reports.
@@ -16,17 +24,44 @@ def generate_reports(report_data: dict, reports_dir: Path) -> tuple[Path, Path]:
         json.dump(report_data, f, indent=2)
     logger.info(f"AuditReport | JSON report saved to: {json_path}")
 
-    # Build Markdown report
+    perf = report_data.get("performance", {})
+    phase_durations = perf.get("phase_durations_ms", {})
+    integration = report_data.get("integration", {})
+    resources = report_data.get("resources", {})
+    stability = report_data.get("stability", {})
+
+    phase_rows = []
+    phase_names = {
+        "phase1": "Phase 1: PowerPoint Parsing",
+        "phase2": "Phase 2: Meeting Bot Joining",
+        "phase3": "Phase 3: Semantic Browser",
+        "phase4": "Phase 4: Observer Pipeline",
+        "phase5": "Phase 5: Runtime Conductor",
+    }
+    for key, label in phase_names.items():
+        phase = report_data["phases"].get(key, {})
+        phase_rows.append(
+            f"| {label} | {phase.get('status', 'UNKNOWN')} | "
+            f"{phase.get('passed_assertions', phase.get('assertions', 0))} | "
+            f"{phase.get('failed_assertions', 0)} | "
+            f"{float(phase.get('duration_ms', 0)):.2f} |"
+        )
+
+    phase_duration_lines = "\n".join(
+        f"- {key}: `{_fmt_ms(value)}`" for key, value in phase_durations.items()
+    ) or "- No phase timings recorded."
+
     md_content = f"""# AutoHR System Audit Report
 
 Generated on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 Status: **{report_data.get('status', 'UNKNOWN')}**
 
 ## Summary
-- **Total Assertions**: {report_data.get('total_assertions', 0)}
-- **Passed Assertions**: {report_data.get('passed_assertions', 0)}
-- **Failed Assertions**: {report_data.get('failed_assertions', 0)}
+- **Total Checks**: {report_data.get('total_assertions', 0)}
+- **Passed Checks**: {report_data.get('passed_assertions', 0)}
+- **Failed Checks**: {report_data.get('failed_assertions', 0)}
 - **Warnings**: {len(report_data.get('warnings', []))}
+- **Verdict**: {report_data.get('verdict', 'INCOMPLETE')}
 
 ---
 
@@ -35,41 +70,56 @@ Status: **{report_data['environment']['status']}**
 - Python Version: `{report_data['environment']['python_version']}`
 - Database Connection: `{report_data['environment']['database']}`
 - Playwright Installed: `{report_data['environment']['playwright']}`
+- PPTX Support: `{report_data['environment'].get('pptx_support', 'UNKNOWN')}`
 
 ## 2. Database Audit
 Status: **{report_data['database']['status']}**
 - Tables Audited: {report_data['database']['tables_count']}
 - Migrations Verified: `{report_data['database']['migrations_ok']}`
+- Missing Tables: `{report_data['database'].get('missing_tables', [])}`
 
 ## 3. Phase Verification Suites
-| Phase | Status | Assertions | Duration (ms) |
-|---|---|---|---|
-| Phase 1: PowerPoint Parsing | {report_data['phases']['phase1']['status']} | {report_data['phases']['phase1']['assertions']} | {report_data['phases']['phase1']['duration_ms']:.2f} |
-| Phase 2: Meeting Bot Joining | {report_data['phases']['phase2']['status']} | {report_data['phases']['phase2']['assertions']} | {report_data['phases']['phase2']['duration_ms']:.2f} |
-| Phase 3: Semantic Browser | {report_data['phases']['phase3']['status']} | {report_data['phases']['phase3']['assertions']} | {report_data['phases']['phase3']['duration_ms']:.2f} |
-| Phase 4: Observer Pipeline | {report_data['phases']['phase4']['status']} | {report_data['phases']['phase4']['assertions']} | {report_data['phases']['phase4']['duration_ms']:.2f} |
-| Phase 5: Runtime Conductor | {report_data['phases']['phase5']['status']} | {report_data['phases']['phase5']['assertions']} | {report_data['phases']['phase5']['duration_ms']:.2f} |
+| Phase | Status | Passed | Failed | Duration (ms) |
+|---|---|---:|---:|---:|
+{chr(10).join(phase_rows)}
 
 ## 4. Integration E2E Audit
-Status: **{report_data['integration']['status']}**
-- Slide observer detected slides: `{report_data['integration']['observer_slides_detected']}`
-- Greeting played: `{report_data['integration']['greeting_played']}`
-- Q&A answers resolved: `{report_data['integration']['qa_resolved']}`
-- Farewell and complete state: `{report_data['integration']['lifecycle_completed']}`
+Status: **{integration.get('status', 'UNKNOWN')}**
+- Semantic browser snapshots verified: `{integration.get('semantic_browser_snapshots_verified')}`
+- Slide observer detected slides: `{integration.get('observer_slides_detected')}`
+- Greeting played: `{integration.get('greeting_played')}`
+- Q&A answers resolved: `{integration.get('qa_resolved')}`
+- Farewell and complete state: `{integration.get('lifecycle_completed')}`
+- Basis: {integration.get('basis', 'n/a')}
 
 ## 5. Performance Audit
-- Coordinator Startup: `{report_data['performance']['coordinator_startup_ms']:.2f} ms`
-- Welcome Greeting Gen: `{report_data['performance']['greeting_gen_ms']:.2f} ms`
-- Slide Change Reaction: `{report_data['performance']['slide_change_reaction_ms']:.2f} ms`
+Status: **{perf.get('status', 'UNKNOWN')}**
+- Source: {perf.get('source', 'n/a')}
+- Coordinator and pipeline: `{_fmt_ms(perf.get('coordinator_and_pipeline_ms'))}`
+- Semantic browser: `{_fmt_ms(perf.get('semantic_browser_ms'))}`
+- Observer pipeline: `{_fmt_ms(perf.get('observer_pipeline_ms'))}`
+- Runtime cycle average: `{_fmt_ms(perf.get('runtime_cycle_avg_ms'))}`
+
+### Phase Timings
+{phase_duration_lines}
 
 ## 6. Stability & Regression
-- 100 Poll cycles stability: **{report_data['stability']['status']}**
-- Memory leaks check: `{report_data['stability']['memory_leaks']}`
-- Negative regression tests: **{report_data['regression']['status']}** (Missing Scripts, Missing FAQs, Voice toggles)
+- Runtime cycles stability: **{stability.get('status', 'UNKNOWN')}**
+- Cycles run: `{stability.get('poll_cycles_run', 0)}`
+- Component exercised: `{stability.get('component', 'n/a')}`
+- Transitions verified: `{stability.get('transitions_verified', 0)}`
+- Invalid transitions blocked: `{stability.get('invalid_transitions_blocked', 0)}`
+- Memory leaks check: `{stability.get('memory_leaks', 'UNKNOWN')}`
+- Negative regression tests: **{report_data['regression']['status']}**
+- Regression basis: {report_data['regression'].get('basis', 'n/a')}
 
 ## 7. Resource Cleanup
-- Playwright page closed: `{report_data['resources']['playwright_cleaned']}`
-- DB sessions closed: `{report_data['resources']['db_sessions_cleaned']}`
+Status: **{resources.get('status', 'UNKNOWN')}**
+- Playwright/browser child processes cleaned: `{resources.get('playwright_cleaned')}`
+- Runtime processes before: `{resources.get('runtime_processes_before', [])}`
+- Runtime processes after: `{resources.get('runtime_processes_after', [])}`
+- Leaked runtime processes: `{resources.get('leaked_runtime_processes', [])}`
+- DB sessions closed: `{resources.get('db_sessions_cleaned')}`
 
 ---
 ### System Integrity Verdict

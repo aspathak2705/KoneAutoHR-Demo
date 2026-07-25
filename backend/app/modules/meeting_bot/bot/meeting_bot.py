@@ -13,6 +13,20 @@ class MeetingBot:
     def set_state(self, state: BotState) -> None:
         logger.info(f"MeetingBot | State transitioned: {self.context.state} -> {state}")
         self.context.state = state
+        try:
+            from app.db.database import SessionLocal
+            from app.models.runtime import Runtime
+            with SessionLocal() as db:
+                runtime = db.query(Runtime).filter(Runtime.session_id == self.session_id).first()
+                if not runtime:
+                    runtime = Runtime(session_id=self.session_id, state=state.value, current_slide=0)
+                    db.add(runtime)
+                else:
+                    runtime.state = state.value
+                db.commit()
+                logger.info(f"MeetingBot | Synchronized database state to: {state.value}")
+        except Exception as db_err:
+            logger.error(f"MeetingBot | Failed to synchronize database state: {db_err}")
 
     async def initialize(self) -> None:
         """
@@ -37,12 +51,26 @@ class MeetingBot:
         except Exception as e:
             logger.exception("MeetingBot | Initialization failed.")
             self.set_state(BotState.FAILED)
+            try:
+                from app.db.database import SessionLocal
+                from app.models.runtime import Runtime
+                with SessionLocal() as db:
+                    runtime = db.query(Runtime).filter(Runtime.session_id == self.session_id).first()
+                    if runtime:
+                        runtime.last_error = str(e)
+                        db.commit()
+            except Exception:
+                pass
             raise e
 
     async def join(self, meeting_url: str, display_name: str = "KONE AI Bot") -> None:
         """
         Joins Teams meeting.
         """
+        if self.context.state == BotState.CREATED:
+            logger.info("MeetingBot | Bot not initialized. Initializing automatically.")
+            await self.initialize()
+
         if self.context.state not in [BotState.READY, BotState.DISCONNECTED]:
             raise ValueError(f"MeetingBot | Cannot join meeting from current state: {self.context.state}")
 

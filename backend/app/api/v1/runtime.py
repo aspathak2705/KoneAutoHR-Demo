@@ -126,14 +126,14 @@ def get_runtime_status(session_id: str, db: DBSession = Depends(get_db)):
     """
     context = runtime_context_service.build_runtime_context(db, session_id)
     readiness = runtime_readiness_service.evaluate_readiness(context)
-    
+
     db_runtime = meeting_runtime_service.get_runtime(db, session_id)
     state = db_runtime.state if db_runtime else "IDLE"
     current_slide = db_runtime.current_slide if db_runtime else 0
     reconnect_count = db_runtime.reconnect_count if db_runtime else 0
     speech_state = db_runtime.speech_state if db_runtime else "IDLE"
     last_hb = db_runtime.last_heartbeat.isoformat() if db_runtime and db_runtime.last_heartbeat else None
-    
+
     # Fetch question speaker count
     config = db.query(OrganizationConfig).first()
     trainer = config.ai_trainer_name if config else "KONE Trainer"
@@ -149,6 +149,7 @@ def get_runtime_status(session_id: str, db: DBSession = Depends(get_db)):
         "reconnect_count": reconnect_count,
         "speech_state": speech_state,
         "last_heartbeat": last_hb,
+        "last_error": db_runtime.last_error if db_runtime else None,
         "questions_asked": len(questions),
         "presentation_ready": readiness.get("has_presentation") and readiness.get("has_script") and readiness.get("has_faq"),
         "employees_ready": readiness.get("has_employees"),
@@ -158,37 +159,46 @@ def get_runtime_status(session_id: str, db: DBSession = Depends(get_db)):
     }
 
 @router.post("/{session_id}/launch")
-def launch_runtime_session(session_id: str):
-    teams_runtime_service.launch_session(session_id)
-    return {"message": "Teams automation client initialized."}
+async def launch_runtime_session(session_id: str):
+    try:
+        result = await teams_runtime_service.launch_session(session_id)
+        return {"message": "Teams automation client initialized.", "runtime": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{session_id}/join")
-def join_runtime_meeting(session_id: str):
-    teams_runtime_service.join_meeting(session_id)
-    return {"message": "Teams joining sequence initiated."}
+async def join_runtime_meeting(session_id: str):
+    try:
+        result = await teams_runtime_service.join_meeting(session_id)
+        return {"message": "Teams joining sequence initiated.", "runtime": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{session_id}/leave")
-def leave_runtime_meeting(session_id: str):
-    teams_runtime_service.leave_meeting(session_id)
-    return {"message": "Teams leave sequence completed."}
+async def leave_runtime_meeting(session_id: str):
+    try:
+        result = await teams_runtime_service.leave_meeting(session_id)
+        return {"message": "Teams leave sequence completed.", "runtime": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{session_id}/speak")
-def start_runtime_speaking(session_id: str, req: SpeakRequest):
+async def start_runtime_speaking(session_id: str, req: SpeakRequest):
     speech_runtime_service.speak(session_id, req.narration_text)
     return {"message": "TTS speaking initiated."}
 
 @router.post("/{session_id}/stop-speaking")
-def stop_runtime_speaking(session_id: str):
+async def stop_runtime_speaking(session_id: str):
     speech_runtime_service.stop_speaking(session_id)
     return {"message": "TTS speaking interrupted."}
 
 @router.post("/{session_id}/start")
-def start_runtime(session_id: str, db: DBSession = Depends(get_db)):
+async def start_runtime(session_id: str, db: DBSession = Depends(get_db)):
     meeting_runtime_service.start_meeting(session_id)
     return {"message": "AI meeting orchestration session launched."}
 
 @router.post("/{session_id}/stop")
-def stop_runtime(session_id: str, db: DBSession = Depends(get_db)):
+async def stop_runtime(session_id: str, db: DBSession = Depends(get_db)):
     meeting_runtime_service.stop_meeting(session_id)
     return {"message": "AI meeting orchestration session stopped."}
 
@@ -207,7 +217,7 @@ async def ask_attendee_question(session_id: str, req: AskQuestionRequest, db: DB
     try:
         coordinator = runtime_service.get_coordinator(db, session_id)
         answer = await coordinator.inject_question(req.speaker_name, req.question_text)
-        
+
         config = db.query(OrganizationConfig).first()
         trainer = config.ai_trainer_name if config else "KONE Trainer"
         return {
