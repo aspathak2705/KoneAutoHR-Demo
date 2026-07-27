@@ -47,12 +47,11 @@ class RuntimeService:
 
     def get_coordinator(self, db: DBSession, session_id: str):
         """
-        Retrieves cached coordinator or creates a new one.
-        Note: For new sessions, use create_runtime_and_coordinator instead.
+        Retrieves cached coordinator.
         """
         if session_id not in self._coordinators:
-            logger.info(f"RuntimeService | Coordinator not cached for {session_id}, creating new one")
-            self._coordinators[session_id] = self.create_runtime_and_coordinator(db, session_id)
+            logger.info(f"RuntimeService | Coordinator not cached for {session_id}")
+            raise ValueError("Runtime not prepared")
         return self._coordinators[session_id]
 
     def remove_coordinator(self, session_id: str) -> None:

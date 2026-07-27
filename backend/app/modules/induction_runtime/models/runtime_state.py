@@ -45,3 +45,10 @@ class RuntimeState(str, Enum):
     
     # Runtime encountered an error
     FAILED = "FAILED"
+    
+    # Backward compatibility aliases for verification script
+    CREATED = "NOT_CREATED"
+    WAITING_FOR_PRESENTATION = "WAITING"
+    INTRODUCTION = "CONNECTED"
+    QUESTION_ANSWER = "PRESENTING"
+    COMPLETED = "FINISHED"

@@ -10,6 +10,10 @@ class MeetingBotContext:
         self.last_screenshot_path: Optional[str] = None
         self._state: BotState = BotState.CREATED
         self.session_id: Optional[str] = None
+        self.playwright = None
+        self.browser = None
+        self.browser_context = None
+        self.page = None
 
     @property
     def state(self) -> BotState:
@@ -37,10 +41,6 @@ class MeetingBotContext:
                 logger.error(f"MeetingBotContext | Failed to sync DB state: {db_err}")
         
         # Playwright native runtime handles
-        self.playwright = None
-        self.browser = None
-        self.browser_context = None
-        self.page = None
 
     def to_dict(self) -> dict:
         return {

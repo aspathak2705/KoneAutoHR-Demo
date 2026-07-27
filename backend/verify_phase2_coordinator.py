@@ -69,7 +69,9 @@ class Phase2Verifier:
     def setup(self):
         """Initialize test database"""
         print("\n[*] Setting up test database...")
-        # Create tables
+        # Import models to ensure they are registered with SQLAlchemy Base
+        from app.models.presentation_asset import PresentationAsset
+        from app.models.presentation_metadata import PresentationMetadata
         Base.metadata.create_all(bind=engine)
         self.db = SessionLocal()
         print("[✓] Database ready")
@@ -104,6 +106,9 @@ class Phase2Verifier:
             coordinator.employee_context.employees_list = [{"id": "emp-1", "name": "John Doe"}]
             coordinator.presenter_context.profile = {"name": "Trainer", "bio": "Test trainer"}
             coordinator.faq_records = [{"question": "Q1", "answer": "A1"}]
+            
+            # Mock _initialize_context to bypass DB lookup for session/meetings in test
+            coordinator._initialize_context = lambda: None
             
             # Call prepare_runtime
             result = await coordinator.prepare_runtime()
@@ -391,6 +396,9 @@ class Phase2Verifier:
             coordinator.employee_context.employees_list = [{"id": "emp-1"}]
             coordinator.presenter_context.profile = {"name": "Trainer"}
             coordinator.faq_records = [{"q": "Q1", "a": "A1"}]
+            
+            # Mock _initialize_context to bypass DB lookup for session/meetings in test
+            coordinator._initialize_context = lambda: None
             
             await coordinator.prepare_runtime()
             

@@ -56,7 +56,9 @@ class LLMClient:
             else:
                 kwargs["response_format"] = {"type": "json_object"}
 
+            logger.info(f"Sending request to {self.provider}")
             response = await client.chat.completions.create(**kwargs)
+            logger.info("Response received")
             content = response.choices[0].message.content
             latency = time.perf_counter() - t0
 

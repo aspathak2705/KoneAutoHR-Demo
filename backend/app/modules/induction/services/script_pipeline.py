@@ -1,10 +1,13 @@
 import json
+import logging
 from pathlib import Path
 from sqlalchemy.orm import Session as DBSession
 from app.modules.induction.llm.preparation_orchestrator import generate_induction_package_scripts
 from app.repositories.presentation_script_repository import presentation_script_repository
 from app.repositories.presentation_question_repository import presentation_question_repository
 from app.db.unit_of_work import UnitOfWork
+
+logger = logging.getLogger(__name__)
 
 class ScriptPipeline:
     async def execute(self, db: DBSession, structured_context: dict, session_dir: Path) -> dict:
@@ -23,6 +26,8 @@ class ScriptPipeline:
         slide_knowledge = structured_context["presentation"]["slides"]
 
         # Call LLM generation orchestrator
+        logger.info("SCRIPT PIPELINE: Calling generate_induction_package_scripts")
+
         scripts = await generate_induction_package_scripts(
             session_metadata=session_metadata,
             meeting_context=meeting_context,
@@ -30,6 +35,10 @@ class ScriptPipeline:
             audience_summary=audience_summary,
             slide_knowledge=slide_knowledge
         )
+        logger.info("PACKAGE GENERATED")
+        
+
+        logger.info("SCRIPT PIPELINE: LLM generation completed")
 
         presentation_id = structured_context["session"].get("presentation_id")
         
@@ -41,12 +50,13 @@ class ScriptPipeline:
                 script_content=json.dumps(scripts),
                 llm_model="nvidia/nemotron-3-super-120b-a12b:free"
             )
+            logger.info("SCRIPT SAVED")
             presentation_question_repository.create(
                 db=db,
                 presentation_id=presentation_id,
                 questions_content=json.dumps(scripts.get("faq", []))
             )
-
+            logger.info("QUESTIONS SAVED")
         script_path = session_dir / "session_script.json"
         with open(script_path, "w", encoding="utf-8") as f:
             json.dump(scripts, f, indent=2)

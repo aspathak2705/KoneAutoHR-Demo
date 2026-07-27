@@ -24,7 +24,7 @@ class BrowserManager:
         self.session: BrowserSession | None = None
         self.playwright_instance = None
 
-    async def launch(self, session_id: str = "default_session") -> None:
+    async def launch(self, session_id: str = "default_session") -> BrowserSession:
         """
         Launch Playwright persistent Chromium.
 
@@ -108,6 +108,7 @@ class BrowserManager:
 
             if context.pages:
                 page = context.pages[0]
+                page._playwright_instance = self.playwright_instance
             else:
                 page = await context.new_page()
 
@@ -118,7 +119,8 @@ class BrowserManager:
             )
 
             logger.info("BrowserManager | SUCCESS launch | Browser ready")
-
+            return self.session
+        
         except Exception as e:
             logger.exception(f"BrowserManager | FAILED launch: {e}")
             await self._cleanup_playwright()

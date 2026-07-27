@@ -78,6 +78,13 @@ class RuntimeCoordinator:
         self.retry_delay = 1  # seconds
         self._retry_count = 0
 
+    def initialize(self) -> None:
+        """
+        Bypasses async preparation and loads context synchronously.
+        Used for verification and setup.
+        """
+        self._initialize_context()
+
     async def prepare_runtime(self) -> bool:
         """
         Lifecycle Phase: PREPARING → READY
@@ -530,9 +537,9 @@ class RuntimeCoordinator:
             
             def on_welcome_complete():
                 logger.info("RuntimeCoordinator | Welcome greeting completed. Ready for slides.")
+                self.session_manager.state = RuntimeState.PRESENTING
                 self.memory.record_slide_reached(1, "Slide 1")
-                if self.session_manager.state == RuntimeState.PRESENTING:
-                    asyncio.create_task(self._speak_slide_narration(1))
+                asyncio.create_task(self._speak_slide_narration(1))
 
             if self.config.voice_enabled:
                 self.voice_output.say(welcome_text, on_welcome_complete)

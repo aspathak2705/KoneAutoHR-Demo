@@ -39,6 +39,10 @@ class MeetingBot:
         self.set_state(BotState.INITIALIZING)
         try:
             session = await browser_manager.launch(self.session_id)
+
+            if session is None:
+                raise RuntimeError("BrowserManager.launch() returned no BrowserSession.")
+
             self.context.browser = session.browser
             self.context.browser_context = session.context
             self.context.page = session.page

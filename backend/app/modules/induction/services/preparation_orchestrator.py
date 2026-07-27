@@ -55,6 +55,8 @@ class PreparationOrchestrator:
                 presentation_job_service.update_job_status(db, parse_job.id, status="PENDING", progress=0.0)
                 presentation_job_service.update_job_status(db, script_job.id, status="PENDING", progress=0.0)
 
+            
+
             session_dir = storage_service.get_session_dir(session_id)
             session_dir.mkdir(parents=True, exist_ok=True)
 
@@ -69,6 +71,8 @@ class PreparationOrchestrator:
 
             with UnitOfWork(db):
                 presentation_job_service.update_job_status(db, val_job.id, status="COMPLETED", progress=1.0)
+
+            logger.info("===== STEP 1 COMPLETED: Validation =====")
 
             # 2. Parsing Pipeline
             with UnitOfWork(db):
@@ -88,6 +92,8 @@ class PreparationOrchestrator:
             with UnitOfWork(db):
                 presentation_job_service.update_job_status(db, parse_job.id, status="COMPLETED", progress=1.0)
 
+            logger.info("===== STEP 2 COMPLETED: Parsing =====")
+
             # 3. Context Builder
             structured_context = context_builder.build_context(
                 db=db,
@@ -95,6 +101,8 @@ class PreparationOrchestrator:
                 slide_knowledge=parsed_data["slides"],
                 employee_rows=parsed_data["employees"]
             )
+
+            logger.info("===== STEP 3 COMPLETED: Context Builder =====")
 
             with open(session_dir / "structured_context.json", "w", encoding="utf-8") as f:
                 json.dump(structured_context, f, indent=2)
@@ -107,7 +115,11 @@ class PreparationOrchestrator:
                 session_repository.update(db, session, SessionUpdate(status=SessionStatus.GENERATING_SCRIPT.value))
                 presentation_job_service.update_job_status(db, script_job.id, status="PROCESSING", progress=0.1)
 
+            logger.info("===== STEP 4 STARTING: Script Pipeline =====")
+
             await script_pipeline.execute(db, structured_context, session_dir)
+
+            logger.info("===== STEP 4 COMPLETED: Script Pipeline =====")
 
             with UnitOfWork(db):
                 session_repository.update(db, session, SessionUpdate(status=SessionStatus.UPLOADED.value))

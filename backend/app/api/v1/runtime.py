@@ -301,29 +301,7 @@ def get_runtime_status(session_id: str, db: DBSession = Depends(get_db)):
         "readiness_report": readiness
     }
 
-@router.post("/{session_id}/launch")
-async def launch_runtime_session(session_id: str):
-    try:
-        result = await teams_runtime_service.launch_session(session_id)
-        return {"message": "Teams automation client initialized.", "runtime": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/{session_id}/join")
-async def join_runtime_meeting(session_id: str):
-    try:
-        result = await teams_runtime_service.join_meeting(session_id)
-        return {"message": "Teams joining sequence initiated.", "runtime": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/{session_id}/leave")
-async def leave_runtime_meeting(session_id: str):
-    try:
-        result = await teams_runtime_service.leave_meeting(session_id)
-        return {"message": "Teams leave sequence completed.", "runtime": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# Legacy launch/join/leave endpoints removed since they are unused
 
 @router.post("/{session_id}/speak")
 async def start_runtime_speaking(session_id: str, req: SpeakRequest):

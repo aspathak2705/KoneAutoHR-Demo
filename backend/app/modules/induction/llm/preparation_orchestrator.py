@@ -1,9 +1,12 @@
 import asyncio
+import logging
 from app.modules.induction.llm.context_builder import build_llm_context
 from app.modules.induction.llm.introduction_generator import generate_introduction
 from app.modules.induction.llm.slide_generator import generate_slide_elements
 from app.modules.induction.llm.faq_generator import generate_faq
 from app.modules.induction.llm.closing_generator import generate_closing
+
+logger = logging.getLogger(__name__)
 
 async def generate_induction_package_scripts(
     session_metadata: dict,
@@ -38,7 +41,7 @@ async def generate_induction_package_scripts(
 
     # 3. Generate Welcome / Intro Flow (1 call)
     welcome_data = await generate_introduction(base_context)
-
+    logger.info("WELCOME DONE")
     # 4. Generate all slides concurrently (1 call per slide) with a Semaphore
     sem = asyncio.Semaphore(5)
     slide_narrations = {}
@@ -61,6 +64,7 @@ async def generate_induction_package_scripts(
 
     tasks = [process_slide(slide, idx) for idx, slide in enumerate(slide_knowledge)]
     results = await asyncio.gather(*tasks)
+    logger.info("SLIDES DONE")
 
     for slide_number, res in results:
         # Access validated properties directly (expected_questions removed)
@@ -77,10 +81,14 @@ async def generate_induction_package_scripts(
 
     # 5. Generate Global FAQ (1 call)
     faq_data = await generate_faq(base_context)
+    logger.info("FAQ DONE")
 
     # 6. Closing script (1 call)
     closing_data = await generate_closing(base_context)
 
+    logger.info("CLOSING DONE")
+
+    logger.info("RETURNING PACKAGE")
     return {
         "ai_persona": ai_persona,
         "welcome_flow": welcome_data,
@@ -88,3 +96,4 @@ async def generate_induction_package_scripts(
         "faq": faq_data.get("faq", []),
         "closing_script": closing_data
     }
+    
