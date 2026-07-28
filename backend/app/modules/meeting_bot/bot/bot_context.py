@@ -28,7 +28,7 @@ class MeetingBotContext:
                 from app.models.runtime import Runtime
                 from loguru import logger
                 with SessionLocal() as db:
-                    runtime = db.query(Runtime).filter(Runtime.session_id == self.session_id).first()
+                    runtime = db.query(Runtime).filter(Runtime.session_id == self.session_id).order_by(Runtime.updated_at.desc()).first()
                     if not runtime:
                         runtime = Runtime(session_id=self.session_id, state=value.value, current_slide=0)
                         db.add(runtime)

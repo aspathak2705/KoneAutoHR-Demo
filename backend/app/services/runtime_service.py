@@ -93,6 +93,8 @@ class RuntimeService:
                 script_payload = json.loads(script_payload)
             except Exception:
                 script_payload = {}
+        elif not isinstance(script_payload, dict):
+            script_payload = {}
 
         # 5. Load FAQ / Questions
         faq = presentation_question_repository.get_active(db, presentation.id)
@@ -106,6 +108,8 @@ class RuntimeService:
                 faq_payload = json.loads(faq_payload)
             except Exception:
                 faq_payload = []
+        elif not isinstance(faq_payload, list):
+            faq_payload = []
 
         # 6. Load Employees
         if not session.employee_list:
@@ -200,7 +204,17 @@ class RuntimeService:
         if not script:
             raise ValueError("Script not found.")
 
-        slide_narrations = script.script_content.get("slide_narrations", {})
+        script_payload = script.script_content
+        if isinstance(script_payload, str):
+            try:
+                import json
+                script_payload = json.loads(script_payload)
+            except Exception:
+                script_payload = {}
+        elif not isinstance(script_payload, dict):
+            script_payload = {}
+
+        slide_narrations = script_payload.get("slide_narrations", {}) if isinstance(script_payload, dict) else {}
         slide_order = sorted([int(k) for k in slide_narrations.keys()])
         
         slides = []

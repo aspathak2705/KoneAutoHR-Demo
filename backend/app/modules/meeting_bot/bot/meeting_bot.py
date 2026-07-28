@@ -9,6 +9,7 @@ class MeetingBot:
     def __init__(self, session_id: str = "default_session"):
         self.session_id = session_id
         self.context = MeetingBotContext()
+        self.context.session_id = session_id
 
     def set_state(self, state: BotState) -> None:
         logger.info(f"MeetingBot | State transitioned: {self.context.state} -> {state}")
@@ -17,7 +18,7 @@ class MeetingBot:
             from app.db.database import SessionLocal
             from app.models.runtime import Runtime
             with SessionLocal() as db:
-                runtime = db.query(Runtime).filter(Runtime.session_id == self.session_id).first()
+                runtime = db.query(Runtime).filter(Runtime.session_id == self.session_id).order_by(Runtime.updated_at.desc()).first()
                 if not runtime:
                     runtime = Runtime(session_id=self.session_id, state=state.value, current_slide=0)
                     db.add(runtime)
@@ -28,52 +29,33 @@ class MeetingBot:
         except Exception as db_err:
             logger.error(f"MeetingBot | Failed to synchronize database state: {db_err}")
 
-    async def initialize(self) -> None:
-        """
-        Launches Playwright and establishes BrowserSession.
-        """
-        if self.context.state != BotState.CREATED:
-            logger.warning("MeetingBot | Bot already initialized or running.")
-            return
 
-        self.set_state(BotState.INITIALIZING)
-        try:
-            session = await browser_manager.launch(self.session_id)
+    async def initialize(self):
 
-            if session is None:
-                raise RuntimeError("BrowserManager.launch() returned no BrowserSession.")
+        logger.info("MeetingBot.initialize() ENTER")
+        
+        if self.context.page is None:
+            raise RuntimeError(
+                "MeetingBot requires RuntimeCoordinator to inject browser resources."
+            )
 
-            self.context.browser = session.browser
-            self.context.browser_context = session.context
-            self.context.page = session.page
-            
-            # Retrieve playwright instance
-            self.context.playwright = getattr(session.page, "_playwright_instance", None)
-            
-            self.set_state(BotState.READY)
-            logger.info("MeetingBot | Initialization completed successfully. Ready to join meetings.")
-        except Exception as e:
-            logger.exception("MeetingBot | Initialization failed.")
-            self.set_state(BotState.FAILED)
-            try:
-                from app.db.database import SessionLocal
-                from app.models.runtime import Runtime
-                with SessionLocal() as db:
-                    runtime = db.query(Runtime).filter(Runtime.session_id == self.session_id).first()
-                    if runtime:
-                        runtime.last_error = str(e)
-                        db.commit()
-            except Exception:
-                pass
-            raise e
+        logger.info("MeetingBot.initialize() setting state READY")
+
+        self.set_state(BotState.READY)
+
+        logger.info(
+            f"MeetingBot.initialize() END | state={self.context.state}"
+        )
+
 
     async def join(self, meeting_url: str, display_name: str = "KONE AI Bot") -> None:
         """
         Joins Teams meeting.
         """
         if self.context.state == BotState.CREATED:
-            logger.info("MeetingBot | Bot not initialized. Initializing automatically.")
-            await self.initialize()
+            raise RuntimeError(
+                "MeetingBot has not been initialized by RuntimeCoordinator."
+        )
 
         if self.context.state not in [BotState.READY, BotState.DISCONNECTED]:
             raise ValueError(f"MeetingBot | Cannot join meeting from current state: {self.context.state}")

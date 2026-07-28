@@ -22,9 +22,9 @@ class MeetingRuntimeService:
         sess = db.query(Session).filter(Session.id == session_id).first()
         if not sess:
             return None
-        runtime = db.query(Runtime).filter(Runtime.session_id == session_id).first()
+        runtime = db.query(Runtime).filter(Runtime.session_id == session_id).order_by(Runtime.updated_at.desc()).first()
         if not runtime:
-            runtime = Runtime(session_id=session_id, state="PREPARING", current_slide=0)
+            runtime = Runtime(session_id=session_id, state="NOT_CREATED", current_slide=0)
             db.add(runtime)
             db.commit()
             db.refresh(runtime)

@@ -38,7 +38,9 @@ class BrowserManager:
 
             from app.services.storage_service import storage_service
 
-            temp_dir = storage_service.get_session_dir(session_id) / "profile"
+            import time
+            unique_profile = f"profile_{int(time.time())}"
+            temp_dir = storage_service.get_session_dir(session_id) / unique_profile
             temp_dir.mkdir(parents=True, exist_ok=True)
 
             default_profile_dir = temp_dir / "Default"
@@ -60,6 +62,8 @@ class BrowserManager:
 
             prefs_data["protocol_handler"]["excluded_schemes"]["teams"] = True
             prefs_data["protocol_handler"]["excluded_schemes"]["msteams"] = True
+            prefs_data["protocol_handler"]["excluded_schemes"]["ms-teams"] = True
+            prefs_data["protocol_handler"]["excluded_schemes"]["ms-teams-launcher"] = True
             prefs_data["protocol_handler"]["excluded_schemes"]["ms-word"] = True
 
             prefs_data.setdefault("profile", {})
@@ -79,6 +83,10 @@ class BrowserManager:
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-blink-features=AutomationControlled",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                "--disable-web-security",
+                "--allow-running-insecure-content"
             ]
 
             if meeting_bot_config.use_fake_devices:
@@ -98,19 +106,16 @@ class BrowserManager:
                     "width": meeting_bot_config.viewport_width,
                     "height": meeting_bot_config.viewport_height,
                 },
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
                 permissions=["microphone", "camera"],
             )
 
             if context.pages:
                 page = context.pages[0]
                 page._playwright_instance = self.playwright_instance
+                page._session_id = session_id
             else:
                 page = await context.new_page()
+                page._session_id = session_id
 
             self.session = BrowserSession(
                 browser=None,

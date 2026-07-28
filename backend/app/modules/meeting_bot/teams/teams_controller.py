@@ -13,52 +13,225 @@ class DeviceConfigurationResult:
     message: str
 
 class TeamsController:
-    async def open_meeting(self, page: Page, url: str) -> None:
+    async def open_meeting(self, page: Page, url: str) -> Page:
         """
-        Navigates to Teams URL and handles the 'Continue on this browser' modal option.
+        Navigate to Teams meeting and bind to the final Teams page.
         """
+
+        sess_id = getattr(page, "_session_id", "verification_session")
+        page.context._meeting_url = url
         logger.info(f"TeamsController | Opening meeting URL: {url}")
-        await page.goto(url)
-        await asyncio.sleep(2.5)
-        
-        # Focus window and dismiss native protocol handler popup dialog (Open Microsoft Teams?)
-        try:
-            from app.modules.meeting_bot.desktop.desktop_controller import desktop_controller
-            desktop_controller.focus_teams()
-            desktop_controller.dismiss_popup()
-            await asyncio.sleep(0.5)
-            desktop_controller.dismiss_popup()
-        except Exception:
-            pass
-        
-        await asyncio.sleep(1) # Extra buffer
-        
-        # Look for "Join on this browser" or "Continue on this browser"
+
+        await page.goto(
+            url,
+            wait_until="domcontentloaded",
+            timeout=60000,
+        )
+
         browser_selectors = [
             "button[data-tid='join-on-web']",
             "button:has-text('Continue on this browser')",
             "button:has-text('Join on the web')",
             "#openTeamsClientInBrowser",
-            "text=Continue on this browser"
+            "text=Continue on this browser",
         ]
-        
-        button_found = False
-        for sel in browser_selectors:
+
+        context = page.context
+        button_clicked = False
+
+        for selector in browser_selectors:
+
             try:
-                el = page.locator(sel)
-                await el.wait_for(state="visible", timeout=10000)
-                logger.info(f"TeamsController | Clicking browser option selector: '{sel}'")
-                await el.click()
-                button_found = True
+                button = page.locator(selector)
+                await button.wait_for(state="visible", timeout=10000)
+
+                try:
+                    from app.modules.meeting_bot.desktop.desktop_controller import (
+                        desktop_controller,
+                    )
+
+                    await page.bring_to_front()
+                    desktop_controller.focus_teams()
+                    desktop_controller.dismiss_popup()
+                    await asyncio.sleep(0.5)
+                    desktop_controller.dismiss_popup()
+                except Exception:
+                    pass
+
+                logger.info(
+                    f"TeamsController | Clicking browser option: {selector}"
+                )
+
+                await button.click(force=True)
+
+                button_clicked = True
                 break
+
+            except Exception as e:
+                logger.debug(
+                    f"Selector '{selector}' unavailable: {e}"
+                )
+
+        if not button_clicked:
+            logger.warning(
+                "TeamsController | Continue on browser button not found."
+            )
+
+        logger.info("TeamsController | Waiting for Teams navigation...")
+
+        deadline = asyncio.get_running_loop().time() + 30
+
+        while asyncio.get_running_loop().time() < deadline:
+
+            for p in context.pages:
+
+                logger.info(f"Observed page: {p.url}")
+
+                if (
+                    "teams.live.com" in p.url
+                    or "teams.microsoft.com" in p.url
+                    or "light-meetings" in p.url
+                ):
+                    p._session_id = sess_id
+                    page = p
+                    break
+
+            if (
+                "teams.live.com" in page.url
+                or "teams.microsoft.com" in page.url
+            ):
+                break
+
+            await asyncio.sleep(0.5)
+
+        logger.info(f"Bound page: {page.url}")
+
+        # ---------- Navigation Diagnostics ----------
+
+        page.on(
+            "framenavigated",
+            lambda frame: logger.info(
+                f"FRAME NAVIGATED -> {frame.url}"
+            ),
+        )
+
+        page.on(
+            "close",
+            lambda: logger.warning("PAGE CLOSED"),
+        )
+
+        page.on(
+            "crash",
+            lambda: logger.error("PAGE CRASHED"),
+        )
+
+        # --------------------------------------------
+
+        await screen_capture.capture_step(
+            page,
+            sess_id,
+            "meeting_loaded",
+        )
+
+        return page
+    async def wait_for_prejoin(self, page: Page) -> Page:
+        """
+        Wait until Teams prejoin controls appear.
+        """
+
+        if "launcher.html" in page.url:
+
+            logger.info(
+                "TeamsController | Launcher page detected. "
+                "Searching context pages..."
+            )
+
+            for p in page.context.pages:
+
+                logger.info(f"Context page: {p.url}")
+
+                if (
+                    "teams.live.com" in p.url
+                    or "teams.microsoft.com" in p.url
+                    or "light-meetings" in p.url
+                ):
+                    page = p
+                    logger.info(f"Re-bound page -> {page.url}")
+                    break
+
+        logger.info("========== PREJOIN DEBUG ==========")
+        logger.info(f"Current URL : {page.url}")
+        logger.info(f"Closed      : {page.is_closed()}")
+        logger.info(f"Pages       : {len(page.context.pages)}")
+
+        for i, p in enumerate(page.context.pages):
+            logger.info(f"Context Page {i}: {p.url}")
+
+        logger.info("===================================")
+
+        logger.info("Waiting for Teams prejoin page...")
+
+        timeout = asyncio.get_running_loop().time() + 30
+
+        while asyncio.get_running_loop().time() < timeout:
+
+            logger.info(f"Polling URL -> {page.url}")
+
+            if page.is_closed():
+                raise RuntimeError("Teams page was closed.")
+
+            if "chrome-error" in page.url:
+                logger.warning(
+                    f"TeamsController | Detected error page '{page.url}'. Attempting page reload to bypass silent auth deadlock..."
+                )
+                try:
+                    await page.reload(wait_until="domcontentloaded", timeout=15000)
+                    await asyncio.sleep(1)
+                    if "chrome-error" in page.url:
+                        # Fallback navigation back to the meeting URL directly
+                        meet_url = getattr(page.context, "_meeting_url", None)
+                        if meet_url:
+                            logger.info(f"TeamsController | Reload failed. Re-navigating to meeting URL: {meet_url}")
+                            await page.goto(meet_url, wait_until="domcontentloaded", timeout=15000)
+                except Exception as reload_err:
+                    logger.error(f"TeamsController | Page reload/goto failed: {reload_err}")
+
+            try:
+
+                await page.wait_for_selector(
+                    "input[data-tid='prejoin-display-name'], "
+                    "button[data-tid='prejoin-join-button']",
+                    timeout=1000,
+                )
+
+                logger.info(
+                    "TeamsController | Prejoin controls detected."
+                )
+
+                return page
+
             except Exception:
                 pass
-                
-        if not button_found:
-            logger.warning("TeamsController | 'Continue on this browser' button not found or already bypassed.")
 
-        # Capture 02_meeting_loaded
-        await screen_capture.capture_step(page, "verification_session", "meeting_loaded")
+            await asyncio.sleep(0.5)
+
+        logger.error(
+            f"Prejoin timeout. Final URL: {page.url}"
+        )
+
+        sess_id = getattr(page, "_session_id", "verification_session")
+        screenshot = await screen_capture.capture_step(
+            page,
+            sess_id,
+            "prejoin_wait_failed",
+        )
+
+        logger.info(f"Diagnostic screenshot: {screenshot}")
+
+        raise RuntimeError(
+            f"Timed out waiting for Teams prejoin UI. "
+            f"Current URL: {page.url}"
+        )
 
     async def configure_devices(self, page: Page, mute_mic: bool = True, turn_off_cam: bool = True) -> DeviceConfigurationResult:
         """
@@ -69,8 +242,8 @@ class TeamsController:
         
         try:
             await page.locator("button[aria-label*='microphone' i]").wait_for(state="visible", timeout=20000)
-        except Exception:
-            logger.warning("TeamsController | Timeout waiting for mic toggle button to be visible. Trying pre-join inputs...")
+        except Exception as e:
+            logger.warning(f"TeamsController | Timeout waiting for mic toggle button to be visible: {e}")
 
         mic_found = False
         cam_found = False
@@ -97,14 +270,15 @@ class TeamsController:
                     else:
                         mic_disabled = True
                     break
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"TeamsController | Mic selector '{sel}' visibility check failed: {e}")
 
         # Turn Off Camera
         cam_selectors = [
             "button[aria-label*='camera' i]",
             "button[aria-label*='video' i]",
-            "button[data-tid='prejoin-camera-toggle']"
+            "button[data-tid='prejoin-camera-toggle']",
+            "//button[contains(@class, 'toggle') or contains(@role, 'checkbox')][contains(.., 'Background') or contains(.., 'Camera')]"
         ]
         for sel in cam_selectors:
             try:
@@ -112,7 +286,19 @@ class TeamsController:
                 if await el.is_visible(timeout=2000):
                     cam_found = True
                     label = await el.get_attribute("aria-label") or ""
-                    if "off" not in label.lower():
+                    # Check checkbox checked status if it exists as checkbox/toggle role
+                    checked_attr = await el.get_attribute("aria-checked")
+                    role = await el.get_attribute("role")
+                    
+                    if role == "checkbox" or role == "switch":
+                        is_on = checked_attr == "true"
+                        if is_on and turn_off_cam:
+                            await el.click()
+                            cam_disabled = True
+                            logger.info("TeamsController | Camera checkbox toggle clicked (turned off)")
+                        elif not is_on:
+                            cam_disabled = True
+                    elif "off" not in label.lower():
                         if turn_off_cam:
                             await el.click()
                             cam_disabled = True
@@ -120,11 +306,12 @@ class TeamsController:
                     else:
                         cam_disabled = True
                     break
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"TeamsController | Cam selector '{sel}' visibility check failed: {e}")
 
         # Capture 03_devices_configured
-        await screen_capture.capture_step(page, "verification_session", "devices_configured")
+        sess_id = getattr(page, "_session_id", "verification_session")
+        await screen_capture.capture_step(page, sess_id, "devices_configured")
 
         msg = f"Devices configured (Mic found: {mic_found}, disabled: {mic_disabled}; Cam found: {cam_found}, disabled: {cam_disabled})"
         logger.info(f"TeamsController | {msg}")
@@ -160,7 +347,8 @@ class TeamsController:
                 pass
 
         # Capture 04_join_requested
-        await screen_capture.capture_step(page, "verification_session", "join_requested")
+        sess_id = getattr(page, "_session_id", "verification_session")
+        await screen_capture.capture_step(page, sess_id, "join_requested")
 
         # Join Now
         join_selectors = [

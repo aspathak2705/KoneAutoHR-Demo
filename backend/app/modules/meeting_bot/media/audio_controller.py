@@ -48,13 +48,11 @@ class AudioController:
         logger.info(f"AudioController | Session: {self.session_id} | Playing: {target_path}")
         self.current_track = audio_path
 
-        # PowerShell media player script
+        # PowerShell media player script routing to system speaker
         ps_cmd = (
-            f'Add-Type -AssemblyName PresentationCore; '
-            f'$player = New-Object System.Windows.Media.MediaPlayer; '
-            f'$player.Open("{str(target_path)}"); '
-            f'$player.Play(); '
-            f'while ($player.Position -lt $player.NaturalDuration.TimeSpan) {{ Start-Sleep -Milliseconds 200 }}'
+            f'$player = New-Object System.Media.SoundPlayer; '
+            f'$player.SoundLocation = "{str(target_path)}"; '
+            f'$player.PlaySync();'
         )
 
         ps_exe = self._get_powershell_path()

@@ -18,7 +18,10 @@ class MeetingLifecycle:
         context.state = BotState.JOINING
 
         # 1. Open Meeting URL (Milestone 02 captured inside teams_controller)
-        await teams_controller.open_meeting(context.page, meeting_url)
+        context.page = await teams_controller.open_meeting(context.page, meeting_url)
+        
+        # 1b. Wait for prejoin controls to render
+        context.page = await teams_controller.wait_for_prejoin(context.page)
         
         # 2. Toggle mic / camera toggles (Milestone 03 captured inside teams_controller)
         device_result = await teams_controller.configure_devices(context.page, mute_mic=True, turn_off_cam=True)
@@ -32,7 +35,8 @@ class MeetingLifecycle:
         logger.info("MeetingLifecycle | Bot submitted guest request. Waiting in lobby...")
         
         # Capture 05_waiting_lobby
-        await screen_capture.capture_step(context.page, "verification_session", "05_waiting_lobby")
+        sess_id = context.session_id or "verification_session"
+        await screen_capture.capture_step(context.page, sess_id, "waiting_lobby")
 
         # Poll active status dynamically based on config
         if meeting_bot_config.lobby_wait_enabled:
@@ -46,7 +50,7 @@ class MeetingLifecycle:
                     logger.info("MeetingLifecycle | Bot connected to Teams meeting successfully (Admitted).")
                     
                     # Capture 06_connected
-                    await screen_capture.capture_step(context.page, "verification_session", "06_connected")
+                    await screen_capture.capture_step(context.page, sess_id, "connected")
                     break
                 
                 # Check timeouts
@@ -60,7 +64,7 @@ class MeetingLifecycle:
         else:
             context.state = BotState.CONNECTED
             # Capture 06_connected
-            await screen_capture.capture_step(context.page, "verification_session", "06_connected")
+            await screen_capture.capture_step(context.page, sess_id, "connected")
 
     async def leave_meeting(self, context: MeetingBotContext) -> None:
         """
@@ -69,8 +73,9 @@ class MeetingLifecycle:
         logger.info("MeetingLifecycle | Leaving call...")
         
         # Capture 07_before_leave right before hangup
+        sess_id = context.session_id or "verification_session"
         if context.page:
-            await screen_capture.capture_step(context.page, "verification_session", "07_before_leave")
+            await screen_capture.capture_step(context.page, sess_id, "before_leave")
             try:
                 await teams_controller.leave_meeting(context.page)
             except Exception:

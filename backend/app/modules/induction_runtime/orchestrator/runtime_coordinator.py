@@ -183,6 +183,9 @@ class RuntimeCoordinator:
             
             # Launch browser (THIS IS THE KEY CHANGE - browser launch moved here)
             self._browser_manager = await self._launch_browser()
+            logger.info(f"_browser_manager type: {type(self._browser_manager)}")
+            logger.info(f"_browser_manager: {self._browser_manager}")
+            logger.info(f"Has session attribute: {hasattr(self._browser_manager, 'session')}")
             if not self._browser_manager:
                 raise Exception("Failed to launch browser")
             
@@ -202,14 +205,7 @@ class RuntimeCoordinator:
         """
         Lifecycle Phase: BROWSER_READY → JOINING → WAITING → CONNECTED
         
-        Joins Teams meeting by:
-        1. Opening Teams in browser
-        2. Navigating to meeting URL
-        3. Configuring devices
-        4. Joining meeting
-        5. Waiting for presentation
-        
-        Returns True on success, False on failure.
+        Joins Teams meeting by delegating to MeetingBotService.
         """
         logger.info(f"RuntimeCoordinator | START join_meeting")
         
@@ -221,14 +217,43 @@ class RuntimeCoordinator:
             if not await self.session_manager.transition_to(RuntimeState.JOINING):
                 raise Exception("Failed to transition to JOINING state")
             
-            # Initialize Teams controller
-            self._teams_controller = await self._init_teams_controller()
-            if not self._teams_controller:
-                raise Exception("Failed to initialize Teams controller")
+            # Use MeetingBotService to join meeting (which encapsulates page.goto and Teams join actions)
+            from app.modules.meeting_bot.services.meeting_bot_service import meeting_bot_service
             
-            # Open Teams meeting
-            if not await self._open_teams_meeting(meeting_url):
-                raise Exception("Failed to open Teams meeting")
+            # Set the browser context in MeetingBot to match the browser launched by RuntimeCoordinator
+            bot = meeting_bot_service.get_bot(self.session_id)
+
+            logger.info("STEP 1 - Got MeetingBot")
+            logger.info(f"BrowserManager exists: {self._browser_manager is not None}")
+            
+            if self._browser_manager:
+                logger.info(f"Session exists: {self._browser_manager.session is not None}")
+                if self._browser_manager.session:
+                    logger.info(f"Injected page: {self._browser_manager.session.page}")
+                    bot.context.browser = self._browser_manager.session.browser
+                    bot.context.browser_context = self._browser_manager.session.context
+                    bot.context.page = self._browser_manager.session.page
+                    bot.context.playwright = self._browser_manager.playwright_instance
+
+            logger.info(f"Bot page after injection: {bot.context.page}")
+            logger.info("STEP 3 - Calling initialize()")
+            await bot.initialize()
+            logger.info("STEP 4 - initialize() returned")
+
+            logger.info(
+                f"Coordinator -> Bot state AFTER initialize: {bot.context.state}"
+            )
+
+            logger.info(
+                f"Coordinator -> Bot state before join: {bot.context.state}"
+            )
+
+            logger.info(
+                f"Coordinator page id: {id(bot.context.page)}"
+            )
+            
+            # Trigger join meeting
+            result = await meeting_bot_service.join_meeting(meeting_url, "KONE AI Bot", self.session_id)
             
             # Transition to WAITING
             if not await self.session_manager.transition_to(RuntimeState.WAITING):
@@ -338,12 +363,11 @@ class RuntimeCoordinator:
         """
         logger.info(f"RuntimeCoordinator | START _launch_browser (attempt {self._retry_count + 1}/{self.max_retries})")
         try:
-            from app.modules.meeting_bot.browser.browser_manager import BrowserManager
-            browser_mgr = BrowserManager()
-            await browser_mgr.launch(self.session_id)
+            from app.modules.meeting_bot.browser.browser_manager import browser_manager
+            await browser_manager.launch(self.session_id)
             logger.info(f"RuntimeCoordinator | SUCCESS _launch_browser")
             self._retry_count = 0  # Reset on success
-            return browser_mgr
+            return browser_manager
         except Exception as e:
             logger.error(f"RuntimeCoordinator | FAILED _launch_browser (attempt {self._retry_count + 1}): {e}")
             
