@@ -12,11 +12,14 @@ from app.models.organization_config import OrganizationConfig
 from app.models.runtime import Runtime
 from app.models.runtime_message import RuntimeMessage
 from app.models.attendance import Attendance
+from app.models.presentation_asset import PresentationAsset
+from app.models.agent_configuration import AgentConfiguration
 
 __all__ = [
     "Session",
     "Upload",
     "Presentation",
+    "PresentationAsset",
     "EmployeeList",
     "Meeting",
     "InvitationDraft",
@@ -28,4 +31,5 @@ __all__ = [
     "Runtime",
     "RuntimeMessage",
     "Attendance",
+    "AgentConfiguration",
 ]

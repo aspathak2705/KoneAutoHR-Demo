@@ -38,10 +38,26 @@ class BrowserManager:
 
             from app.services.storage_service import storage_service
 
-            import time
-            unique_profile = f"profile_{int(time.time())}"
-            temp_dir = storage_service.get_session_dir(session_id) / unique_profile
-            temp_dir.mkdir(parents=True, exist_ok=True)
+            from app.db.database import SessionLocal
+            from app.services.agent_configuration_service import agent_configuration_service
+            
+            profile_dir_path = None
+            with SessionLocal() as db:
+                profile_dir_path = agent_configuration_service.get_profile_path(db)
+                
+            if profile_dir_path:
+                # Use persistent profile path configured in DB
+                from app.core.config import settings
+                from pathlib import Path
+                temp_dir = Path(settings.UPLOAD_DIR).parent / profile_dir_path
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                logger.info(f"BrowserManager | Launching with persistent Microsoft profile path: {temp_dir}")
+            else:
+                import time
+                unique_profile = f"profile_{int(time.time())}"
+                temp_dir = storage_service.get_session_dir(session_id) / unique_profile
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                logger.info(f"BrowserManager | Launching with temporary session profile path: {temp_dir}")
 
             default_profile_dir = temp_dir / "Default"
             default_profile_dir.mkdir(parents=True, exist_ok=True)

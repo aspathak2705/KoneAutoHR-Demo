@@ -33,6 +33,9 @@ uploads/
 .vscode/
 .idea/
 
+# Persistent Playwright profile
+backend/profiles
+
 node_modules 
 verify_llm.py
 verify.py

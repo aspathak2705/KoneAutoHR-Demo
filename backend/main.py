@@ -118,6 +118,7 @@ from app.api.v1 import assets
 from app.api.v1.meeting_bot import router as meeting_bot_router
 from app.api.v1.semantic_browser import router as semantic_browser_router
 from app.api.v1.presentation_observer import router as presentation_observer_router
+from app.api.v1.agent_configuration import router as agent_configuration_router
 
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(session.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
@@ -135,6 +136,7 @@ app.include_router(assets.router, prefix="/api/v1", dependencies=[Depends(verify
 app.include_router(meeting_bot_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 app.include_router(semantic_browser_router, prefix="/api/v1/semantic-browser", dependencies=[Depends(verify_token)])
 app.include_router(presentation_observer_router, prefix="/api/v1/presentation-observer", dependencies=[Depends(verify_token)])
+app.include_router(agent_configuration_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 
 if __name__ == "__main__":
     import uvicorn

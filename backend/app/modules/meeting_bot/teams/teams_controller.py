@@ -336,15 +336,29 @@ class TeamsController:
             "input[placeholder*='name' i]"
         ]
         
+        name_input_found = False
         for sel in name_selectors:
             try:
                 el = page.locator(sel)
-                await el.wait_for(state="visible", timeout=15000)
+                await el.wait_for(state="visible", timeout=3000)
                 await el.fill(display_name)
                 logger.info(f"TeamsController | Entered name using: '{sel}'")
+                name_input_found = True
                 break
             except Exception:
                 pass
+
+        if not name_input_found:
+            # Check if profile configuration is connected
+            from app.db.database import SessionLocal
+            from app.services.agent_configuration_service import agent_configuration_service
+            is_connected = False
+            with SessionLocal() as db:
+                is_connected = agent_configuration_service.get_connection_state(db)
+            if is_connected:
+                logger.info("TeamsController | Name input not found in authenticated context. Bypassing guest name entry.")
+            else:
+                logger.warning("TeamsController | Name input not found, but agent config is not connected.")
 
         # Capture 04_join_requested
         sess_id = getattr(page, "_session_id", "verification_session")
