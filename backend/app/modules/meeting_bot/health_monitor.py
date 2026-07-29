@@ -19,6 +19,8 @@ class HealthMonitor:
                 browser_alive = context.browser.is_connected()
             except Exception:
                 pass
+        elif context.browser_context:
+            browser_alive = True
 
         if context.page:
             try:
@@ -35,7 +37,7 @@ class HealthMonitor:
         status = {
             "browser_alive": browser_alive,          # Browser Alive
             "meeting_connected": meeting_connected,  # Meeting Connected
-            "page_responsive": page_alive,           # Page Responsive
+            "page_alive": page_alive,                # Page Alive
             "bot_running": bot_running,              # Bot Running
             "is_healthy": browser_alive and page_alive and (context.state == BotState.CONNECTED or context.state == BotState.READY)
         }

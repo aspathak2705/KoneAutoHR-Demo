@@ -280,7 +280,15 @@ class RuntimeCoordinator:
         logger.info(f"RuntimeCoordinator | START finish_presentation")
         
         try:
-            if not self.session_manager.state in [RuntimeState.PRESENTING, RuntimeState.CONNECTED]:
+            if not self.session_manager.state in [
+                RuntimeState.READY,
+                RuntimeState.STARTING,
+                RuntimeState.BROWSER_READY,
+                RuntimeState.JOINING,
+                RuntimeState.WAITING,
+                RuntimeState.CONNECTED,
+                RuntimeState.PRESENTING
+            ]:
                 raise Exception(f"Cannot finish from state {self.session_manager.state.value}")
             
             # Transition to FINISHED

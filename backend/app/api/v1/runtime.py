@@ -344,6 +344,8 @@ def get_runtime_status(session_id: str, db: DBSession = Depends(get_db)):
 
     db_runtime = meeting_runtime_service.get_runtime(db, session_id)
     state = db_runtime.state if db_runtime else "IDLE"
+    if session_id not in runtime_service._coordinators:
+        state = "NOT_CREATED"
     current_slide = db_runtime.current_slide if db_runtime else 0
     reconnect_count = db_runtime.reconnect_count if db_runtime else 0
     speech_state = db_runtime.speech_state if db_runtime else "IDLE"
