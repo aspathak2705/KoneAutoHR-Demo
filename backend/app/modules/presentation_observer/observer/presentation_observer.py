@@ -1,6 +1,7 @@
 from app.modules.semantic_browser.browser.semantic_snapshot import SemanticSnapshot
 from app.modules.presentation_observer.models.observation import Observation
 from app.modules.presentation_observer.observer.observation_context import ObservationContext
+from loguru import logger
 from app.modules.presentation_observer.analyzers.state_tracker import state_tracker
 from app.modules.presentation_observer.analyzers.change_detector import change_detector
 from app.modules.presentation_observer.analyzers.timeline_tracker import timeline_tracker
@@ -46,5 +47,21 @@ class PresentationObserver:
         self.context.prev_snapshot = snapshot
         self.context.prev_observation = obs
         return obs
+
+    def presentation_detected(self) -> bool:
+        """
+        Returns True if a Shared PowerPoint or presentation window is visible on screen.
+        """
+        if not self.context.prev_snapshot:
+            logger.debug("PresentationObserver | No previous snapshot found for detection.")
+            return False
+        from app.modules.semantic_browser.models.presentation_state import PresentationMode
+        state = self.context.prev_snapshot.presentation_state
+        detected = state in [
+            PresentationMode.POWERPOINT_SHARED,
+            PresentationMode.SCREEN_SHARING
+        ]
+        logger.info(f"PresentationObserver | Presentation state: {state} | Detected: {detected}")
+        return detected
 
 presentation_observer = PresentationObserver()

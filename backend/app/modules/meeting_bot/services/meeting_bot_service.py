@@ -84,7 +84,7 @@ class MeetingBotService:
     async def get_participants(self, session_id: str = "default_session") -> dict:
         bot = self.get_bot(session_id)
         if bot.context.page:
-            names = await participant_monitor.get_participants(bot.context.page)
+            names = await participant_monitor.get_participants(bot.context)
             bot.context.participants = names
         return {
             "count": len(bot.context.participants),
@@ -94,7 +94,7 @@ class MeetingBotService:
     async def get_chat(self, session_id: str = "default_session") -> dict:
         bot = self.get_bot(session_id)
         if bot.context.page:
-            messages = await chat_monitor.get_messages(bot.context.page)
+            messages = await chat_monitor.get_messages(bot.context)
             bot.context.chat_messages = messages
         return {
             "messages": bot.context.chat_messages

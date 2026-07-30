@@ -62,22 +62,39 @@ async def prepare_runtime(session_id: str, db: DBSession = Depends(get_db)):
 @router.post("/{session_id}/start-induction")
 async def start_induction(session_id: str, db: DBSession = Depends(get_db)):
     """
-    Refactored start-induction endpoint. Returns READY/BROWSER_READY immediately.
+    Overloaded start-induction endpoint:
+    - Phase 2: READY -> STARTING -> BROWSER_READY (Starts browser)
+    - Phase 4: CONNECTED -> PRESENTING (Starts presentation)
     """
-    logger.info(f"API | START POST /start-induction (refactored to no-op) for session {session_id}")
+    logger.info(f"API | POST /start-induction for session {session_id}")
     try:
         coordinator = runtime_service.get_coordinator(db, session_id)
-        # Update coordinator state to BROWSER_READY so the tests still flow cleanly
-        if not await coordinator.start_induction():
-            raise HTTPException(
-                status_code=400,
-                detail="Failed to start induction"
-            )
-        return {
-            "message": "Induction started, browser ready",
-            "state": "BROWSER_READY",
-            "session_id": session_id
-        }
+        
+        # Check current state to determine action
+        if coordinator.session_manager.state == RuntimeState.CONNECTED:
+            from app.services.meeting_status_service import meeting_status_service
+            status = await meeting_status_service.evaluate_status(db, session_id)
+            if not status.get("bot_ready", False):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Cannot start presentation. Reason: {status.get('reason')}"
+                )
+            coordinator.induction_started = True
+            logger.info(f"API | Presentation authorized by HR for session {session_id}")
+            return {"status": "success", "message": "Presentation started"}
+        else:
+            if not await coordinator.start_induction():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Failed to start induction"
+                )
+            return {
+                "message": "Induction started, browser ready",
+                "state": "BROWSER_READY",
+                "session_id": session_id
+            }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"API | FAILED POST /start-induction: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -333,6 +350,19 @@ def get_runtime_status_detailed(session_id: str, db: DBSession = Depends(get_db)
     """
     return teams_runtime_service.get_status(db, session_id)
 
+@router.get("/{session_id}/meeting-status")
+async def get_meeting_status_endpoint(session_id: str, db: DBSession = Depends(get_db)):
+    """
+    Returns aggregated live meeting status and readiness metrics.
+    """
+    try:
+        from app.services.meeting_status_service import meeting_status_service
+        status = await meeting_status_service.evaluate_status(db, session_id)
+        return status
+    except Exception as e:
+        logger.error(f"API | Failed to evaluate meeting status: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.get("/{session_id}")
 def get_runtime_status(session_id: str, db: DBSession = Depends(get_db)):
     """
@@ -359,6 +389,10 @@ def get_runtime_status(session_id: str, db: DBSession = Depends(get_db)):
         RuntimeMessage.speaker_name != trainer
     ).all()
 
+    narration_state = "idle"
+    if session_id in runtime_service._coordinators:
+        narration_state = runtime_service._coordinators[session_id].narration_state
+
     return {
         "session_id": session_id,
         "state": state,
@@ -372,7 +406,8 @@ def get_runtime_status(session_id: str, db: DBSession = Depends(get_db)):
         "employees_ready": readiness.get("has_employees"),
         "meeting_ready": readiness.get("has_meeting"),
         "ai_ready": readiness.get("has_script") and readiness.get("has_faq"),
-        "readiness_report": readiness
+        "readiness_report": readiness,
+        "narration_state": narration_state
     }
 
 # Legacy launch/join/leave endpoints removed since they are unused

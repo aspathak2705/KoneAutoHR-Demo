@@ -15,6 +15,11 @@ class PresentationAgent:
         trainer_name = presenter.get("ai_trainer_name", "KONE Trainer")
         company = presenter.get("company_name", "KONE")
 
+        if isinstance(slide_narration, dict):
+            slide_narration = slide_narration.get("narration", "")
+        if not isinstance(slide_narration, str):
+            slide_narration = str(slide_narration)
+
         # Replace standard template placeholder variables if present
         spoken_text = slide_narration.replace("{trainer_name}", trainer_name).replace("{company_name}", company)
         

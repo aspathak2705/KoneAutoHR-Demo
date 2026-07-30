@@ -215,18 +215,29 @@ class RuntimeService:
             script_payload = {}
 
         slide_narrations = script_payload.get("slide_narrations", {}) if isinstance(script_payload, dict) else {}
-        slide_order = sorted([int(k) for k in slide_narrations.keys()])
-        
         slides = []
-        for slide_num in slide_order:
-            item = slide_narrations.get(str(slide_num), {})
-            slides.append({
-                "slide_number": slide_num,
-                "learning_objective": item.get("learning_objective", ""),
-                "narration": item.get("narration", ""),
-                "transition": "crossfade",
-                "embedded_video": None
-            })
+        
+        if "slides" in script_payload and isinstance(script_payload["slides"], list):
+            for s in script_payload["slides"]:
+                slide_num = int(s.get("slide_number", 1))
+                slides.append({
+                    "slide_number": slide_num,
+                    "learning_objective": s.get("objective", ""),
+                    "narration": s.get("narration", ""),
+                    "transition": s.get("transition_in", "crossfade"),
+                    "embedded_video": None
+                })
+        else:
+            slide_order = sorted([int(k) for k in slide_narrations.keys()])
+            for slide_num in slide_order:
+                item = slide_narrations.get(str(slide_num), {})
+                slides.append({
+                    "slide_number": slide_num,
+                    "learning_objective": item.get("learning_objective", ""),
+                    "narration": item.get("narration", ""),
+                    "transition": "crossfade",
+                    "embedded_video": None
+                })
 
         return {
             "total_slides": len(slides),

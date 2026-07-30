@@ -48,11 +48,15 @@ class AudioController:
         logger.info(f"AudioController | Session: {self.session_id} | Playing: {target_path}")
         self.current_track = audio_path
 
-        # PowerShell media player script routing to system speaker
+        # PowerShell media player script routing to system speaker (supporting MP3 playback)
         ps_cmd = (
-            f'$player = New-Object System.Media.SoundPlayer; '
-            f'$player.SoundLocation = "{str(target_path)}"; '
-            f'$player.PlaySync();'
+            f'Add-Type -AssemblyName PresentationCore; '
+            f'$player = New-Object System.Windows.Media.MediaPlayer; '
+            f'$player.Open([Uri]"{target_path.as_uri()}"); '
+            f'$player.Play(); '
+            f'Start-Sleep -Milliseconds 500; '
+            f'while ($player.NaturalDuration.HasTimeSpan -eq $false) {{ Start-Sleep -Milliseconds 100 }}; '
+            f'Start-Sleep -Milliseconds ($player.NaturalDuration.TimeSpan.TotalMilliseconds - 500);'
         )
 
         ps_exe = self._get_powershell_path()
@@ -85,6 +89,98 @@ class AudioController:
     def resume_audio(self) -> None:
         if self.current_track:
             self.play_audio(self.current_track)
+
+    def audio_ready(self) -> bool:
+        """
+        Verifies if all narration assets exist on disk and are successfully loaded into the AudioController.
+        """
+        from app.services.storage_service import storage_service
+        from app.db.database import SessionLocal
+        from app.models.presentation_script import PresentationScript
+        from app.models.session import Session
+        import json
+        
+        audio_dir = storage_service.get_session_dir(self.session_id) / "audio"
+        if not audio_dir.exists():
+            return False
+            
+        # Read script from db to identify expected files
+        with SessionLocal() as db:
+            sess = db.query(Session).filter(Session.id == self.session_id).first()
+            if not sess or not sess.presentation_id:
+                return False
+            script = db.query(PresentationScript).filter(
+                PresentationScript.presentation_id == sess.presentation_id,
+                PresentationScript.status == "ACTIVE"
+            ).first()
+            if not script:
+                return False
+            try:
+                payload = json.loads(script.script_content)
+            except Exception:
+                return False
+                
+        # Identify expected files
+        expected = []
+        opening = payload.get("opening") or {}
+        welcome_flow = payload.get("welcome_flow") or {}
+        
+        if opening.get("greeting") or welcome_flow.get("greeting"):
+            expected.append("greeting.mp3")
+        if opening.get("presenter_intro") or welcome_flow.get("intro"):
+            expected.append("intro.mp3")
+        if opening.get("employee_welcome"):
+            expected.append("employee_welcome.mp3")
+        if opening.get("audio_check") or welcome_flow.get("audio_check"):
+            expected.append("audio_check.mp3")
+        if opening.get("ice_breaker") or welcome_flow.get("ice_breaker"):
+            expected.append("ice_breaker.mp3")
+        if opening.get("session_rules") or welcome_flow.get("rules"):
+            expected.append("session_rules.mp3")
+        if opening.get("agenda"):
+            expected.append("agenda.mp3")
+            
+        slides = payload.get("slides")
+        if isinstance(slides, list):
+            for s in slides:
+                num = int(s.get("slide_number", 1))
+                if s.get("objective"):
+                    expected.append(f"slide_{num}_objective.mp3")
+                if s.get("transition_in"):
+                    expected.append(f"slide_{num}_transition_in.mp3")
+                if s.get("narration"):
+                    expected.append(f"slide_{num}.mp3")
+                    expected.append(f"slide_{num}_narration.mp3")
+                if s.get("understanding_check"):
+                    expected.append(f"slide_{num}_understanding_check.mp3")
+                if s.get("transition_out"):
+                    expected.append(f"slide_{num}_transition_out.mp3")
+        else:
+            slide_narrations = payload.get("slide_narrations", {})
+            for num_str, data in slide_narrations.items():
+                num = int(num_str)
+                if data.get("narration"):
+                    expected.append(f"slide_{num}.mp3")
+                    expected.append(f"slide_{num}_narration.mp3")
+                    
+        closing = payload.get("closing") or {}
+        closing_script = payload.get("closing_script") or {}
+        if closing.get("summary") or closing_script.get("summary"):
+            expected.append("closing.mp3")
+        if closing.get("next_steps") or closing_script.get("next_steps"):
+            expected.append("closing_next_steps.mp3")
+        if closing.get("farewell"):
+            expected.append("closing_farewell.mp3")
+            
+        if not expected:
+            return False
+            
+        # Verify all expected exist
+        for filename in expected:
+            if not (audio_dir / filename).exists():
+                return False
+                
+        return True
 
 # Isolated AudioController registry per session ID
 _audio_controllers = {}

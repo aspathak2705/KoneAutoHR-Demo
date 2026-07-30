@@ -39,7 +39,19 @@ class PresentationAnalyzer:
                 "[data-tid='stage-sharing-overlay']",
                 "[data-tid='share-stage']",
                 "video[aria-label*='Screen' i]",
-                "div[aria-label*='Shared screen' i]"
+                "video[aria-label*='Shared' i]",
+                "video[aria-label*='Share' i]",
+                "video[aria-label*='Present' i]",
+                "video[aria-label*='Presentation' i]",
+                "div[aria-label*='Shared screen' i]",
+                "div[aria-label*='screen' i]",
+                "div[aria-label*='shared' i]",
+                "div[aria-label*='present' i]",
+                "div[aria-label*='presentation' i]",
+                "div[class*='screen-share' i]",
+                "div[class*='share-stage' i]",
+                "[data-tid*='sharing' i]",
+                "[data-tid*='stage' i]"
             ]
             sharing_found = False
             for sel in sharing_selectors:

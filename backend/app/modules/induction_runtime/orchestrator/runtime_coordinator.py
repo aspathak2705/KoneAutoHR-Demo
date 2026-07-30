@@ -68,6 +68,7 @@ class RuntimeCoordinator:
 
         # Interruption tracking
         self._current_narration_text: Optional[str] = None
+        self.narration_state = "idle"
         
         # Lifecycle tracking
         self._browser_manager = None
@@ -264,6 +265,26 @@ class RuntimeCoordinator:
                 raise Exception("Failed to transition to CONNECTED state")
             
             logger.info(f"RuntimeCoordinator | SUCCESS join_meeting - Connected to meeting")
+            
+            # Spawn coordinator-owned observation and poll loop
+            async def background_observer():
+                from app.modules.presentation_observer.services.presentation_observer_service import presentation_observer_service
+                logger.info(f"RuntimeCoordinator | Starting coordinator-owned observation loop for session: {self.session_id}")
+                try:
+                    while self.session_manager.state in [RuntimeState.CONNECTED, RuntimeState.PRESENTING]:
+                        try:
+                            obs = await presentation_observer_service.run_observation_cycle(self.session_id)
+                            await self.poll_cycle(obs)
+                        except Exception as cycle_err:
+                            logger.error(f"RuntimeCoordinator | Observer loop error: {cycle_err}")
+                        await asyncio.sleep(2.5)
+                except asyncio.CancelledError:
+                    logger.info("RuntimeCoordinator | Observer loop cancelled.")
+                except Exception as loop_err:
+                    logger.error(f"RuntimeCoordinator | Fatal observer loop failure: {loop_err}")
+
+            asyncio.create_task(background_observer())
+            
             return True
         except Exception as e:
             logger.error(f"RuntimeCoordinator | FAILED join_meeting: {e}")
@@ -437,7 +458,9 @@ class RuntimeCoordinator:
             if self._teams_controller:
                 try:
                     logger.info(f"RuntimeCoordinator | Cleaning up Teams controller")
-                    # Teams controller cleanup if needed
+                    if self._browser_manager and self._browser_manager.page:
+                        logger.info("RuntimeCoordinator | Hanging up call dynamically...")
+                        await self._teams_controller.leave_meeting(self._browser_manager.page)
                     self._teams_controller = None
                 except Exception as e:
                     logger.error(f"RuntimeCoordinator | Failed to cleanup Teams controller: {e}")
@@ -463,12 +486,14 @@ class RuntimeCoordinator:
         logger.debug(f"RuntimeCoordinator | Polling cycle | Observation State: {observation.observation_state} | Active State: {self.session_manager.state.value}")
 
         # Transition: CONNECTED → PRESENTING (presentation started)
-        if ObservationEvent.PRESENTATION_STARTED in observation.events:
+        presentation_active = observation.presentation_state in ["POWERPOINT_SHARED", "SCREEN_SHARING"]
+        if ObservationEvent.PRESENTATION_STARTED in observation.events or (self.session_manager.state == RuntimeState.CONNECTED and presentation_active):
             if self.session_manager.state == RuntimeState.CONNECTED:
-                logger.info(f"RuntimeCoordinator | Presentation started, transitioning to PRESENTING")
-                if await self.session_manager.transition_to(RuntimeState.PRESENTING):
-                    asyncio.create_task(self._run_greeting_flow())
-                return
+                if getattr(self, "induction_started", False):
+                    logger.info(f"RuntimeCoordinator | Presentation started, transitioning to PRESENTING")
+                    if await self.session_manager.transition_to(RuntimeState.PRESENTING):
+                        asyncio.create_task(self._run_greeting_flow())
+                    return
 
         # Handle slide changes during PRESENTING
         if ObservationEvent.SLIDE_CHANGED in observation.events:
@@ -569,12 +594,14 @@ class RuntimeCoordinator:
             
             def on_welcome_complete():
                 logger.info("RuntimeCoordinator | Welcome greeting completed. Ready for slides.")
+                self.narration_state = "finished_greeting"
                 self.session_manager.state = RuntimeState.PRESENTING
                 self.memory.record_slide_reached(1, "Slide 1")
                 asyncio.create_task(self._speak_slide_narration(1))
 
+            self.narration_state = "speaking_greeting"
             if self.config.voice_enabled:
-                self.voice_output.say(welcome_text, on_welcome_complete)
+                self.voice_output.say(welcome_text, on_welcome_complete, audio_file="greeting.mp3")
             else:
                 on_welcome_complete()
             
@@ -603,10 +630,16 @@ class RuntimeCoordinator:
             slide["narration"] = spoken_text
             self._current_narration_text = spoken_text
             
+            def on_complete():
+                logger.info(f"Finished slide {slide_num} narration.")
+                self.narration_state = f"finished_slide_{slide_num}"
+
+            self.narration_state = f"speaking_slide_{slide_num}"
             if self.config.voice_enabled:
-                self.flow_controller.trigger_slide_narration(slide_num, lambda: logger.info(f"Finished slide {slide_num} narration."))
+                self.flow_controller.trigger_slide_narration(slide_num, on_complete)
             else:
                 logger.info(f"RuntimeCoordinator | Speaking disabled. Bypassed narration: {spoken_text}")
+                on_complete()
             
             logger.info(f"RuntimeCoordinator | SUCCESS _speak_slide_narration")
         except Exception as e:
@@ -626,9 +659,11 @@ class RuntimeCoordinator:
             
             def on_farewell_complete():
                 logger.info("RuntimeCoordinator | Farewell narration completed.")
+                self.narration_state = "finished_closing"
 
+            self.narration_state = "speaking_closing"
             if self.config.voice_enabled:
-                self.voice_output.say(farewell, on_farewell_complete)
+                self.voice_output.say(farewell, on_farewell_complete, audio_file="closing.mp3")
             else:
                 on_farewell_complete()
             

@@ -2,14 +2,34 @@ from playwright.async_api import Page
 from loguru import logger
 
 class ParticipantMonitor:
-    async def get_participants(self, page: Page) -> list[str]:
+    async def get_participants(self, context) -> list[str]:
         """
         Scrapes and returns the current participant list from the Teams page DOM.
         Only parses if the meeting call is active.
         """
+        page = context.page if hasattr(context, 'page') else context
+        if not page:
+            return []
+
         # If call is not active, return empty list
         if not await self.meeting_active(page):
             return []
+
+        import time
+        current_time = time.time()
+        if hasattr(context, 'page'):
+            if not hasattr(context, 'last_pane_toggle_time') or context.last_pane_toggle_time is None:
+                context.last_pane_toggle_time = 0.0
+            if not hasattr(context, 'active_pane') or context.active_pane is None:
+                context.active_pane = "chat"
+
+            if current_time - context.last_pane_toggle_time > 180.0:
+                context.active_pane = "roster" if context.active_pane == "chat" else "chat"
+                context.last_pane_toggle_time = current_time
+                logger.info(f"ParticipantMonitor | Toggling active pane state to: {context.active_pane}")
+
+            if context.active_pane != "roster":
+                return context.participants
 
         # Attempt to open the roster/participants pane if not open
         roster_buttons = [
@@ -18,7 +38,24 @@ class ParticipantMonitor:
             "button[aria-label*='participants' i]"
         ]
         
-        is_open = await page.locator("div[role='listitem']").count() > 0
+        is_open = False
+        if hasattr(context, 'page') and getattr(context, 'current_opened_pane', '') == 'roster':
+            is_open = True
+            
+        if not is_open:
+            for btn_sel in roster_buttons:
+                try:
+                    btn = page.locator(btn_sel)
+                    if await btn.count() > 0:
+                        pressed = await btn.first.get_attribute("aria-pressed")
+                        if pressed == "true":
+                            is_open = True
+                            if hasattr(context, 'page'):
+                                context.current_opened_pane = 'roster'
+                            break
+                except Exception:
+                    pass
+
         if not is_open:
             for btn_sel in roster_buttons:
                 try:
@@ -26,6 +63,8 @@ class ParticipantMonitor:
                     if await btn.is_visible(timeout=1000):
                         await btn.click()
                         logger.info("ParticipantMonitor | Toggled participant roster pane open.")
+                        if hasattr(context, 'page'):
+                            context.current_opened_pane = 'roster'
                         break
                 except Exception:
                     pass
