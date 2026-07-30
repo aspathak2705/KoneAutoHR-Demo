@@ -10,6 +10,9 @@ class PresentationViewportProvider:
         Returns:
             Tuple[Optional[bytes], Optional[str]]: (screenshot_bytes, matched_selector)
         """
+        if page.is_closed():
+            return None, None
+            
         sharing_selectors = [
             "[data-tid='powerpoint-live-view']",
             "[data-tid='ppt-presentation']",

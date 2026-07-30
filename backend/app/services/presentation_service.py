@@ -83,6 +83,11 @@ class PowerPointSlideExtractor(SlideExtractor):
             import win32com.client
             import pythoncom
             pythoncom.CoInitialize()
+            import subprocess
+            try:
+                subprocess.run(["taskkill", "/f", "/im", "powerpnt.exe"], capture_output=True)
+            except Exception:
+                pass
             try:
                 powerpoint = win32com.client.Dispatch("PowerPoint.Application")
                 # Open presentation in read-only and without a visible window if possible
@@ -91,6 +96,10 @@ class PowerPointSlideExtractor(SlideExtractor):
                 presentation.Export(abs_out, "PNG")
                 presentation.Close()
                 powerpoint.Quit()
+                del presentation
+                del powerpoint
+                import gc
+                gc.collect()
                 logger.info(f"PowerPointSlideExtractor | Successfully exported slides via win32com to {abs_out}")
             finally:
                 pythoncom.CoUninitialize()
@@ -111,7 +120,15 @@ class PowerPointSlideExtractor(SlideExtractor):
             logger.info(f"PowerPointSlideExtractor | Created placeholder slide images in {abs_out}")
             
         # Standardize slide image names to slide_001.png, slide_002.png etc.
-        exported_files = list(output_dir.glob("*.png")) + list(output_dir.glob("*.PNG"))
+        # Resolve unique paths to prevent duplicates on case-insensitive filesystems
+        raw_files = list(output_dir.glob("*.png")) + list(output_dir.glob("*.PNG"))
+        unique_paths = {}
+        for f in raw_files:
+            try:
+                unique_paths[f.resolve()] = f
+            except Exception:
+                unique_paths[f] = f
+        exported_files = list(unique_paths.values())
         import re
         slides_count = 0
         for f in exported_files:
@@ -187,9 +204,8 @@ class PresentationAssetBuilder:
         extractor = PowerPointSlideExtractor()
         slide_count = extractor.extract_slides(ppt_path, slides_dir)
         
-        # 2. Generate fingerprints
-        fingerprint_generator = SlideFingerprintGenerator()
-        fingerprint_generator.generate_fingerprints(slides_dir, assets_dir / "fingerprints.json")
+        # 2. Create deterministic presentation timeline metadata.
+        self.generate_presentation_manifest(session_id, ppt_path, slide_count, assets_dir)
         
         # 3. Create metadata.json
         metadata = {
@@ -203,10 +219,43 @@ class PresentationAssetBuilder:
             
         logger.info(f"PresentationAssetBuilder | Completed building assets for session {session_id}")
 
+    def generate_presentation_manifest(
+        self,
+        session_id: str,
+        ppt_path: str,
+        slide_count: int,
+        assets_dir: Path,
+    ) -> dict:
+        from app.modules.meeting_bot.media.audio_controller import get_audio_controller
+
+        audio_ctrl = get_audio_controller(session_id)
+        slides = []
+        for slide_num in range(1, slide_count + 1):
+            audio_file = f"slide_{slide_num}.mp3"
+            slides.append({
+                "number": slide_num,
+                "audio": audio_file,
+                "duration": audio_ctrl.get_duration(audio_file),
+            })
+
+        manifest = {
+            "session_id": session_id,
+            "ppt_path": ppt_path,
+            "slides": slides,
+            "generated_at": datetime.datetime.now().isoformat(),
+        }
+        with open(assets_dir / "presentation.json", "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2)
+        logger.info(
+            f"PresentationAssetBuilder | Saved deterministic presentation manifest for {len(slides)} slides"
+        )
+        return manifest
 
 # Additional missing imports for newly added classes
 import json
 import datetime
 from pathlib import Path
 from loguru import logger
+
+
 

@@ -8,6 +8,9 @@ class AccessibilityAnalyzer:
         Retrieves the Playwright accessibility tree snapshot and flattens it.
         Supports fallback via CDP AXTree commands for newer Playwright versions.
         """
+        if page.is_closed():
+            return AccessibilitySummary(nodes=[], focused_element=None)
+
         logger.debug("AccessibilityAnalyzer | Fetching accessibility tree snapshot...")
         nodes = []
         focused_el = None

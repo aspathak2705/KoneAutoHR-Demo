@@ -2,6 +2,7 @@ import subprocess
 import os
 import time
 import json
+import asyncio
 from pathlib import Path
 from loguru import logger
 
@@ -148,6 +149,12 @@ class AudioController:
         self.process = MockAudioProcess(duration)
         logger.info(f"AudioController | Playing preloaded track: {key} (Duration: {duration}s)")
 
+    async def play_and_wait(self, audio_path: str) -> None:
+        self.play_audio(audio_path)
+        while self.process and self.process.poll() is None:
+            await asyncio.sleep(0.2)
+        logger.info(f"AudioController | Completed track: {audio_path}")
+
     def stop_audio(self) -> None:
         if self.process:
             self.process.terminate()
@@ -265,3 +272,5 @@ def cleanup_audio_controller(session_id: str) -> None:
                 ctrl._ps_process.terminate()
             except Exception:
                 pass
+
+

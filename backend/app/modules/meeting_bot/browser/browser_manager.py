@@ -102,7 +102,9 @@ class BrowserManager:
                 "--disable-gpu",
                 "--disable-software-rasterizer",
                 "--disable-web-security",
-                "--allow-running-insecure-content"
+                "--allow-running-insecure-content",
+                '--auto-select-desktop-capture-source="PowerPoint Slide Show"',
+                "--enable-usermedia-screen-capturing"
             ]
 
             if meeting_bot_config.use_fake_devices:

@@ -7,6 +7,9 @@ class DOMAnalyzer:
         """
         Scrapes visible interactive elements, forms, modals, dialogs, regions, and panels from DOM.
         """
+        if page.is_closed():
+            return DOMSummary(elements=[], total_interactive_count=0)
+            
         logger.debug("DOMAnalyzer | Scanning visible DOM elements and regions...")
         
         # Expanded selectors list to capture regions, forms, dialogs, and panels

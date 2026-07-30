@@ -385,6 +385,10 @@ class TeamsController:
         """
         Hangup the active call.
         """
+        if page.is_closed():
+            logger.info("TeamsController | Page is already closed. Skipping hangup click.")
+            return
+
         logger.info("TeamsController | Leaving meeting...")
         leave_selectors = [
             "button[data-tid='hangup-button']",
@@ -399,6 +403,109 @@ class TeamsController:
                     logger.info("TeamsController | Clicked hangup button.")
                     await asyncio.sleep(2)
                     break
+            except Exception:
+                pass
+
+    async def share_presentation_window(self, page: Page, window_name: str = "PowerPoint") -> bool:
+        """
+        Opens Teams share tray and selects the PowerPoint window.
+        This intentionally shares a window, not desktop or browser tab.
+        """
+        if page.is_closed():
+            return False
+
+        logger.info(f"TeamsController | Sharing presentation window target: {window_name}")
+        share_selectors = [
+            "button[data-tid='toolbar-share-button']",
+            "button[aria-label*='Share' i]",
+            "button:has-text('Share')",
+        ]
+        for selector in share_selectors:
+            try:
+                button = page.locator(selector)
+                if await button.is_visible(timeout=3000):
+                    await button.click()
+                    break
+            except Exception:
+                pass
+        else:
+            raise RuntimeError("Teams share button not found")
+
+        # Wait for share tray window list to load and populate
+        await asyncio.sleep(2)
+
+        # Debug helper: print visible button labels in the share tray
+        try:
+            buttons = page.locator("button, [role='button'], [role='menuitem']")
+            cnt = await buttons.count()
+            labels = []
+            for idx in range(cnt):
+                btn = buttons.nth(idx)
+                if await btn.is_visible():
+                    lbl = await btn.get_attribute("aria-label") or await btn.inner_text()
+                    if lbl:
+                        labels.append(lbl.strip().replace("\n", " "))
+            logger.info(f"TeamsController | Available share menu items: {labels}")
+        except Exception as e:
+            logger.debug(f"TeamsController | Failed to list menu items: {e}")
+
+        # Trigger native screen/window/tab sharing option in Teams tray to activate getDisplayMedia
+        screen_share_selectors = [
+            "[aria-label*='Screen, window' i]",
+            "[aria-label*='Screen sharing' i]",
+            "[aria-label*='Share screen' i]",
+            "button:has-text('Screen, window')",
+            "span:has-text('Screen, window')",
+            "div:has-text('Screen, window')",
+            "text=Screen, window or tab"
+        ]
+        for sel in screen_share_selectors:
+            try:
+                el = page.locator(sel).first
+                if await el.is_visible(timeout=1500):
+                    await el.click()
+                    logger.info(f"TeamsController | Triggered native screen sharing via selector: {sel}")
+                    await asyncio.sleep(3)
+                    return True
+            except Exception:
+                pass
+
+        # Robust list of window titles to try sequentially (fallback/legacy)
+        search_terms = [window_name, "Slide Show", "PowerPoint", "Screen", "KONE"]
+        for term in search_terms:
+            window_selectors = [
+                f"button[aria-label*='{term}' i]",
+                f"div[role='button'][aria-label*='{term}' i]",
+                f"text={term}",
+            ]
+            for selector in window_selectors:
+                try:
+                    item = page.locator(selector).first
+                    if await item.is_visible(timeout=1000):
+                        await item.click()
+                        logger.info(f"TeamsController | PowerPoint window share selected using term: {term}")
+                        return True
+                except Exception as e:
+                    pass
+
+        raise RuntimeError("PowerPoint window not available in Teams share picker")
+
+    async def stop_sharing(self, page: Page) -> None:
+        if page.is_closed():
+            return
+
+        selectors = [
+            "button[data-tid='stop-presenting-button']",
+            "button[aria-label*='Stop sharing' i]",
+            "button:has-text('Stop sharing')",
+        ]
+        for selector in selectors:
+            try:
+                button = page.locator(selector)
+                if await button.is_visible(timeout=2000):
+                    await button.click()
+                    logger.info("TeamsController | Stopped sharing.")
+                    return
             except Exception:
                 pass
 

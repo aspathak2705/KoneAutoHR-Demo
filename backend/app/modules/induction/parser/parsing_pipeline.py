@@ -25,13 +25,13 @@ class ParsingPipeline:
         # 1. Parse Presentation
         slides = presentation_parser.parse_deck(ppt_path, session_dir)
         
-        # Build V0.1 slide presentation assets (images, fingerprints, metadata)
+        # Build deterministic slide assets and presentation.json metadata.
         from app.services.presentation_service import PresentationAssetBuilder
         try:
             asset_builder = PresentationAssetBuilder()
             asset_builder.build_assets(session_id, ppt_path)
         except Exception as e:
-            logger.error(f"ParsingPipeline | Failed to build V0.1 slide presentation assets: {e}")
+            logger.error(f"ParsingPipeline | Failed to build presentation assets: {e}")
         
         # 2. Register Slide Images in Database
         for s in slides:
@@ -62,3 +62,4 @@ class ParsingPipeline:
         }
 
 parsing_pipeline = ParsingPipeline()
+

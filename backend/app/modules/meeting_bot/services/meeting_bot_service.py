@@ -83,7 +83,7 @@ class MeetingBotService:
 
     async def get_participants(self, session_id: str = "default_session") -> dict:
         bot = self.get_bot(session_id)
-        if bot.context.page:
+        if bot.context.page and not bot.context.page.is_closed():
             names = await participant_monitor.get_participants(bot.context)
             bot.context.participants = names
         return {
@@ -93,7 +93,7 @@ class MeetingBotService:
 
     async def get_chat(self, session_id: str = "default_session") -> dict:
         bot = self.get_bot(session_id)
-        if bot.context.page:
+        if bot.context.page and not bot.context.page.is_closed():
             messages = await chat_monitor.get_messages(bot.context)
             bot.context.chat_messages = messages
         return {

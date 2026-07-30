@@ -147,7 +147,8 @@ class RuntimeService:
             "presentation": {
                 "id": presentation.id,
                 "name": presentation.name,
-                "original_filename": presentation.original_filename
+                "original_filename": presentation.original_filename,
+                "storage_path": presentation.storage_path
             },
             "script": {
                 "id": script.id,
@@ -246,3 +247,4 @@ class RuntimeService:
         }
 
 runtime_service = RuntimeService()
+

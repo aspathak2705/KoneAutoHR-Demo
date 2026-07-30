@@ -29,7 +29,7 @@ router = APIRouter(prefix="/runtime", tags=["Orchestration Runtime"])
 @router.post("/{session_id}/prepare")
 async def prepare_runtime(session_id: str, db: DBSession = Depends(get_db)):
     """
-    Lifecycle Phase 1: NOT_CREATED → PREPARING → READY
+    Lifecycle Phase 1: NOT_CREATED -> PREPARING -> READY
     
     Button: "Prepare Runtime"
     Responsibilities:
@@ -45,10 +45,10 @@ async def prepare_runtime(session_id: str, db: DBSession = Depends(get_db)):
         # Create runtime and coordinator
         coordinator = runtime_service.create_runtime_and_coordinator(db, session_id)
         
-        # Prepare runtime (PREPARING → READY)
+        # Prepare runtime (PREPARING -> READY)
         if not await coordinator.prepare_runtime():
             raise HTTPException(status_code=400, detail="Failed to prepare runtime")
-        
+
         logger.info(f"API | SUCCESS POST /prepare - runtime READY")
         return {
             "message": "Runtime prepared successfully",
@@ -79,9 +79,30 @@ async def start_induction(session_id: str, db: DBSession = Depends(get_db)):
                     status_code=409,
                     detail=f"Cannot start presentation. Reason: {status.get('reason')}"
                 )
-            coordinator.induction_started = True
-            logger.info(f"API | Presentation authorized by HR for session {session_id}")
-            return {"status": "success", "message": "Presentation started"}
+            from app.modules.presentation.presentation_runtime_controller import PresentationRuntimeController
+            runtime_context = runtime_service.get_runtime_context(db, session_id)
+            ppt_path = runtime_context.get("presentation", {}).get("storage_path")
+            bot = meeting_bot_service.get_bot(session_id)
+            controller = PresentationRuntimeController(session_id, ppt_path, bot.context.page)
+            try:
+                await controller.run()
+            except Exception as e:
+                logger.error(f"API | Error during presentation runtime: {e}")
+                try:
+                    await teams_controller.stop_sharing(bot.context.page)
+                except Exception:
+                    pass
+                raise e
+            finally:
+                try:
+                    await controller._close_powerpoint()
+                except Exception:
+                    pass
+            await meeting_bot_service.leave_meeting(session_id)
+            await coordinator.finish_presentation()
+            report_service.generate_and_save_packages(db, session_id)
+            logger.info(f"API | Presentation completed for session {session_id}")
+            return {"status": "success", "message": "Presentation completed"}
         else:
             if not await coordinator.start_induction():
                 raise HTTPException(
@@ -105,7 +126,7 @@ class JoinMeetingRequest(BaseModel):
 @router.post("/{session_id}/join-meeting")
 async def join_meeting_endpoint(session_id: str, req: Optional[JoinMeetingRequest] = None, db: DBSession = Depends(get_db)):
     """
-    Lifecycle Phase 3: BROWSER_READY → JOINING → WAITING → CONNECTED
+    Lifecycle Phase 3: BROWSER_READY -> JOINING -> WAITING -> CONNECTED
     """
     logger.info(f"API | START POST /join-meeting for session {session_id}")
     try:
@@ -137,7 +158,7 @@ async def join_meeting_endpoint(session_id: str, req: Optional[JoinMeetingReques
 @router.post("/{session_id}/end")
 async def end_runtime(session_id: str, db: DBSession = Depends(get_db)):
     """
-    Lifecycle Phase Final: Any state → FINISHING → STOPPED
+    Lifecycle Phase Final: Any state -> FINISHING -> STOPPED
     
     Button: "End Session"
     Responsibilities:
@@ -336,7 +357,7 @@ from app.services.runtime_readiness_service import runtime_readiness_service
 @router.get("/readiness/{session_id}")
 def get_unified_runtime_readiness(session_id: str, db: DBSession = Depends(get_db)):
     """
-    Phase 4 — Unified Readiness API
+    Phase 4 -- Unified Readiness API
     Returns authoritative, single-source-of-truth readiness report for a session with HTTP 200 OK.
     Never returns HTTP 400 for missing assets.
     """
@@ -523,3 +544,4 @@ async def trigger_reconnect_simulation(session_id: str):
     from app.services.teams_runtime_service import teams_runtime_service
     await teams_runtime_service.simulate_reconnect(session_id)
     return {"message": "Reconnection sequence triggered."}
+

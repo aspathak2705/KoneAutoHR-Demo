@@ -21,7 +21,7 @@ class MeetingStatusService:
         
         # 1. Evaluate connection and participant metrics
         raw_participants = []
-        if bot and bot.context.page:
+        if bot and bot.context.page and not bot.context.page.is_closed():
             try:
                 meeting_connected = await participant_monitor.meeting_active(bot.context.page)
                 if meeting_connected:
@@ -52,7 +52,7 @@ class MeetingStatusService:
         try:
             from app.modules.presentation_observer.services.presentation_observer_service import presentation_observer_service
             from app.modules.semantic_browser.models.presentation_state import PresentationMode
-            if bot and bot.context.page:
+            if bot and bot.context.page and not bot.context.page.is_closed():
                 obs = await presentation_observer_service.run_observation_cycle(session_id)
                 if obs:
                     presentation_detected = obs.presentation_state in [
