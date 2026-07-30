@@ -40,6 +40,8 @@ class PresentationObserver:
             events=events,
             flags=flags,
             timeline_index=self.context.current_timeline_index,
+            current_slide=snapshot.current_slide,
+            confidence=snapshot.confidence,
             details=snapshot.details
         )
         
@@ -47,6 +49,16 @@ class PresentationObserver:
         self.context.prev_snapshot = snapshot
         self.context.prev_observation = obs
         return obs
+
+    def current_slide(self) -> int:
+        if not self.context.prev_snapshot:
+            return 0
+        return self.context.prev_snapshot.current_slide
+
+    def confidence(self) -> float:
+        if not self.context.prev_snapshot:
+            return 0.0
+        return self.context.prev_snapshot.confidence
 
     def presentation_detected(self) -> bool:
         """

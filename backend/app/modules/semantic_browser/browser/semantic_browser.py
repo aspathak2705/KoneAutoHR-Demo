@@ -31,11 +31,15 @@ class SemanticBrowser:
         p_mode = PresentationMode.NONE
         p_sig = None
         p_details = {}
+        current_slide = 0
+        confidence = 0.0
         if semantic_browser_config.enable_presentation:
             p_res = await presentation_analyzer.analyze(page, dom)
             p_mode = p_res["mode"]
             p_sig = p_res.get("signature")
             p_details = p_res["details"]
+            current_slide = p_res.get("current_slide", 0)
+            confidence = p_res.get("confidence", 0.0)
             
         # 5. Build snapshot
         return SemanticSnapshotBuilder.build(
@@ -47,6 +51,8 @@ class SemanticBrowser:
             participants_open=m_state["participants_open"],
             recording_active=m_state["recording_active"],
             presentation_content_signature=p_sig,
+            current_slide=current_slide,
+            confidence=confidence,
             details={
                 "hand_raised": m_state["hand_raised"],
                 "presentation_details": p_details

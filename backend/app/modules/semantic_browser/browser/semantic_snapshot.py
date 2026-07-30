@@ -14,4 +14,6 @@ class SemanticSnapshot(BaseModel):
     participants_open: bool = False
     recording_active: bool = False
     presentation_content_signature: Optional[str] = None
+    current_slide: int = 0
+    confidence: float = 0.0
     details: Dict[str, Any] = {}

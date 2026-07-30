@@ -15,6 +15,8 @@ class ObservationBuilder:
         events: List[ObservationEvent],
         flags: dict,
         timeline_index: int,
+        current_slide: int = 0,
+        confidence: float = 0.0,
         details: Dict[str, Any] = None
     ) -> Observation:
         """
@@ -33,5 +35,7 @@ class ObservationBuilder:
             participants_open=flags.get("participants_open", False),
             recording_active=flags.get("recording_active", False),
             timeline_index=timeline_index,
+            current_slide=current_slide,
+            confidence=confidence,
             details=details or {}
         )

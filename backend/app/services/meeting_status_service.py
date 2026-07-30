@@ -88,6 +88,14 @@ class MeetingStatusService:
         if session_id in runtime_service._coordinators:
             narration_state = runtime_service._coordinators[session_id].narration_state
 
+        # 7. Retrieve slide index and confidence from PresentationObserver
+        current_slide = 0
+        confidence = 0.0
+        from app.modules.presentation_observer.observer.presentation_observer import presentation_observer
+        if presentation_observer.context.prev_snapshot:
+            current_slide = presentation_observer.current_slide()
+            confidence = presentation_observer.confidence()
+
         result = {
             "participants": participants,
             "required_participants": required_participants,
@@ -96,7 +104,9 @@ class MeetingStatusService:
             "meeting_connected": meeting_connected,
             "bot_ready": bot_ready,
             "reason": reason,
-            "narration_state": narration_state
+            "narration_state": narration_state,
+            "current_slide": current_slide,
+            "confidence": confidence
         }
         
         logger.debug(f"MeetingStatusService | Evaluation result: {result}")

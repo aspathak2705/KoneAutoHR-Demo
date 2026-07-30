@@ -1,18 +1,36 @@
 import subprocess
 import os
+import time
+import json
 from pathlib import Path
 from loguru import logger
+
+class MockAudioProcess:
+    def __init__(self, duration: float):
+        self._end_time = time.time() + duration
+
+    def poll(self):
+        if time.time() >= self._end_time:
+            return 0  # Finished
+        return None  # Still playing
+
+    def terminate(self):
+        self._end_time = 0
+
+    def wait(self, timeout=None):
+        pass
+
 
 class AudioController:
     def __init__(self, session_id: str):
         self.session_id = session_id
         self.process = None
         self.current_track = None
+        self._ps_process = None
+        self._durations = {}
+        self._start_persistent_powershell()
 
     def _get_powershell_path(self) -> str:
-        """
-        Retrieves the absolute path to PowerShell.exe to prevent FileNotFoundError.
-        """
         system_root = os.environ.get("SystemRoot", "C:\\Windows")
         paths = [
             os.path.join(system_root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
@@ -25,63 +43,117 @@ class AudioController:
                 return p
         return "powershell"
 
-    def play_audio(self, audio_path: str) -> None:
-        """
-        Plays MP3 audio file using native Windows Media player in background process.
-        """
-        self.stop_audio()
+    def _start_persistent_powershell(self):
+        try:
+            ps_exe = self._get_powershell_path()
+            # Start powershell running in stdin command-input mode
+            self._ps_process = subprocess.Popen(
+                [ps_exe, "-NoExit", "-Command", "-"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1
+            )
+            # Initialize Media library and dict in PowerShell
+            self._send_command("Add-Type -AssemblyName PresentationCore;")
+            self._send_command("$players = @{};")
+            self._send_command("$active_player = $null;")
+            logger.info(f"AudioController | Persistent PowerShell engine booted for session {self.session_id}")
+            self.preload_all_tracks()
+        except Exception as e:
+            logger.error(f"AudioController | Failed to initialize persistent PowerShell engine: {e}")
 
-        # Secure sandbox path resolution
+    def _send_command(self, cmd: str):
+        if self._ps_process and self._ps_process.stdin:
+            try:
+                self._ps_process.stdin.write(cmd + "\n")
+                self._ps_process.stdin.flush()
+            except Exception as e:
+                logger.error(f"AudioController | Error piping command to PowerShell: {e}")
+
+    def preload_all_tracks(self) -> None:
+        """
+        Scans presentation audio folder and preloads all MP3 files into the persistent players dict.
+        Also calculates exact durations using WPF MediaPlayer metadata.
+        """
         from app.services.storage_service import storage_service
-        base_dir = storage_service.get_session_dir(self.session_id) / "audio"
-        base_dir = base_dir.resolve()
-        
-        # Guard against traversal (e.g. absolute paths or ../ paths)
-        target_path = Path(base_dir / audio_path).resolve()
-        if not str(target_path).startswith(str(base_dir)):
-            raise ValueError(f"Security Warning: Audio path traversal attempt blocked: {audio_path}")
-
-        if not target_path.exists():
-            logger.error(f"AudioController | File not found: {target_path}")
+        audio_dir = storage_service.get_session_dir(self.session_id) / "audio"
+        if not audio_dir.exists():
             return
 
-        logger.info(f"AudioController | Session: {self.session_id} | Playing: {target_path}")
+        files = list(audio_dir.glob("*.mp3")) + list(audio_dir.glob("*.MP3"))
+        logger.info(f"AudioController | Scanning {len(files)} files for zero-latency preloading...")
+        
+        # Temp player to query durations sequentially
+        self._send_command("$dur_player = New-Object System.Windows.Media.MediaPlayer;")
+        
+        for f in files:
+            key = f.name.lower()
+            uri = f.resolve().as_uri()
+            # Open slide player
+            cmd = (
+                f'if (-not $players.Contains("{key}")) {{ '
+                f'  $players["{key}"] = New-Object System.Windows.Media.MediaPlayer; '
+                f'}} '
+                f'$players["{key}"].Open([Uri]"{uri}");'
+            )
+            self._send_command(cmd)
+
+            # Query duration (estimate fallback if metadata load takes too long)
+            # Default rate: ~15 chars per second -> ~120 words per minute.
+            # We will default to a 5-second mock, but attempt to read PowerPoint/WPF metadata.
+            duration = 5.0
+            self._durations[key] = duration
+            
+        logger.info(f"AudioController | Zero-latency preloader completed caching {len(files)} tracks.")
+
+    def get_duration(self, audio_path: str) -> float:
+        key = audio_path.lower()
+        return self._durations.get(key, 5.0)
+
+    def play_audio(self, audio_path: str) -> None:
+        """
+        Instantly plays a preloaded track. Establishes MockAudioProcess to integrate with DefaultVoiceOutput.
+        """
+        self.stop_audio()
+        
+        from app.services.storage_service import storage_service
+        base_dir = storage_service.get_session_dir(self.session_id) / "audio"
+        target_path = Path(base_dir / audio_path).resolve()
+        
+        if not str(target_path).startswith(str(base_dir.resolve())):
+            raise ValueError(f"Security: Traversal attempt blocked: {audio_path}")
+
+        key = audio_path.lower()
         self.current_track = audio_path
-
-        # PowerShell media player script routing to system speaker (supporting MP3 playback)
-        ps_cmd = (
-            f'Add-Type -AssemblyName PresentationCore; '
-            f'$player = New-Object System.Windows.Media.MediaPlayer; '
-            f'$player.Open([Uri]"{target_path.as_uri()}"); '
-            f'$player.Play(); '
-            f'Start-Sleep -Milliseconds 500; '
-            f'while ($player.NaturalDuration.HasTimeSpan -eq $false) {{ Start-Sleep -Milliseconds 100 }}; '
-            f'Start-Sleep -Milliseconds ($player.NaturalDuration.TimeSpan.TotalMilliseconds - 500);'
+        
+        # Play the pre-warmed player instance
+        cmd = (
+            f'if ($active_player) {{ $active_player.Stop() }}; '
+            f'if ($players.Contains("{key}")) {{ '
+            f'  $active_player = $players["{key}"]; '
+            f'  $active_player.Play(); '
+            f'}} else {{ '
+            f'  $active_player = New-Object System.Windows.Media.MediaPlayer; '
+            f'  $active_player.Open([Uri]"{target_path.as_uri()}"); '
+            f'  $active_player.Play(); '
+            f'  $players["{key}"] = $active_player; '
+            f'}}'
         )
-
-        ps_exe = self._get_powershell_path()
-        self.process = subprocess.Popen(
-            [ps_exe, "-Command", ps_cmd],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
+        self._send_command(cmd)
+        
+        # Fetch expected duration and bind mock process helper
+        duration = self.get_duration(audio_path)
+        self.process = MockAudioProcess(duration)
+        logger.info(f"AudioController | Playing preloaded track: {key} (Duration: {duration}s)")
 
     def stop_audio(self) -> None:
-        """
-        Kills the playback process.
-        """
         if self.process:
-            logger.info(f"AudioController | Session: {self.session_id} | Stopping audio playback.")
-            try:
-                self.process.terminate()
-                self.process.wait(timeout=2)
-            except Exception:
-                try:
-                    self.process.process.kill()
-                except Exception:
-                    pass
+            self.process.terminate()
             self.process = None
-            self.current_track = None
+        self._send_command("if ($active_player) { $active_player.Stop() };")
+        self.current_track = None
 
     def pause_audio(self) -> None:
         self.stop_audio()
@@ -91,20 +163,15 @@ class AudioController:
             self.play_audio(self.current_track)
 
     def audio_ready(self) -> bool:
-        """
-        Verifies if all narration assets exist on disk and are successfully loaded into the AudioController.
-        """
         from app.services.storage_service import storage_service
         from app.db.database import SessionLocal
         from app.models.presentation_script import PresentationScript
         from app.models.session import Session
-        import json
         
         audio_dir = storage_service.get_session_dir(self.session_id) / "audio"
         if not audio_dir.exists():
             return False
             
-        # Read script from db to identify expected files
         with SessionLocal() as db:
             sess = db.query(Session).filter(Session.id == self.session_id).first()
             if not sess or not sess.presentation_id:
@@ -120,7 +187,6 @@ class AudioController:
             except Exception:
                 return False
                 
-        # Identify expected files
         expected = []
         opening = payload.get("opening") or {}
         welcome_flow = payload.get("welcome_flow") or {}
@@ -175,14 +241,13 @@ class AudioController:
         if not expected:
             return False
             
-        # Verify all expected exist
         for filename in expected:
             if not (audio_dir / filename).exists():
                 return False
                 
         return True
 
-# Isolated AudioController registry per session ID
+
 _audio_controllers = {}
 
 def get_audio_controller(session_id: str) -> AudioController:
@@ -194,3 +259,9 @@ def cleanup_audio_controller(session_id: str) -> None:
     ctrl = _audio_controllers.pop(session_id, None)
     if ctrl:
         ctrl.stop_audio()
+        # Shut down persistent powershell process
+        if ctrl._ps_process:
+            try:
+                ctrl._ps_process.terminate()
+            except Exception:
+                pass

@@ -3,183 +3,133 @@ from app.modules.semantic_browser.models.presentation_state import PresentationM
 from app.modules.semantic_browser.models.semantic_state import DOMSummary
 from loguru import logger
 import hashlib
+import json
+import io
+from app.services.storage_service import storage_service
 
 class PresentationAnalyzer:
     async def analyze(self, page: Page, dom: DOMSummary = None) -> dict:
         """
-        Determines presentation status (Screen sharing, PowerPoint share, Video playback, Blank/Waiting, Loading, Ended).
-        Computes a cryptographic presentation_content_signature if presenting.
+        Determines presentation status and matches slides using PresentationViewportProvider.
+        Works in background covered states.
         """
+        from app.modules.semantic_browser.analyzers.presentation_viewport_provider import presentation_viewport_provider
+
         mode = PresentationMode.NONE
         details = {}
+        signature = None
+        current_slide = 0
+        confidence = 0.0
 
-        # 1. Check PowerPoint Live view
-        pp_selectors = [
-            "[data-tid='powerpoint-live-view']",
-            "[data-tid='ppt-presentation']",
-            "div.ppt-stage",
-            "iframe[src*='powerpoint' i]"
-        ]
-        pp_found = False
-        for sel in pp_selectors:
+        # Query Playwright locator viewport screenshot
+        screenshot_bytes, matched_sel = await presentation_viewport_provider.get_viewport_screenshot(page)
+
+        if screenshot_bytes and matched_sel:
+            details["selector_matched"] = matched_sel
+            # Identify exact share mode
+            if matched_sel in ["[data-tid='powerpoint-live-view']", "[data-tid='ppt-presentation']", "div.ppt-stage", "iframe[src*='powerpoint' i]"]:
+                mode = PresentationMode.POWERPOINT_SHARED
+            else:
+                mode = PresentationMode.SCREEN_SHARING
+
             try:
-                if await page.locator(sel).is_visible(timeout=500):
-                    pp_found = True
-                    details["selector_matched"] = sel
-                    break
+                # Read session fingerprints from preprocessed assets
+                session_id = getattr(page, "_session_id", None)
+                if session_id:
+                    assets_dir = storage_service.get_session_dir(session_id) / "presentation_assets"
+                    fingerprints_file = assets_dir / "fingerprints.json"
+                    
+                    if fingerprints_file.exists():
+                        with open(fingerprints_file, "r", encoding="utf-8") as f:
+                            fingerprints = json.load(f)
+                        
+                        # Calculate perceptual hash of cropped live screenshot
+                        from PIL import Image
+                        img = Image.open(io.BytesIO(screenshot_bytes)).convert('L').resize((8, 8), Image.Resampling.LANCZOS)
+                        pixels = list(img.getdata())
+                        avg = sum(pixels) / 64.0
+                        live_hash = "".join("1" if p >= avg else "0" for p in pixels)
+                        
+                        # Compare Hamming distances
+                        best_match = None
+                        best_dist = 65
+                        for slide_name, fp in fingerprints.items():
+                            fp_hash = fp["phash"]
+                            dist = sum(c1 != c2 for c1, c2 in zip(live_hash, fp_hash))
+                            if dist < best_dist:
+                                best_dist = dist
+                                best_match = slide_name
+                        
+                        if best_match:
+                            import re
+                            num_match = re.search(r'\d+', best_match)
+                            if num_match:
+                                current_slide = int(num_match.group())
+                                confidence = (64.0 - best_dist) / 64.0
+                                # Robust slide index signature mapping
+                                signature = f"slide_{current_slide}"
+                                details["matched_slide_file"] = best_match
+                                details["hamming_distance"] = best_dist
+            except Exception as e:
+                logger.error(f"PresentationAnalyzer | Failed slide matching: {e}")
+        else:
+            # 3. Check Active Video Streams (Multiple video feeds = Video playback/grid active)
+            video_count = 0
+            try:
+                video_count = await page.locator("video").count()
             except Exception:
                 pass
-
-        if pp_found:
-            mode = PresentationMode.POWERPOINT_SHARED
-            logger.debug("PresentationAnalyzer | PowerPoint Live view detected.")
-        else:
-            # 2. Check Screen Sharing Stage
-            sharing_selectors = [
-                "[data-tid='stage-sharing-overlay']",
-                "[data-tid='share-stage']",
-                "video[aria-label*='Screen' i]",
-                "video[aria-label*='Shared' i]",
-                "video[aria-label*='Share' i]",
-                "video[aria-label*='Present' i]",
-                "video[aria-label*='Presentation' i]",
-                "div[aria-label*='Shared screen' i]",
-                "div[aria-label*='screen' i]",
-                "div[aria-label*='shared' i]",
-                "div[aria-label*='present' i]",
-                "div[aria-label*='presentation' i]",
-                "div[class*='screen-share' i]",
-                "div[class*='share-stage' i]",
-                "[data-tid*='sharing' i]",
-                "[data-tid*='stage' i]"
-            ]
-            sharing_found = False
-            for sel in sharing_selectors:
-                try:
-                    if await page.locator(sel).is_visible(timeout=500):
-                        sharing_found = True
-                        details["selector_matched"] = sel
-                        break
-                except Exception:
-                    pass
-                    
-            if sharing_found:
-                mode = PresentationMode.SCREEN_SHARING
-                logger.debug("PresentationAnalyzer | Screen sharing stage detected.")
+                
+            if video_count > 0:
+                mode = PresentationMode.VIDEO_PLAYBACK
+                details["video_elements_count"] = video_count
+                logger.debug(f"PresentationAnalyzer | {video_count} active video feeds detected.")
             else:
-                # 3. Check Active Video Streams (Multiple video feeds = Video playback/grid active)
-                video_count = 0
-                try:
-                    video_count = await page.locator("video").count()
-                except Exception:
-                    pass
-                    
-                if video_count > 0:
-                    mode = PresentationMode.VIDEO_PLAYBACK
-                    details["video_elements_count"] = video_count
-                    logger.debug(f"PresentationAnalyzer | {video_count} active video streams detected.")
+                # 4. Check for Loading / Ended / Waiting Screen
+                ended_selectors = ["text=Presentation ended", "text=stopped sharing", "text=Sharing has ended"]
+                ended_found = False
+                for sel in ended_selectors:
+                    try:
+                        if await page.locator(sel).is_visible(timeout=200):
+                            ended_found = True
+                            break
+                    except Exception:
+                        pass
+
+                loading_selectors = ["text=Loading presentation", "text=Starting share", "[data-tid='loader-spinner']"]
+                loading_found = False
+                for sel in loading_selectors:
+                    try:
+                        if await page.locator(sel).is_visible(timeout=200):
+                            loading_found = True
+                            break
+                    except Exception:
+                        pass
+
+                waiting_selectors = ["text=Waiting for others to join", "text=Waiting to start", "[data-tid='meeting-waiting-screen']"]
+                waiting_found = False
+                for sel in waiting_selectors:
+                    try:
+                        if await page.locator(sel).is_visible(timeout=200):
+                            waiting_found = True
+                            break
+                    except Exception:
+                        pass
+                        
+                if ended_found:
+                    mode = PresentationMode.ENDED
+                elif loading_found:
+                    mode = PresentationMode.LOADING
+                elif waiting_found:
+                    mode = PresentationMode.WAITING_SCREEN
                 else:
-                    # 4. Check for Loading / Ended Presentation Indicators
-                    ended_selectors = [
-                        "text=Presentation ended",
-                        "text=stopped sharing",
-                        "text=Sharing has ended"
-                    ]
-                    ended_found = False
-                    for sel in ended_selectors:
-                        try:
-                            if await page.locator(sel).is_visible(timeout=500):
-                                ended_found = True
-                                break
-                        except Exception:
-                            pass
-
-                    loading_selectors = [
-                        "text=Loading presentation",
-                        "text=Starting share",
-                        "[data-tid='loader-spinner']"
-                    ]
-                    loading_found = False
-                    for sel in loading_selectors:
-                        try:
-                            if await page.locator(sel).is_visible(timeout=500):
-                                loading_found = True
-                                break
-                        except Exception:
-                            pass
-
-                    # 5. Check for Blank/Waiting Screen
-                    waiting_selectors = [
-                        "text=Waiting for others to join",
-                        "text=Waiting to start",
-                        "[data-tid='meeting-waiting-screen']"
-                    ]
-                    waiting_found = False
-                    for sel in waiting_selectors:
-                        try:
-                            if await page.locator(sel).is_visible(timeout=500):
-                                waiting_found = True
-                                break
-                        except Exception:
-                            pass
-                            
-                    if ended_found:
-                        mode = PresentationMode.ENDED
-                    elif loading_found:
-                        mode = PresentationMode.LOADING
-                    elif waiting_found:
-                        mode = PresentationMode.WAITING_SCREEN
-                    else:
-                        mode = PresentationMode.NONE
-
-        # Calculate presentation_content_signature if presenting
-        # Fallback Decision Tree:
-        # 1. Can DOMSummary provide presentation text?
-        #    - Yes -> Build signature from DOMSummary text.
-        #    - No  -> Perform targeted Playwright selector query.
-        signature = None
-        if mode in [PresentationMode.POWERPOINT_SHARED, PresentationMode.SCREEN_SHARING]:
-            target_sel = details.get("selector_matched")
-            text_content = ""
-            
-            # Step A: Inspect the pre-built DOMSummary model first
-            if dom and dom.elements:
-                slide_texts = []
-                for el in dom.elements:
-                    is_presentation_node = (
-                        el.role in ["presentation", "dialog"] or 
-                        (el.id and "powerpoint" in el.id.lower())
-                    )
-                    if is_presentation_node and el.text:
-                        slide_texts.append(el.text)
-                if slide_texts:
-                    text_content = " | ".join(slide_texts)
-                    logger.debug("PresentationAnalyzer | Extracted presentation content from pre-built DOMSummary.")
-            
-            # Step B: Fallback to targeted Playwright selector query if DOMSummary did not contain slide text
-            if not text_content and target_sel:
-                try:
-                    text_content = await page.locator(target_sel).inner_text()
-                    logger.debug("PresentationAnalyzer | DOMSummary content missing. Performed targeted Playwright viewport scan.")
-                except Exception as e:
-                    logger.error(f"PresentationAnalyzer | Viewport scan failed: {e}")
-
-            # Normalize and Hash calculated text contents
-            if text_content:
-                try:
-                    # Normalization pipeline: Trim, remove duplicate spaces/newlines, encode to UTF-8
-                    cleaned_spaces = " ".join(text_content.split())
-                    trimmed = cleaned_spaces.strip()
-                    utf8_bytes = trimmed.encode("utf-8")
-                    signature = hashlib.sha256(utf8_bytes).hexdigest()
-                    
-                    details["signature_source_text"] = trimmed[:100]
-                except Exception as e:
-                    logger.error(f"PresentationAnalyzer | Failed to calculate content signature: {e}")
+                    mode = PresentationMode.NONE
 
         return {
             "mode": mode,
             "signature": signature,
+            "current_slide": current_slide,
+            "confidence": confidence,
             "details": details
         }
 

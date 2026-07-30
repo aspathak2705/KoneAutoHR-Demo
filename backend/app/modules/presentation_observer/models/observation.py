@@ -21,4 +21,6 @@ class Observation(BaseModel):
     recording_active: bool = False
     
     timeline_index: int = 0
+    current_slide: int = 0
+    confidence: float = 0.0
     details: Dict[str, Any] = {}

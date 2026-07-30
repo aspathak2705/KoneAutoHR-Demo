@@ -16,6 +16,8 @@ class SemanticSnapshotBuilder:
         participants_open: bool,
         recording_active: bool,
         presentation_content_signature: Optional[str] = None,
+        current_slide: int = 0,
+        confidence: float = 0.0,
         details: dict = None
     ) -> SemanticSnapshot:
         """
@@ -31,5 +33,7 @@ class SemanticSnapshotBuilder:
             participants_open=participants_open,
             recording_active=recording_active,
             presentation_content_signature=presentation_content_signature,
+            current_slide=current_slide,
+            confidence=confidence,
             details=details or {}
         )

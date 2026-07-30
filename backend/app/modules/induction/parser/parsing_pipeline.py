@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from loguru import logger
 from sqlalchemy.orm import Session as DBSession
 from app.modules.induction.parser.presentation_parser import presentation_parser
 from app.modules.induction.parser.employee_parser import employee_parser
@@ -23,6 +24,14 @@ class ParsingPipeline:
         """
         # 1. Parse Presentation
         slides = presentation_parser.parse_deck(ppt_path, session_dir)
+        
+        # Build V0.1 slide presentation assets (images, fingerprints, metadata)
+        from app.services.presentation_service import PresentationAssetBuilder
+        try:
+            asset_builder = PresentationAssetBuilder()
+            asset_builder.build_assets(session_id, ppt_path)
+        except Exception as e:
+            logger.error(f"ParsingPipeline | Failed to build V0.1 slide presentation assets: {e}")
         
         # 2. Register Slide Images in Database
         for s in slides:
