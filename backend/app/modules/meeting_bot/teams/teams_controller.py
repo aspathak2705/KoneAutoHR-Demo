@@ -275,9 +275,13 @@ class TeamsController:
 
         # Turn Off Camera
         cam_selectors = [
+            "button[data-tid='prejoin-camera-toggle']",
+            "button[aria-label*='camera' i]:not([aria-haspopup])",
+            "button[aria-label*='video' i]:not([aria-haspopup])",
+            "[role='switch'][aria-label*='camera' i]",
+            "[role='switch'][aria-label*='video' i]",
             "button[aria-label*='camera' i]",
             "button[aria-label*='video' i]",
-            "button[data-tid='prejoin-camera-toggle']",
             "//button[contains(@class, 'toggle') or contains(@role, 'checkbox')][contains(.., 'Background') or contains(.., 'Camera')]"
         ]
         for sel in cam_selectors:
@@ -405,6 +409,12 @@ class TeamsController:
                     break
             except Exception:
                 pass
+
+    async def share_powerpoint(self, page: Page) -> bool:
+        """
+        Alias/wrapper for PowerPoint Slide Show window sharing in Teams.
+        """
+        return await self.share_presentation_window(page, "PowerPoint Slide Show")
 
     async def share_presentation_window(self, page: Page, window_name: str = "PowerPoint") -> bool:
         """

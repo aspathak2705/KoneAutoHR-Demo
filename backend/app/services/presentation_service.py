@@ -251,11 +251,68 @@ class PresentationAssetBuilder:
         )
         return manifest
 
+def export_script_to_md(script_payload: dict, output_path: Path) -> None:
+    """
+    Formats the structured script payload dictionary into a clean markdown script file.
+    """
+    content = []
+    content.append("# Presentation Script\n")
+    
+    opening = script_payload.get("opening", {})
+    welcome_flow = script_payload.get("welcome_flow", {})
+    
+    content.append("## Welcome & Introduction\n")
+    for key in ["greeting", "presenter_intro", "employee_welcome", "audio_check", "ice_breaker", "session_rules", "agenda"]:
+        # Fallback names
+        fallback_key = "intro" if key == "presenter_intro" else ("rules" if key == "session_rules" else "")
+        val = opening.get(key) or welcome_flow.get(key)
+        if not val and fallback_key:
+            val = welcome_flow.get(fallback_key)
+            
+        if val:
+            if isinstance(val, list):
+                val = " ".join(val)
+            content.append(f"### {key.replace('_', ' ').title()}\n{val.strip()}\n")
+            
+    content.append("## Slide Narrations\n")
+    slides = script_payload.get("slides", [])
+    if isinstance(slides, list):
+        for s in slides:
+            num = s.get("slide_number", 1)
+            content.append(f"### Slide {num}\n")
+            if s.get("objective"):
+                content.append(f"**Objective**: {s['objective'].strip()}\n\n")
+            if s.get("transition_in"):
+                content.append(f"**Transition In**: {s['transition_in'].strip()}\n\n")
+            if s.get("narration"):
+                content.append(f"{s['narration'].strip()}\n\n")
+            if s.get("understanding_check"):
+                content.append(f"**Understanding Check**: {s['understanding_check'].strip()}\n\n")
+            if s.get("transition_out"):
+                content.append(f"**Transition Out**: {s['transition_out'].strip()}\n\n")
+    else:
+        slide_narrations = script_payload.get("slide_narrations", {})
+        for num_str, data in slide_narrations.items():
+            num = int(num_str)
+            content.append(f"### Slide {num}\n{data.get('narration', '').strip()}\n\n")
+            
+    content.append("## Closing\n")
+    closing = script_payload.get("closing", {})
+    closing_script = script_payload.get("closing_script", {})
+    for key in ["summary", "next_steps", "farewell"]:
+        val = closing.get(key) or closing_script.get(key)
+        if val:
+            content.append(f"### {key.replace('_', ' ').title()}\n{val.strip()}\n")
+            
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(content))
+
 # Additional missing imports for newly added classes
 import json
 import datetime
 from pathlib import Path
 from loguru import logger
+
 
 
 

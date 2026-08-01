@@ -70,6 +70,10 @@ async def start_induction(session_id: str, db: DBSession = Depends(get_db)):
     try:
         coordinator = runtime_service.get_coordinator(db, session_id)
         
+        if coordinator.session_manager.state == RuntimeState.PRESENTING:
+            logger.warning("API | Presentation is already running. Skipping duplicate trigger.")
+            return {"status": "success", "message": "Presentation already running"}
+
         # Check current state to determine action
         if coordinator.session_manager.state == RuntimeState.CONNECTED:
             from app.services.meeting_status_service import meeting_status_service
@@ -79,6 +83,10 @@ async def start_induction(session_id: str, db: DBSession = Depends(get_db)):
                     status_code=409,
                     detail=f"Cannot start presentation. Reason: {status.get('reason')}"
                 )
+            
+            # Transition to PRESENTING state to prevent double execution
+            await coordinator.session_manager.transition_to(RuntimeState.PRESENTING)
+            
             from app.modules.presentation.presentation_runtime_controller import PresentationRuntimeController
             runtime_context = runtime_service.get_runtime_context(db, session_id)
             ppt_path = runtime_context.get("presentation", {}).get("storage_path")

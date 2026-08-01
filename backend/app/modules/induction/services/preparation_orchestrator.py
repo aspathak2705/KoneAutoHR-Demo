@@ -79,7 +79,7 @@ class PreparationOrchestrator:
                 session_repository.update(db, session, SessionUpdate(status=SessionStatus.PARSING.value))
                 presentation_job_service.update_job_status(db, parse_job.id, status="PROCESSING", progress=0.1)
 
-            parsed_data = parsing_pipeline.execute(
+            parsed_data = await parsing_pipeline.execute(
                 db=db,
                 presentation_id=session.presentation_id,
                 ppt_path=val_report["details"]["ppt_path"],
@@ -90,40 +90,18 @@ class PreparationOrchestrator:
             )
 
             with UnitOfWork(db):
+                presentation_job_status = SessionStatus.UPLOADED.value
+                session_repository.update(db, session, SessionUpdate(status=presentation_job_status))
                 presentation_job_service.update_job_status(db, parse_job.id, status="COMPLETED", progress=1.0)
+                presentation_job_service.update_job_status(db, script_job.id, status="COMPLETED", progress=1.0)
 
-            logger.info("===== STEP 2 COMPLETED: Parsing =====")
-
-            # 3. Context Builder
-            structured_context = context_builder.build_context(
-                db=db,
-                session=session,
-                slide_knowledge=parsed_data["slides"],
-                employee_rows=parsed_data["employees"]
-            )
-
-            logger.info("===== STEP 3 COMPLETED: Context Builder =====")
-
+            # Keep compatibility files for validation script
+            structured_context = context_builder.build_context(db, session, parsed_data["slides"], parsed_data["employees"])
             with open(session_dir / "structured_context.json", "w", encoding="utf-8") as f:
                 json.dump(structured_context, f, indent=2)
 
             with open(session_dir / "validation_report.json", "w", encoding="utf-8") as f:
                 json.dump(val_report, f, indent=2)
-
-            # 4. Script Pipeline
-            with UnitOfWork(db):
-                session_repository.update(db, session, SessionUpdate(status=SessionStatus.GENERATING_SCRIPT.value))
-                presentation_job_service.update_job_status(db, script_job.id, status="PROCESSING", progress=0.1)
-
-            logger.info("===== STEP 4 STARTING: Script Pipeline =====")
-
-            await script_pipeline.execute(db, structured_context, session_dir)
-
-            logger.info("===== STEP 4 COMPLETED: Script Pipeline =====")
-
-            with UnitOfWork(db):
-                session_repository.update(db, session, SessionUpdate(status=SessionStatus.UPLOADED.value))
-                presentation_job_service.update_job_status(db, script_job.id, status="COMPLETED", progress=1.0)
 
             logger.info("PreparationOrchestrator | Preparation orchestration completed successfully.")
 
@@ -196,30 +174,84 @@ class PreparationOrchestrator:
                 session_repository.update(db, session, SessionUpdate(status=SessionStatus.GENERATING_AUDIO.value))
                 presentation_job_service.update_job_status(db, audio_job.id, status="PROCESSING", progress=0.1)
 
-            voice = script_data.get("ai_persona", {}).get("tone", "en-US-AriaNeural")
-            audio_tracks = await speech_pipeline.execute(
-                db=db,
+            from app.services.voice.voice_service import voice_service
+            audio_path, timestamps, duration_ms = await voice_service.generate_narration(session_id, script_data)
+
+            # Determine slide count
+            slides_dir = session_dir / "presentation_assets" / "slides"
+            slide_count = len(list(slides_dir.glob("slide_*.png")))
+            if slide_count == 0:
+                slide_count = len(script_data.get("slides", []))
+
+            # 6. Timeline Generation
+            from app.services.timeline.timeline_builder import timeline_builder
+            timeline_path = timeline_builder.build_timeline(
                 session_id=session_id,
-                script_payload=script_data,
-                voice=voice,
-                session_dir=session_dir,
-                job=audio_job
+                timestamps=timestamps,
+                total_duration_ms=duration_ms,
+                slide_count=slide_count,
+                session_dir=session_dir
             )
+
+            # 7. Manifest Generation
+            from app.services.session.manifest_builder import manifest_builder
+            manifest_path = manifest_builder.build_manifest(
+                session_id=session_id,
+                presentation_filename="presentation.pptx",
+                audio_filename="narration.wav",
+                timeline_filename="presentation_timeline.json",
+                duration_ms=duration_ms,
+                slide_count=slide_count,
+                session_dir=session_dir
+            )
+
+            # Generate compatible audio_manifest.json for Verification & Package Builder pipeline
+            import shutil
+            from app.modules.induction.package.asset_manager import asset_manager
+            
+            audio_dir = session_dir / "audio"
+            audio_dir.mkdir(parents=True, exist_ok=True)
+            dest_audio_path = audio_dir / "narration.wav"
+            shutil.copy2(audio_path, dest_audio_path)
+            
+            with open(dest_audio_path, "rb") as f:
+                audio_content = f.read()
+                
+            relative_path = f"sessions/{session_id}/audio/narration.wav"
+            with UnitOfWork(db):
+                asset = asset_manager.save_and_register_asset(
+                    db=db,
+                    presentation_id=session.presentation_id,
+                    relative_path=relative_path,
+                    content=audio_content,
+                    asset_type="audio"
+                )
+                
+            metadata = asset_manager.generate_metadata("narration.wav", audio_content, relative_path)
+            voice_tone = script_data.get("ai_persona", {}).get("tone", "shubh").strip().lower()
+            
+            audio_manifest_data = {
+                "session_id": session_id,
+                "presentation_id": session.presentation_id,
+                "total_audio_tracks": 1,
+                "tracks": [{
+                    "label": "narration",
+                    "slide_number": 1,
+                    "filename": "narration.wav",
+                    "duration": duration_ms / 1000.0,
+                    "checksum": asset.checksum,
+                    "version": asset.version,
+                    "path": relative_path,
+                    "voice": voice_tone,
+                    "metadata": metadata
+                }]
+            }
+            
+            with open(session_dir / "audio_manifest.json", "w", encoding="utf-8") as f:
+                json.dump(audio_manifest_data, f, indent=2)
 
             with UnitOfWork(db):
                 presentation_job_service.update_job_status(db, audio_job.id, status="COMPLETED", progress=1.0)
-
-            # 6. Asset Pipeline (Catalog & Hash)
-            with UnitOfWork(db):
-                session_repository.update(db, session, SessionUpdate(status=SessionStatus.REGISTERING_ASSETS.value))
-                
-            audio_manifest = asset_pipeline.execute(
-                db=db,
-                presentation_id=session.presentation_id,
-                session_id=session_id,
-                audio_tracks=audio_tracks,
-                session_dir=session_dir
-            )
 
             logger.info("PreparationOrchestrator | Audio generation completed successfully.")
 
@@ -309,7 +341,7 @@ class PreparationOrchestrator:
                     session_id=session_id,
                     session_dir=session_dir
                 )
-                parsed_data = parsing_pipeline.execute(
+                parsed_data = await parsing_pipeline.execute(
                     db=db,
                     presentation_id=session.presentation_id,
                     ppt_path=validation_report["details"]["ppt_path"],

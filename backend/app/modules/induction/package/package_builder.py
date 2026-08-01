@@ -136,8 +136,10 @@ class PackageBuilder:
         )
 
         # 6. Serialize package outputs to disk
-        with open(session_dir / "manifest.json", "w", encoding="utf-8") as f:
-            f.write(package.manifest.model_dump_json(indent=2))
+        is_unified = (len(audio_tracks) == 1 and audio_tracks[0].get("filename") == "narration.wav")
+        if not is_unified or not (session_dir / "manifest.json").exists():
+            with open(session_dir / "manifest.json", "w", encoding="utf-8") as f:
+                f.write(package.manifest.model_dump_json(indent=2))
 
         with open(session_dir / "session_script.json", "w", encoding="utf-8") as f:
             f.write(json.dumps(package.session_script, indent=2))

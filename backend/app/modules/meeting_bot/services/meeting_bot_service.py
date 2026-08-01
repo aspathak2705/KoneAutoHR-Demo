@@ -38,6 +38,21 @@ class MeetingBotService:
     async def leave_meeting(self, session_id: str = "default_session") -> dict:
         bot = self.get_bot(session_id)
         await bot.leave()
+        
+        # Cleanup PowerPoint and Audio background tasks on manual leave
+        try:
+            import subprocess
+            subprocess.run(["taskkill", "/f", "/im", "powerpnt.exe"], capture_output=True)
+            logger.info("MeetingBotService | PowerPoint presentation process terminated on manual leave.")
+        except Exception:
+            pass
+
+        try:
+            cleanup_audio_controller(session_id)
+            logger.info("MeetingBotService | Audio preloader PowerShell engine terminated on manual leave.")
+        except Exception as e:
+            logger.warning(f"MeetingBotService | Audio preloader cleanup failed: {e}")
+
         return {"status": "success", "state": bot.context.state.value}
 
     async def stop_bot(self, session_id: str = "default_session") -> dict:

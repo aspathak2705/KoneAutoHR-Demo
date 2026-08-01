@@ -29,6 +29,13 @@ class AudioController:
         self.current_track = None
         self._ps_process = None
         self._durations = {}
+        
+        # Deterministic play state variables
+        self._playing = False
+        self._start_time = None
+        self._total_duration_ms = 0.0
+        self._pause_offset_ms = 0.0
+        
         self._start_persistent_powershell()
 
     def _get_powershell_path(self) -> str:
@@ -101,158 +108,126 @@ class AudioController:
             )
             self._send_command(cmd)
 
-            # Query duration (estimate fallback if metadata load takes too long)
-            # Default rate: ~15 chars per second -> ~120 words per minute.
-            # We will default to a 5-second mock, but attempt to read PowerPoint/WPF metadata.
-            duration = 5.0
+            # Resolve track duration from audio_manifest.json if possible, fallback to size/bitrate estimate
+            duration = None
+            try:
+                from app.services.storage_service import storage_service
+                import json
+                session_dir = storage_service.get_session_dir(self.session_id)
+                manifest_path = session_dir / "audio_manifest.json"
+                if manifest_path.exists():
+                    with open(manifest_path, "r", encoding="utf-8") as m_file:
+                        manifest_data = json.load(m_file)
+                    for track in manifest_data.get("tracks", []):
+                        if track.get("filename", "").lower() == key:
+                            duration = float(track.get("duration", 0))
+                            break
+            except Exception as e:
+                logger.debug(f"AudioController | Manifest check failed: {e}")
+
+            if not duration or duration <= 0:
+                # Estimate: 1 second = ~16KB at typical mono TTS output bitrates
+                try:
+                    size_bytes = f.stat().st_size
+                    duration = max(3.0, round(size_bytes / 16000.0, 1))
+                except Exception:
+                    duration = 5.0
+
             self._durations[key] = duration
             
         logger.info(f"AudioController | Zero-latency preloader completed caching {len(files)} tracks.")
 
-    def get_duration(self, audio_path: str) -> float:
-        key = audio_path.lower()
-        return self._durations.get(key, 5.0)
-
-    def play_audio(self, audio_path: str) -> None:
+    def play_narration(self, audio_path: Path) -> None:
         """
-        Instantly plays a preloaded track. Establishes MockAudioProcess to integrate with DefaultVoiceOutput.
+        Loads and starts playing narration.wav using persistent powershell media player.
         """
         self.stop_audio()
         
-        from app.services.storage_service import storage_service
-        base_dir = storage_service.get_session_dir(self.session_id) / "audio"
-        target_path = Path(base_dir / audio_path).resolve()
-        
-        if not str(target_path).startswith(str(base_dir.resolve())):
-            raise ValueError(f"Security: Traversal attempt blocked: {audio_path}")
-
-        key = audio_path.lower()
-        self.current_track = audio_path
-        
-        # Play the pre-warmed player instance
+        uri = audio_path.resolve().as_uri()
         cmd = (
             f'if ($active_player) {{ $active_player.Stop() }}; '
-            f'if ($players.Contains("{key}")) {{ '
-            f'  $active_player = $players["{key}"]; '
-            f'  $active_player.Play(); '
-            f'}} else {{ '
-            f'  $active_player = New-Object System.Windows.Media.MediaPlayer; '
-            f'  $active_player.Open([Uri]"{target_path.as_uri()}"); '
-            f'  $active_player.Play(); '
-            f'  $players["{key}"] = $active_player; '
-            f'}}'
+            f'$active_player = New-Object System.Windows.Media.MediaPlayer; '
+            f'$active_player.Open([Uri]"{uri}"); '
+            f'$active_player.Play();'
         )
         self._send_command(cmd)
-        
-        # Fetch expected duration and bind mock process helper
-        duration = self.get_duration(audio_path)
-        self.process = MockAudioProcess(duration)
-        logger.info(f"AudioController | Playing preloaded track: {key} (Duration: {duration}s)")
 
-    async def play_and_wait(self, audio_path: str) -> None:
-        self.play_audio(audio_path)
-        while self.process and self.process.poll() is None:
-            await asyncio.sleep(0.2)
-        logger.info(f"AudioController | Completed track: {audio_path}")
+        # Parse duration from WAV file header
+        from app.services.voice.sarvam_client import SarvamClient
+        try:
+            with open(audio_path, "rb") as f:
+                content = f.read()
+            duration = SarvamClient.get_audio_duration(content)
+        except Exception:
+            duration = 5.0 # fallback
+
+        self._total_duration_ms = duration * 1000.0
+        self._start_time = time.time()
+        self._playing = True
+        self._pause_offset_ms = 0.0
+        logger.info(f"AudioController | Playing narration: {audio_path.name} (Duration: {duration:.2f}s)")
+
+    @property
+    def playing(self) -> bool:
+        """
+        Exposes playback state.
+        """
+        if not self._playing or self._start_time is None:
+            return False
+        elapsed = (time.time() - self._start_time) * 1000.0 + self._pause_offset_ms
+        if elapsed >= self._total_duration_ms:
+            self.stop_audio()
+            return False
+        return True
+
+    def position(self) -> float:
+        """
+        Exposes current playback position in milliseconds.
+        """
+        if not self._playing or self._start_time is None:
+            return self._pause_offset_ms
+        elapsed = (time.time() - self._start_time) * 1000.0 + self._pause_offset_ms
+        return min(elapsed, self._total_duration_ms)
 
     def stop_audio(self) -> None:
+        self._send_command("if ($active_player) { $active_player.Stop() };")
+        self._playing = False
+        self._start_time = None
+        self._pause_offset_ms = 0.0
+        self._total_duration_ms = 0.0
         if self.process:
             self.process.terminate()
             self.process = None
-        self._send_command("if ($active_player) { $active_player.Stop() };")
-        self.current_track = None
 
     def pause_audio(self) -> None:
-        self.stop_audio()
+        if self._playing and self._start_time is not None:
+            self._pause_offset_ms = self.position()
+            self._send_command("if ($active_player) { $active_player.Pause() };")
+            self._playing = False
+            self._start_time = None
+            logger.info(f"AudioController | Audio playback paused at {self._pause_offset_ms:.0f}ms")
 
     def resume_audio(self) -> None:
-        if self.current_track:
-            self.play_audio(self.current_track)
+        if not self._playing:
+            self._start_time = time.time()
+            self._playing = True
+            self._send_command("if ($active_player) { $active_player.Play() };")
+            logger.info(f"AudioController | Audio playback resumed from {self._pause_offset_ms:.0f}ms")
 
     def audio_ready(self) -> bool:
         from app.services.storage_service import storage_service
-        from app.db.database import SessionLocal
-        from app.models.presentation_script import PresentationScript
-        from app.models.session import Session
-        
-        audio_dir = storage_service.get_session_dir(self.session_id) / "audio"
-        if not audio_dir.exists():
+        session_dir = storage_service.get_session_dir(self.session_id)
+        manifest_path = session_dir / "manifest.json"
+        if not manifest_path.exists():
             return False
-            
-        with SessionLocal() as db:
-            sess = db.query(Session).filter(Session.id == self.session_id).first()
-            if not sess or not sess.presentation_id:
-                return False
-            script = db.query(PresentationScript).filter(
-                PresentationScript.presentation_id == sess.presentation_id,
-                PresentationScript.status == "ACTIVE"
-            ).first()
-            if not script:
-                return False
-            try:
-                payload = json.loads(script.script_content)
-            except Exception:
-                return False
-                
-        expected = []
-        opening = payload.get("opening") or {}
-        welcome_flow = payload.get("welcome_flow") or {}
-        
-        if opening.get("greeting") or welcome_flow.get("greeting"):
-            expected.append("greeting.mp3")
-        if opening.get("presenter_intro") or welcome_flow.get("intro"):
-            expected.append("intro.mp3")
-        if opening.get("employee_welcome"):
-            expected.append("employee_welcome.mp3")
-        if opening.get("audio_check") or welcome_flow.get("audio_check"):
-            expected.append("audio_check.mp3")
-        if opening.get("ice_breaker") or welcome_flow.get("ice_breaker"):
-            expected.append("ice_breaker.mp3")
-        if opening.get("session_rules") or welcome_flow.get("rules"):
-            expected.append("session_rules.mp3")
-        if opening.get("agenda"):
-            expected.append("agenda.mp3")
-            
-        slides = payload.get("slides")
-        if isinstance(slides, list):
-            for s in slides:
-                num = int(s.get("slide_number", 1))
-                if s.get("objective"):
-                    expected.append(f"slide_{num}_objective.mp3")
-                if s.get("transition_in"):
-                    expected.append(f"slide_{num}_transition_in.mp3")
-                if s.get("narration"):
-                    expected.append(f"slide_{num}.mp3")
-                    expected.append(f"slide_{num}_narration.mp3")
-                if s.get("understanding_check"):
-                    expected.append(f"slide_{num}_understanding_check.mp3")
-                if s.get("transition_out"):
-                    expected.append(f"slide_{num}_transition_out.mp3")
-        else:
-            slide_narrations = payload.get("slide_narrations", {})
-            for num_str, data in slide_narrations.items():
-                num = int(num_str)
-                if data.get("narration"):
-                    expected.append(f"slide_{num}.mp3")
-                    expected.append(f"slide_{num}_narration.mp3")
-                    
-        closing = payload.get("closing") or {}
-        closing_script = payload.get("closing_script") or {}
-        if closing.get("summary") or closing_script.get("summary"):
-            expected.append("closing.mp3")
-        if closing.get("next_steps") or closing_script.get("next_steps"):
-            expected.append("closing_next_steps.mp3")
-        if closing.get("farewell"):
-            expected.append("closing_farewell.mp3")
-            
-        if not expected:
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            audio_file = manifest.get("audio", "narration.wav")
+            # Check if it exists either in session_dir or session_dir/audio
+            return (session_dir / audio_file).exists() or (session_dir / "audio" / audio_file).exists()
+        except Exception:
             return False
-            
-        for filename in expected:
-            if not (audio_dir / filename).exists():
-                return False
-                
-        return True
 
 
 _audio_controllers = {}

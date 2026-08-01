@@ -473,6 +473,22 @@ class RuntimeCoordinator:
                     self._browser_manager = None
                 except Exception as e:
                     logger.error(f"RuntimeCoordinator | Failed to cleanup browser: {e}")
+
+            # Force terminate PowerPoint slideshow instance
+            try:
+                import subprocess
+                subprocess.run(["taskkill", "/f", "/im", "powerpnt.exe"], capture_output=True)
+                logger.info("RuntimeCoordinator | PowerPoint presentation process terminated.")
+            except Exception:
+                pass
+
+            # Terminate persistent PowerShell audio preloader process
+            try:
+                from app.modules.meeting_bot.media.audio_controller import cleanup_audio_controller
+                cleanup_audio_controller(self.session_id)
+                logger.info("RuntimeCoordinator | Preloader PowerShell engine terminated.")
+            except Exception as e:
+                logger.warning(f"RuntimeCoordinator | Audio preloader cleanup failed: {e}")
             
             logger.info(f"RuntimeCoordinator | SUCCESS _cleanup_resources")
         except Exception as e:

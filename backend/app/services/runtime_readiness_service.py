@@ -72,18 +72,28 @@ class RuntimeReadinessService:
                 with open(manifest_path, "r", encoding="utf-8") as f:
                     manifest = json.load(f)
                 
-                # Check manifest contains required artifact paths
-                has_script_ref = manifest.get("session_script") == "session_script.json"
-                has_metadata_ref = manifest.get("runtime_metadata") == "runtime_metadata.json"
-                has_audio_ref = manifest.get("audio_manifest") == "audio_manifest.json"
-                
-                # Verify audio files index is loaded
-                audio_files = list(manifest.get("checksums", {}).keys())
-                if len(audio_files) > 0 and has_script_ref and has_metadata_ref and has_audio_ref:
-                    audio_ready = True
-                    audio_reason = None
+                # Check new deterministic unified format compatibility
+                if "audio" in manifest and "timeline" in manifest:
+                    audio_file = manifest.get("audio")
+                    timeline_file = manifest.get("timeline")
+                    if (package_dir / audio_file).exists() or (package_dir / "audio" / audio_file).exists():
+                        audio_ready = True
+                        audio_reason = None
+                    else:
+                        audio_reason = f"Required audio narration file ({audio_file}) is missing"
                 else:
-                    audio_reason = "Package manifest missing artifact references or audio files index"
+                    # Check legacy format
+                    has_script_ref = manifest.get("session_script") == "session_script.json"
+                    has_metadata_ref = manifest.get("runtime_metadata") == "runtime_metadata.json"
+                    has_audio_ref = manifest.get("audio_manifest") == "audio_manifest.json"
+                    
+                    # Verify audio files index is loaded
+                    audio_files = list(manifest.get("checksums", {}).keys())
+                    if len(audio_files) > 0 and has_script_ref and has_metadata_ref and has_audio_ref:
+                        audio_ready = True
+                        audio_reason = None
+                    else:
+                        audio_reason = "Package manifest missing artifact references or audio files index"
             except Exception as e:
                 audio_reason = f"Corrupted package manifest: {e}"
         else:

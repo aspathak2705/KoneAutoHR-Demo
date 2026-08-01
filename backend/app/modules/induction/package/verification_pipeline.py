@@ -61,29 +61,40 @@ class VerificationPipeline:
         audios_valid = True
         audio_tracks = audio_manifest.get("tracks", []) if audio_manifest else []
         
-        expected_audio_labels = []
-        welcome_flow = script_data.get("welcome_flow", {}) if isinstance(script_data, dict) else {}
-        if isinstance(welcome_flow, dict):
-            if welcome_flow.get("greeting"):
-                expected_audio_labels.append("greeting")
-            if welcome_flow.get("summary"):
-                expected_audio_labels.append("intro")
-                
-        closing_script = script_data.get("closing_script", {}) if isinstance(script_data, dict) else {}
-        if isinstance(closing_script, dict):
-            if closing_script.get("summary"):
-                expected_audio_labels.append("closing")
-        elif isinstance(closing_script, str) and closing_script:
-            expected_audio_labels.append("closing")
-            
-        for s in slides_data:
-            expected_audio_labels.append(f"slide_{s['slide_number']}")
-
-        track_labels = {t["label"] for t in audio_tracks}
-        for label in expected_audio_labels:
-            if label not in track_labels:
+        # Check if new deterministic unified narration format is used
+        is_unified = (len(audio_tracks) == 1 and audio_tracks[0].get("filename") == "narration.wav")
+        
+        if is_unified:
+            # Validate the single narration track
+            track = audio_tracks[0]
+            file_path = session_dir / "audio" / track["filename"]
+            if not file_path.exists():
                 audios_valid = False
-                errors.append(f"Missing generated audio track for label: {label}")
+                errors.append(f"Physical narration audio file missing: {track['filename']}")
+        else:
+            expected_audio_labels = []
+            welcome_flow = script_data.get("welcome_flow", {}) if isinstance(script_data, dict) else {}
+            if isinstance(welcome_flow, dict):
+                if welcome_flow.get("greeting"):
+                    expected_audio_labels.append("greeting")
+                if welcome_flow.get("summary"):
+                    expected_audio_labels.append("intro")
+                    
+            closing_script = script_data.get("closing_script", {}) if isinstance(script_data, dict) else {}
+            if isinstance(closing_script, dict):
+                if closing_script.get("summary"):
+                    expected_audio_labels.append("closing")
+            elif isinstance(closing_script, str) and closing_script:
+                expected_audio_labels.append("closing")
+                
+            for s in slides_data:
+                expected_audio_labels.append(f"slide_{s['slide_number']}")
+
+            track_labels = {t["label"] for t in audio_tracks}
+            for label in expected_audio_labels:
+                if label not in track_labels:
+                    audios_valid = False
+                    errors.append(f"Missing generated audio track for label: {label}")
 
         # Check physical files and checksums
         if audios_valid:
