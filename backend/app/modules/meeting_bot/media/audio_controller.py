@@ -157,7 +157,7 @@ class AudioController:
         logger.info(f"AudioController | Audio route validation pending for input device: {self._audio_input_device_name}")
         return True
 
-    def play_narration(self, audio_path: Path) -> None:
+    def play_narration(self, audio_path: Path, duration_ms: float = None) -> None:
         """
         Loads and starts playing narration.wav using persistent powershell media player.
         """
@@ -175,16 +175,22 @@ class AudioController:
         )
         self._send_command(cmd)
 
-        # Parse duration from WAV file header
-        from app.services.voice.sarvam_client import SarvamClient
-        try:
-            with open(audio_path, "rb") as f:
-                content = f.read()
-            duration = SarvamClient.get_audio_duration(content)
-        except Exception:
-            duration = 5.0 # fallback
+        if duration_ms and duration_ms > 0:
+            self._total_duration_ms = float(duration_ms)
+            duration = duration_ms / 1000.0
+        else:
+            # Parse duration from WAV file header
+            from app.services.voice.sarvam_client import SarvamClient
+            try:
+                with open(audio_path, "rb") as f:
+                    content = f.read()
+                duration = SarvamClient.get_audio_duration(content)
+            except Exception:
+                duration = 5.0 # fallback
+            if duration <= 0:
+                duration = 5.0
+            self._total_duration_ms = duration * 1000.0
 
-        self._total_duration_ms = duration * 1000.0
         self._start_time = time.time()
         self._playing = True
         self._pause_offset_ms = 0.0

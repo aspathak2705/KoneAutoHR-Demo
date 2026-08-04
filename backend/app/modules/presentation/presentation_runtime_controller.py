@@ -79,7 +79,7 @@ class PresentationRuntimeController:
         if not audio_path.exists():
             audio_path = storage_service.get_generated_audio_dir(self.session_id) / audio_file
 
-        audio.play_narration(audio_path)
+        audio.play_narration(audio_path, manifest.get("duration_ms"))
 
         from app.modules.presentation.timeline_executor import TimelineExecutor
 
