@@ -1,0 +1,6 @@
+fix: HR mode slide loading and thumbnail path
+
+- hr_induction router: thumbnail lookup uses zero-padded slide_{n:03d}.png (matches extractor output)
+- sessions.new.tsx: loadingHrSlides spinner shown during session create + slide extraction
+- sessions.new.tsx: after session creation in HR mode, re-fetch presentations to get updated slide_count, then populate hrSlides array
+- sessions.new.tsx: setLoadingHrSlides false in finally block so spinner always clears

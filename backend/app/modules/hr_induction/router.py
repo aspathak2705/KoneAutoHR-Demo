@@ -31,9 +31,15 @@ def get_slide_thumbnail(session_id: str, slide_number: int):
     Returns slide image thumbnail if extracted.
     """
     session_dir = storage_service.get_session_dir(session_id)
-    path = session_dir / "presentation_assets" / "slides" / f"slide_{slide_number}.png"
+    slides_dir = session_dir / "presentation_assets" / "slides"
+    # Try zero-padded (extractor standard: slide_001.png)
+    path = slides_dir / f"slide_{slide_number:03d}.png"
     if not path.exists():
-        path = session_dir / "presentation_assets" / "slides" / f"slide_{slide_number}.jpg"
+        path = slides_dir / f"slide_{slide_number}.png"
+    if not path.exists():
+        path = slides_dir / f"slide_{slide_number:03d}.jpg"
+    if not path.exists():
+        path = slides_dir / f"slide_{slide_number}.jpg"
     if not path.exists():
         raise HTTPException(status_code=404, detail="Slide thumbnail not found")
     return FileResponse(path, media_type="image/png")
