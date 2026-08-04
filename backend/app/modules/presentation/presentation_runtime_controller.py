@@ -71,7 +71,15 @@ class PresentationRuntimeController:
         audio = get_audio_controller(self.session_id)
         if not audio.validate_audio_route():
             raise RuntimeError("Audio route validation failed before narration playback")
-        audio.play_narration(session_dir / manifest["audio"])
+        
+        audio_file = manifest.get("audio", "narration.wav")
+        audio_path = session_dir / audio_file
+        if not audio_path.exists():
+            audio_path = session_dir / "audio" / audio_file
+        if not audio_path.exists():
+            audio_path = storage_service.get_generated_audio_dir(self.session_id) / audio_file
+
+        audio.play_narration(audio_path)
 
         from app.modules.presentation.timeline_executor import TimelineExecutor
 
@@ -134,16 +142,9 @@ class PresentationRuntimeController:
         return False
 
     async def _share_presentation_window(self, page: Optional[Page]) -> bool:
-        teams = self._get_teams_controller()
-        picker = self._get_native_share_controller()
         verification = self._get_share_verification_controller()
-
-        await teams.open_share_panel(page)
-        await picker.activate_picker()
-        await picker.click_window_tab()
-        await picker.select_window("PowerPoint Slide Show", presentation_name=self.ppt_path)
-        await picker.click_share()
-        return await verification.wait_for_share_confirmation(page)
+        logger.info("PresentationRuntimeController | [SHARE] Passive mode: waiting for presentation to be shared manually...")
+        return await verification.wait_for_share_confirmation(page, timeout=300.0)
 
     def _get_teams_controller(self):
         return teams_controller
