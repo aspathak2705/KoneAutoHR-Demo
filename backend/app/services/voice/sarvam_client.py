@@ -5,28 +5,21 @@ import wave
 import asyncio
 from loguru import logger
 
+class ConfigurationError(Exception):
+    pass
+
 class SarvamClient:
     def __init__(self, api_key: str = None):
         self.api_key = api_key
         self.url = "https://api.sarvam.ai/text-to-speech"
 
-    async def text_to_speech(self, text: str, voice: str = "arvind") -> bytes:
+    async def text_to_speech(self, text: str, voice: str = "aayan") -> bytes:
         """
         Synthesize text into WAV bytes using Sarvam TTS API.
-        Falls back to a mock WAV file if the API key is not set.
+        Raises ConfigurationError if the API key is not set.
         """
         if not self.api_key:
-            logger.warning("SarvamClient | API key is missing. Generating a stub silent/dummy WAV.")
-            # Generate a valid, tiny mock WAV file (1 second of silence, 8kHz, mono, 8-bit)
-            # This ensures standard wave parsing works correctly on the returned bytes.
-            mock_io = io.BytesIO()
-            with wave.open(mock_io, "wb") as w:
-                w.setnchannels(1)
-                w.setsampwidth(1)
-                w.setframerate(8000)
-                # 8000 frames = 1.0 second
-                w.writeframes(b"\x80" * 8000)
-            return mock_io.getvalue()
+            raise ConfigurationError("VOICE_PROVIDER_NOT_CONFIGURED")
 
         headers = {
             "api-subscription-key": self.api_key,
@@ -34,10 +27,9 @@ class SarvamClient:
         }
         payload = {
             "inputs": [text],
-            "voice": voice,
             "speaker": voice,
-            "pace": 1.0,
-            "speech_rate": 1.0,
+            "pace": 0.92,
+            "speech_rate": 0.88,
             "model": "bulbul:v3",
             "target_aud_format": "wav"
         }

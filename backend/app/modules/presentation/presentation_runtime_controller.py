@@ -22,58 +22,60 @@ class PresentationRuntimeController:
         self.ppt_path = ppt_path
         self.teams_page = teams_page
         self.ppt_controller = None
+        self.presentation_state = "READY"
+        self.share_successful = False  # tracks if Teams sharing succeeded
+    def _transition_state(self, state: str) -> None:
+        if self.presentation_state != state:
+            logger.info(f"PresentationRuntimeController | [STATE] {self.presentation_state} -> {state}")
+            self.presentation_state = state
 
     async def run(self) -> None:
         if not self.teams_page:
             raise RuntimeError("Teams page is not available")
 
-        # 1. Load manifest.json (Phase 3 spec)
         session_dir = storage_service.get_session_dir(self.session_id)
         manifest_path = session_dir / "manifest.json"
         if not manifest_path.exists():
             raise FileNotFoundError(f"Presentation manifest not found: {manifest_path}")
-            
+
         with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
 
-        # 2. Open PPT and start slideshow
         from app.modules.presentation.powerpoint_controller import PowerPointController
+
         self.ppt_controller = PowerPointController()
-        await self.ppt_controller.open_slideshow(str(session_dir / manifest["presentation"]))
+        logger.info("PresentationRuntimeController | [PPT] Opening presentation")
+        await self.ppt_controller.open(str(session_dir / manifest["presentation"]), start_immediately=False)
+        self._transition_state("EDITOR_OPEN")
+        logger.info("PresentationRuntimeController | [PPT] Presentation editor ready")
 
-        # 3. Share PowerPoint window
-        await teams_controller.share_powerpoint(self.teams_page)
-        
-        # Wait for sharing indicator to confirm active presentation stream
-        logger.info("PresentationRuntimeController | Waiting for Teams active sharing indicator...")
-        sharing_active = False
-        for timeout in range(15):
-            for sel in ["button[data-tid='stop-presenting-button']", "button[aria-label*='Stop sharing' i]", "button:has-text('Stop sharing')"]:
-                try:
-                    if await self.teams_page.locator(sel).is_visible():
-                        sharing_active = True
-                        break
-                except Exception:
-                    pass
-            if sharing_active:
-                break
-            await asyncio.sleep(1)
-        
-        if sharing_active:
-            logger.info("PresentationRuntimeController | Teams sharing stream is active. Waiting 5 additional seconds for stream visibility...")
-            await asyncio.sleep(5)
+        logger.info("PresentationRuntimeController | [SHARE] Opening share flow")
+        share_succeeded = await self._share_with_retry(
+            lambda page: self._share_presentation_window(page),
+            self.teams_page,
+        )
+        if share_succeeded:
+            self.share_successful = True
+            self._transition_state("WINDOW_SHARED")
         else:
-            logger.warning("PresentationRuntimeController | Sharing indicator not detected. Proceeding anyway with a 5-second default buffer.")
-            await asyncio.sleep(5)
+            logger.error("PresentationRuntimeController | Sharing failed, keeping PowerPoint open for manual intervention")
+            self.share_successful = False
+            raise RuntimeError("Teams sharing confirmation was not detected")
 
-        # 4. Play narration.wav
+        if self.share_successful:
+            logger.info("PresentationRuntimeController | [PPT] Starting slideshow after sharing succeeded")
+            await self.ppt_controller.start_slideshow()
+            self._transition_state("SLIDESHOW_RUNNING")
+
+        logger.info("PresentationRuntimeController | [PRESENTATION] Starting narration")
         audio = get_audio_controller(self.session_id)
+        if not audio.validate_audio_route():
+            raise RuntimeError("Audio route validation failed before narration playback")
         audio.play_narration(session_dir / manifest["audio"])
 
-        # 5. Execute timeline events
         from app.modules.presentation.timeline_executor import TimelineExecutor
-        executor = TimelineExecutor(str(session_dir / manifest["timeline"]))
 
+        executor = TimelineExecutor(str(session_dir / manifest["timeline"]))
         current_visible_slide = 1
 
         async def handle_goto_slide(slide_num: int):
@@ -89,26 +91,96 @@ class PresentationRuntimeController:
                 await asyncio.sleep(0.5)
 
         try:
-            # Wait for audio to start playing and buffer
             await asyncio.sleep(1)
             await executor.execute(audio, handle_goto_slide)
             logger.info("PresentationRuntimeController | Timeline execution completed successfully.")
+            self._transition_state("FINISHED")
         finally:
             try:
                 await teams_controller.stop_sharing(self.teams_page)
             except Exception:
                 pass
-            try:
-                await self._close_powerpoint()
-            except Exception:
-                pass
+            # Close PowerPoint only if sharing succeeded; otherwise keep it open for user
+            if self.share_successful:
+                try:
+                    await self._close_powerpoint()
+                except Exception:
+                    pass
             try:
                 from app.modules.meeting_bot.media.audio_controller import cleanup_audio_controller
+
                 cleanup_audio_controller(self.session_id)
             except Exception as e:
                 logger.warning(f"PresentationRuntimeController | Audio preloader cleanup failed: {e}")
 
+    async def _share_with_retry(self, share_action, page: Optional[Page], *, max_attempts: int = 2) -> bool:
+        last_error: Optional[Exception] = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if attempt > 1:
+                    logger.warning(f"PresentationRuntimeController | [SHARE] Retry attempt {attempt}/{max_attempts}")
+                    await self._reset_share_flow(page)
+                result = await share_action(page)
+                await self._wait_for_sharing_confirmed(page)
+                return bool(result)
+            except Exception as exc:
+                last_error = exc
+                logger.warning(f"PresentationRuntimeController | [SHARE] Share attempt {attempt}/{max_attempts} failed: {exc}")
+                if attempt >= max_attempts:
+                    break
+
+        if last_error is not None:
+            raise last_error
+        return False
+
+    async def _share_presentation_window(self, page: Optional[Page]) -> bool:
+        teams = self._get_teams_controller()
+        picker = self._get_native_share_controller()
+        verification = self._get_share_verification_controller()
+
+        await teams.open_share_panel(page)
+        await picker.activate_picker()
+        await picker.click_window_tab()
+        await picker.select_window("PowerPoint Slide Show", presentation_name=self.ppt_path)
+        await picker.click_share()
+        return await verification.wait_for_share_confirmation(page)
+
+    def _get_teams_controller(self):
+        return teams_controller
+
+    def _get_native_share_controller(self):
+        from app.modules.presentation.native_share_controller import NativeShareController
+
+        return NativeShareController()
+
+    def _get_share_verification_controller(self):
+        from app.modules.presentation.share_verification_controller import ShareVerificationController
+
+        return ShareVerificationController()
+
+    async def _reset_share_flow(self, page: Optional[Page]) -> None:
+        if page is None or page.is_closed():
+            return
+        logger.info("PresentationRuntimeController | [SHARE] Resetting share flow")
+        try:
+            await teams_controller.stop_sharing(page)
+        except Exception:
+            pass
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+        await asyncio.sleep(0.5)
+
+    async def _wait_for_sharing_confirmed(self, page: Optional[Page], *, timeout: float = 10.0) -> None:
+        if page is None or page.is_closed():
+            raise RuntimeError("Teams page is not available for sharing verification")
+
+        logger.info("PresentationRuntimeController | [SHARE] Waiting for Teams sharing confirmation")
+        verification_controller = self._get_share_verification_controller()
+        await verification_controller.wait_for_share_confirmation(page, timeout=timeout)
+
     async def _close_powerpoint(self) -> None:
         if self.ppt_controller:
-            await self.ppt_controller.close_presentation()
+            await self.ppt_controller.close()
             self.ppt_controller = None

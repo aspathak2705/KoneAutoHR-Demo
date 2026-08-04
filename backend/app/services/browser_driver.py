@@ -31,11 +31,8 @@ class BrowserDriver:
             self._browser = await self._playwright.chromium.launch(
                 headless=False,
                 args=[
-                    "--use-fake-ui-for-media-stream",
-                    "--use-fake-device-for-media-stream",
                     "--autoplay-policy=no-user-gesture-required",
                     "--disable-blink-features=AutomationControlled",
-                    "--mute-audio",
                     "--disable-features=ExternalProtocolDialog",
                     "--disable-external-intent-requests"
                 ]

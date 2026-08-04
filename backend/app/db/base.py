@@ -15,3 +15,4 @@ from app.models.runtime import Runtime # noqa
 from app.models.runtime_message import RuntimeMessage # noqa
 from app.models.attendance import Attendance # noqa
 from app.models.presentation_asset import PresentationAsset # noqa
+from app.models.browser_profile import BrowserProfile # noqa

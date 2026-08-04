@@ -15,9 +15,12 @@ class StorageService:
         self.employee_lists_dir.mkdir(parents=True, exist_ok=True)
 
     def get_session_dir(self, session_id: str) -> Path:
-        p = self.base_dir / session_id
-        p.mkdir(parents=True, exist_ok=True)
-        return p
+        legacy_path = Path("uploads") / "sessions" / session_id
+        new_path = self.base_dir / session_id
+        if legacy_path.exists() and (legacy_path / "manifest.json").exists() and not (new_path / "manifest.json").exists():
+            return legacy_path
+        new_path.mkdir(parents=True, exist_ok=True)
+        return new_path
 
     def get_presentation_dir(self, session_id: str) -> Path:
         p = self.get_session_dir(session_id) / "presentation"
@@ -40,7 +43,17 @@ class StorageService:
         return p
 
     def get_reports_dir(self, session_id: str) -> Path:
-        p = Path("reports") / session_id
+        p = Path(settings.REPORTS_DIR_PATH) / session_id
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def get_generated_audio_dir(self, session_id: str) -> Path:
+        p = Path(settings.GENERATED_AUDIO_DIR) / f"session_{session_id}"
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def get_voice_samples_dir(self) -> Path:
+        p = Path(settings.VOICE_SAMPLE_DIR)
         p.mkdir(parents=True, exist_ok=True)
         return p
 

@@ -40,26 +40,25 @@ class MeetingLifecycle:
 
         # Poll active status dynamically based on config
         if meeting_bot_config.lobby_wait_enabled:
-            attempt = 0
             max_attempts = meeting_bot_config.max_lobby_timeout
-            interval = meeting_bot_config.polling_interval
-            
+            interval = max(meeting_bot_config.polling_interval, 1)
+            attempt = 0
+            deadline = None if max_attempts is None else asyncio.get_running_loop().time() + max_attempts
+
             while True:
                 if await participant_monitor.meeting_active(context.page):
                     context.state = BotState.CONNECTED
-                    logger.info("MeetingLifecycle | Bot connected to Teams meeting successfully (Admitted).")
-                    
-                    # Capture 06_connected
+                    logger.info("MeetingLifecycle | [JOIN] Bot connected to Teams meeting successfully (Admitted).")
                     await screen_capture.capture_step(context.page, sess_id, "connected")
                     break
-                
-                # Check timeouts
-                if max_attempts is not None and max_attempts > 0 and attempt >= max_attempts:
+
+                if deadline is not None and asyncio.get_running_loop().time() >= deadline:
                     context.state = BotState.FAILED
-                    logger.error("MeetingLifecycle | Lobby wait timeout exceeded. Bot failed to join.")
-                    break
-                    
-                attempt += interval
+                    logger.error("MeetingLifecycle | [JOIN] Lobby wait timeout exceeded. Bot failed to join.")
+                    raise RuntimeError("MeetingLifecycle | [JOIN] Lobby wait timeout exceeded")
+
+                attempt += 1
+                logger.info(f"MeetingLifecycle | [JOIN] Waiting for Teams admission ({attempt})")
                 await asyncio.sleep(interval)
         else:
             context.state = BotState.CONNECTED

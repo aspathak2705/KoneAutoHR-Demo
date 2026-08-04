@@ -40,3 +40,5 @@ node_modules
 verify_llm.py
 verify.py
 reset_database.py
+
+backend/storage

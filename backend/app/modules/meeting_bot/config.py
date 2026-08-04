@@ -6,7 +6,10 @@ class MeetingBotConfig:
         self.slow_mo: int = int(os.environ.get("BOT_BROWSER_SLOW_MO", "50"))
         self.viewport_width: int = int(os.environ.get("BOT_BROWSER_WIDTH", "1280"))
         self.viewport_height: int = int(os.environ.get("BOT_BROWSER_HEIGHT", "720"))
-        self.use_fake_devices: bool = os.environ.get("BOT_USE_FAKE_DEVICES", "true").lower() == "true"
+        self.use_fake_devices: bool = os.environ.get("BOT_USE_FAKE_DEVICES", "false").lower() == "true"
+        self.audio_route: str = os.environ.get("BOT_AUDIO_ROUTE", "teams-microphone").strip() or "teams-microphone"
+        self.audio_input_device_name: str = os.environ.get("BOT_AUDIO_INPUT_DEVICE_NAME", "").strip()
+        self.audio_output_device_name: str = os.environ.get("BOT_AUDIO_OUTPUT_DEVICE_NAME", "").strip()
         
         # Connection timeouts and retries
         self.timeout_ms: int = int(os.environ.get("BOT_TIMEOUT_MS", "30000"))

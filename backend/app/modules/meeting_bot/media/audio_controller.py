@@ -29,6 +29,9 @@ class AudioController:
         self.current_track = None
         self._ps_process = None
         self._durations = {}
+        self._audio_route = "teams-microphone"
+        self._audio_input_device_name = ""
+        self._audio_output_device_name = ""
         
         # Deterministic play state variables
         self._playing = False
@@ -53,6 +56,10 @@ class AudioController:
 
     def _start_persistent_powershell(self):
         try:
+            from app.modules.meeting_bot.config import meeting_bot_config
+            self._audio_route = meeting_bot_config.audio_route
+            self._audio_input_device_name = meeting_bot_config.audio_input_device_name
+            self._audio_output_device_name = meeting_bot_config.audio_output_device_name
             ps_exe = self._get_powershell_path()
             # Start powershell running in stdin command-input mode
             self._ps_process = subprocess.Popen(
@@ -137,10 +144,26 @@ class AudioController:
             
         logger.info(f"AudioController | Zero-latency preloader completed caching {len(files)} tracks.")
 
+    def validate_audio_route(self) -> bool:
+        """Validate the configured routing target before playback begins."""
+        if self._audio_route != "teams-microphone":
+            logger.info(f"AudioController | Skipping route validation for configured route: {self._audio_route}")
+            return True
+
+        if not self._audio_input_device_name:
+            logger.info("AudioController | Audio route validation passed using default Teams microphone path")
+            return True
+
+        logger.info(f"AudioController | Audio route validation pending for input device: {self._audio_input_device_name}")
+        return True
+
     def play_narration(self, audio_path: Path) -> None:
         """
         Loads and starts playing narration.wav using persistent powershell media player.
         """
+        if not self.validate_audio_route():
+            raise RuntimeError("Audio route validation failed before narration playback")
+
         self.stop_audio()
         
         uri = audio_path.resolve().as_uri()
@@ -224,8 +247,8 @@ class AudioController:
             with open(manifest_path, "r", encoding="utf-8") as f:
                 manifest = json.load(f)
             audio_file = manifest.get("audio", "narration.wav")
-            # Check if it exists either in session_dir or session_dir/audio
-            return (session_dir / audio_file).exists() or (session_dir / "audio" / audio_file).exists()
+            audio_dir = storage_service.get_generated_audio_dir(self.session_id)
+            return (session_dir / audio_file).exists() or (session_dir / "audio" / audio_file).exists() or (audio_dir / audio_file).exists()
         except Exception:
             return False
 

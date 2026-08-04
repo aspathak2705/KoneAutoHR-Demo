@@ -36,28 +36,11 @@ class BrowserManager:
         try:
             self.playwright_instance = await async_playwright().start()
 
-            from app.services.storage_service import storage_service
-
-            from app.db.database import SessionLocal
-            from app.services.agent_configuration_service import agent_configuration_service
-            
-            profile_dir_path = None
-            with SessionLocal() as db:
-                profile_dir_path = agent_configuration_service.get_profile_path(db)
-                
-            if profile_dir_path:
-                # Use persistent profile path configured in DB
-                from app.core.config import settings
-                from pathlib import Path
-                temp_dir = Path(settings.UPLOAD_DIR).parent / profile_dir_path
-                temp_dir.mkdir(parents=True, exist_ok=True)
-                logger.info(f"BrowserManager | Launching with persistent Microsoft profile path: {temp_dir}")
-            else:
-                import time
-                unique_profile = f"profile_{int(time.time())}"
-                temp_dir = storage_service.get_session_dir(session_id) / unique_profile
-                temp_dir.mkdir(parents=True, exist_ok=True)
-                logger.info(f"BrowserManager | Launching with temporary session profile path: {temp_dir}")
+            from app.core.config import settings
+            from pathlib import Path
+            temp_dir = Path(settings.BROWSER_PROFILE_DIR) / "msedge"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"BrowserManager | Launching with persistent Edge profile path: {temp_dir}")
 
             default_profile_dir = temp_dir / "Default"
             default_profile_dir.mkdir(parents=True, exist_ok=True)
@@ -91,6 +74,12 @@ class BrowserManager:
             prefs_data["profile"]["default_content_setting_values"][
                 "notifications"
             ] = 2
+            prefs_data["profile"]["default_content_setting_values"][
+                "media_stream_mic"
+            ] = 1
+            prefs_data["profile"]["default_content_setting_values"][
+                "media_stream_camera"
+            ] = 1
 
             with open(prefs_path, "w", encoding="utf-8") as f:
                 json.dump(prefs_data, f)
@@ -99,24 +88,16 @@ class BrowserManager:
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-blink-features=AutomationControlled",
-                "--disable-gpu",
-                "--disable-software-rasterizer",
-                "--disable-web-security",
-                "--allow-running-insecure-content",
-                '--auto-select-desktop-capture-source="PowerPoint Slide Show"',
-                "--enable-usermedia-screen-capturing"
+                "--enable-gpu",
+                "--ignore-gpu-blocklist",
+                "--autoplay-policy=no-user-gesture-required",
+                "--enable-usermedia-screen-capturing",
+                "--auto-select-desktop-capture-source=PowerPoint Slide Show",
             ]
-
-            if meeting_bot_config.use_fake_devices:
-                launch_args.extend(
-                    [
-                        "--use-fake-ui-for-media-stream",
-                        "--use-fake-device-for-media-stream",
-                    ]
-                )
 
             context = await self.playwright_instance.chromium.launch_persistent_context(
                 user_data_dir=str(temp_dir),
+                channel=settings.EDGE_CHANNEL,
                 headless=meeting_bot_config.headless,
                 slow_mo=meeting_bot_config.slow_mo,
                 args=launch_args,

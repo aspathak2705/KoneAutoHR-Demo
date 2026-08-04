@@ -162,21 +162,8 @@ class VoiceService:
                 if chunk_text.strip():
                     chunks.append({"slide": slide_num, "text": chunk_text})
 
-        # Determine speaker
-        voice_tone = script_payload.get("ai_persona", {}).get("tone", "shubh").strip().lower()
-        available_speakers = {
-            "anushka", "abhilash", "manisha", "vidya", "arya", "karun", "hitesh", "aditya",
-            "ritu", "priya", "neha", "rahul", "pooja", "rohan", "simran", "kavya", "amit",
-            "dev", "ishita", "shreya", "ratan", "varun", "manan", "sumit", "roopa", "kabir",
-            "aayan", "shubh", "ashutosh", "advait", "anand", "tanya", "tarun", "sunny",
-            "mani", "gokul", "vijay", "shruti", "suhani", "mohit", "kavitha", "rehan",
-            "soham", "rupali"
-        }
-        if voice_tone not in available_speakers:
-            logger.warning(f"VoiceService | Speaker '{voice_tone}' is not recognized. Defaulting to 'shubh'.")
-            voice_tone = "shubh"
-
-        logger.info(f"VoiceService | Generating {len(chunks)} speech chunks using speaker: {voice_tone}...")
+        speaker = os.environ.get("SARVAM_DEFAULT_SPEAKER", "aayan").strip() or "aayan"
+        logger.info(f"VoiceService | Generating {len(chunks)} speech chunks with default speaker '{speaker}'...")
         
         # Sequentially call Sarvam TTS API for each chunk
         wav_buffers = []
@@ -189,7 +176,7 @@ class VoiceService:
             chunk_text = chunk["text"]
             
             logger.info(f"VoiceService | Synthesizing chunk {idx+1}/{len(chunks)} for Slide {slide_num} ({len(chunk_text)} chars)...")
-            chunk_audio = await self.client.text_to_speech(chunk_text, voice=voice_tone)
+            chunk_audio = await self.client.text_to_speech(chunk_text, voice=speaker)
             duration_sec = self.client.get_audio_duration(chunk_audio)
             
             wav_buffers.append(chunk_audio)
@@ -210,10 +197,9 @@ class VoiceService:
         total_duration = self.client.get_audio_duration(merged_audio)
         duration_ms = total_duration * 1000.0
         
-        # Save output narration.wav file to session dir
-        session_dir = storage_service.get_session_dir(session_id)
-        session_dir.mkdir(parents=True, exist_ok=True)
-        audio_path = session_dir / "narration.wav"
+        # Save output narration.wav file to isolated storage/generated_audio/session_[id]
+        audio_dir = storage_service.get_generated_audio_dir(session_id)
+        audio_path = audio_dir / "narration.wav"
         with open(audio_path, "wb") as f:
             f.write(merged_audio)
 

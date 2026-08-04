@@ -76,7 +76,8 @@ class RuntimeReadinessService:
                 if "audio" in manifest and "timeline" in manifest:
                     audio_file = manifest.get("audio")
                     timeline_file = manifest.get("timeline")
-                    if (package_dir / audio_file).exists() or (package_dir / "audio" / audio_file).exists():
+                    audio_dir = storage_service.get_generated_audio_dir(session_id)
+                    if (package_dir / audio_file).exists() or (package_dir / "audio" / audio_file).exists() or (audio_dir / audio_file).exists():
                         audio_ready = True
                         audio_reason = None
                     else:

@@ -24,6 +24,33 @@ class Settings(BaseSettings):
     HOST: str = "127.0.0.1"
     PORT: int = 8000
 
+    # V2 Storage & Voice Provider configurations
+    AUTOHR_STORAGE_PATH: str = Field("storage", env="AUTOHR_STORAGE_PATH")
+    SARVAM_API_KEY: Optional[str] = Field(None, env="SARVAM_API_KEY")
+    SARVAM_BASE_URL: str = Field("https://api.sarvam.ai", env="SARVAM_BASE_URL")
+    SARVAM_PROJECT_ID: Optional[str] = Field(None, env="SARVAM_PROJECT_ID")
+    EDGE_CHANNEL: str = Field("msedge", env="EDGE_CHANNEL")
+
+    @property
+    def VOICE_SAMPLE_DIR(self) -> str:
+        return os.path.join(self.AUTOHR_STORAGE_PATH, "voice_samples")
+
+    @property
+    def GENERATED_AUDIO_DIR(self) -> str:
+        return os.path.join(self.AUTOHR_STORAGE_PATH, "generated_audio")
+
+    @property
+    def BROWSER_PROFILE_DIR(self) -> str:
+        return os.path.join(self.AUTOHR_STORAGE_PATH, "browser_profiles")
+
+    @property
+    def REPORTS_DIR_PATH(self) -> str:
+        return os.path.join(self.AUTOHR_STORAGE_PATH, "reports")
+
+    @property
+    def UPLOAD_DIR_V2(self) -> str:
+        return os.path.join(self.AUTOHR_STORAGE_PATH, "uploads")
+
     # LLM Settings required for session & script generation
     LLM_PROVIDER: Literal["nvidia", "openai", "ollama"] = "openai"
     LLM_MODEL: str = "nvidia/nemotron-3-super-120b-a12b:free"
@@ -68,7 +95,7 @@ class Settings(BaseSettings):
 
     @property
     def UPLOAD_DIR(self) -> str:
-        return self.UPLOAD_PATH
+        return self.UPLOAD_DIR_V2
 
     @property
     def allowed_origins(self) -> List[str]:

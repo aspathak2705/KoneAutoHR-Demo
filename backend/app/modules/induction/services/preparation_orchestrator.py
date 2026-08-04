@@ -228,7 +228,7 @@ class PreparationOrchestrator:
                 )
                 
             metadata = asset_manager.generate_metadata("narration.wav", audio_content, relative_path)
-            voice_tone = script_data.get("ai_persona", {}).get("tone", "shubh").strip().lower()
+            voice_tone = script_data.get("ai_persona", {}).get("tone", "aayan").strip().lower()
             
             audio_manifest_data = {
                 "session_id": session_id,

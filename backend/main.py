@@ -1,3 +1,4 @@
+import os
 import sys
 import asyncio
 if sys.platform == "win32":
@@ -36,10 +37,64 @@ async def lifespan(app: FastAPI):
     from app.core.config import validate_llm_settings
     validate_llm_settings()
 
-    Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+    # Database connection verification
+    from app.db.database import engine, Base
+    import sqlalchemy as sa
+    try:
+        with engine.connect() as conn:
+            conn.execute(sa.text("SELECT 1"))
+        logger.info("Startup Validation | Database connection verification PASSED.")
+    except Exception as db_err:
+        logger.critical(f"Startup Validation | Database connection FAILED: {db_err}")
+        raise SystemExit("Startup Validation Failure: Database connection failed.")
+
+    # Storage folders verification and setup
+    storage_dirs = [
+        Path(settings.AUTOHR_STORAGE_PATH),
+        Path(settings.VOICE_SAMPLE_DIR),
+        Path(settings.GENERATED_AUDIO_DIR),
+        Path(settings.BROWSER_PROFILE_DIR),
+        Path(settings.REPORTS_DIR_PATH),
+        Path(settings.UPLOAD_DIR_V2)
+    ]
+    for directory in storage_dirs:
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            test_file = directory / ".write_test"
+            with open(test_file, "w") as f:
+                f.write("test")
+            test_file.unlink()
+        except Exception as store_err:
+            logger.critical(f"Startup Validation | Storage directory '{directory}' check FAILED: {store_err}")
+            raise SystemExit(f"Startup Validation Failure: Storage directory '{directory}' is not writable.")
+    logger.info("Startup Validation | Storage directories checks PASSED.")
+
+    # Sarvam API key verification
+    if not settings.SARVAM_API_KEY:
+        logger.critical("Startup Validation | SARVAM_API_KEY environment variable is missing.")
+        raise SystemExit("Startup Validation Failure: SARVAM_API_KEY is not configured.")
+    logger.info("Startup Validation | Sarvam API key configuration PASSED.")
+
+    # Edge binary verification
+    import shutil
+    edge_executable = shutil.which("microsoft-edge") or shutil.which("msedge")
+    if not edge_executable:
+        common_edge_paths = [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            os.path.expandvars(r"%LocalAppData%\Microsoft\Edge\Application\msedge.exe")
+        ]
+        edge_found = False
+        for p in common_edge_paths:
+            if os.path.exists(p):
+                edge_found = True
+                break
+        if not edge_found:
+            logger.critical("Startup Validation | Microsoft Edge browser binary is not found. Please install Microsoft Edge.")
+            raise SystemExit("Startup Validation Failure: Microsoft Edge is not installed or accessible.")
+    logger.info("Startup Validation | Microsoft Edge browser presence check PASSED.")
 
     # Self-healing database initialization (creates tables if starting from scratch)
-    from app.db.database import engine, Base
     # Import all models to register on metadata
     from app.models.session import Session
     from app.models.upload import Upload
@@ -67,6 +122,48 @@ async def lifespan(app: FastAPI):
         logger.error(f"Database Initialization | Alembic migration error: {e}")
 
     from app.db.database import SessionLocal
+    # Track Browser Profile configuration record
+    try:
+        import subprocess
+        import re
+        edge_version = None
+        try:
+            cmd = 'reg query "HKEY_CURRENT_USER\\Software\\Microsoft\\Edge\\BLBeacon" /v version'
+            out = subprocess.check_output(cmd, shell=True, text=True)
+            m = re.search(r'version\s+REG_SZ\s+([\d\.]+)', out)
+            if m:
+                edge_version = m.group(1)
+        except Exception:
+            try:
+                cmd = 'reg query "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Edge\\BLBeacon" /v version'
+                out = subprocess.check_output(cmd, shell=True, text=True)
+                m = re.search(r'version\s+REG_SZ\s+([\d\.]+)', out)
+                if m:
+                    edge_version = m.group(1)
+            except Exception:
+                pass
+
+        from app.models.browser_profile import BrowserProfile
+        import datetime
+        with SessionLocal() as db:
+            profile = db.query(BrowserProfile).filter(BrowserProfile.profile_name == "msedge").first()
+            if not profile:
+                profile = BrowserProfile(
+                    profile_name="msedge",
+                    edge_version=edge_version,
+                    status="active",
+                    created_at=datetime.datetime.now(),
+                    last_verified_at=datetime.datetime.now()
+                )
+                db.add(profile)
+            else:
+                profile.edge_version = edge_version
+                profile.last_verified_at = datetime.datetime.now()
+            db.commit()
+        logger.info(f"Startup Validation | BrowserProfile 'msedge' verified in DB (Edge version: {edge_version}).")
+    except Exception as bp_err:
+        logger.warning(f"Startup Validation | BrowserProfile tracking failed: {bp_err}")
+
     from app.services.runtime_scheduler_service import runtime_scheduler_service
 
     try:
@@ -119,9 +216,10 @@ from app.api.v1.meeting_bot import router as meeting_bot_router
 from app.api.v1.semantic_browser import router as semantic_browser_router
 from app.api.v1.presentation_observer import router as presentation_observer_router
 from app.api.v1.agent_configuration import router as agent_configuration_router
+from app.api.v1.voice import router as voice_router
 
 app.include_router(health.router, prefix="/api/v1")
-app.include_router(session.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(session.router, prefix="/api/v1",dependencies=[Depends(verify_token)])
 app.include_router(upload.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 app.include_router(induction_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 app.include_router(presentation.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
@@ -137,6 +235,7 @@ app.include_router(meeting_bot_router, prefix="/api/v1", dependencies=[Depends(v
 app.include_router(semantic_browser_router, prefix="/api/v1/semantic-browser", dependencies=[Depends(verify_token)])
 app.include_router(presentation_observer_router, prefix="/api/v1/presentation-observer", dependencies=[Depends(verify_token)])
 app.include_router(agent_configuration_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(voice_router, prefix="/api/v1")
 
 if __name__ == "__main__":
     import uvicorn
