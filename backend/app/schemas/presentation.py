@@ -21,3 +21,4 @@ class PresentationResponse(BaseSchema):
     uploaded_at: datetime.datetime
     last_used: datetime.datetime
     session_count: int
+    slide_count: int

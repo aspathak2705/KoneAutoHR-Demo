@@ -23,3 +23,9 @@ class Presentation(Base):
     questions: Mapped[List["PresentationQuestion"]] = relationship(back_populates="presentation", cascade="all, delete-orphan")
     sessions: Mapped[List["Session"]] = relationship(back_populates="presentation")
     assets: Mapped[List["PresentationAsset"]] = relationship(back_populates="presentation", cascade="all, delete-orphan")
+
+    @property
+    def slide_count(self) -> int:
+        if self.metadata_records:
+            return self.metadata_records[0].slide_count
+        return 0

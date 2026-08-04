@@ -217,11 +217,13 @@ from app.api.v1.semantic_browser import router as semantic_browser_router
 from app.api.v1.presentation_observer import router as presentation_observer_router
 from app.api.v1.agent_configuration import router as agent_configuration_router
 from app.api.v1.voice import router as voice_router
+from app.modules.hr_induction.router import router as hr_induction_router
 
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(session.router, prefix="/api/v1",dependencies=[Depends(verify_token)])
 app.include_router(upload.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 app.include_router(induction_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
+app.include_router(hr_induction_router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 app.include_router(presentation.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 app.include_router(employee_list.router, prefix="/api/v1", dependencies=[Depends(verify_token)])
 app.include_router(presentation_script.router, prefix="/api/v1", dependencies=[Depends(verify_token)])

@@ -18,7 +18,8 @@ class SessionRepository:
             name=obj_in.name,
             scheduled_at=obj_in.scheduled_at,
             presentation_id=obj_in.presentation_id,
-            employee_list_id=obj_in.employee_list_id
+            employee_list_id=obj_in.employee_list_id,
+            creation_mode=obj_in.creation_mode or "AI"
         )
         db.add(db_obj)
         db.flush()

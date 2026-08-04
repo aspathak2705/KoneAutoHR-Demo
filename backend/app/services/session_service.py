@@ -50,7 +50,36 @@ class SessionService:
                     target_dir = storage_service.get_session_upload_dir(session.id, UploadType.EMPLOYEE_LIST)
                     dest = target_dir / Path(emp.storage_path).name
                     shutil.copy2(emp.storage_path, dest)
+
+            # Slide extraction for HR Recorded Mode
+            if session.creation_mode == "HR" and session.presentation_id:
+                try:
+                    from app.services.presentation_service import PowerPointSlideExtractor
+                    from app.repositories.presentation_repository import presentation_repository
+                    import shutil
+                    from pathlib import Path
                     
+                    pres = presentation_repository.get(db, session.presentation_id)
+                    if pres:
+                        session_dir = storage_service.get_session_dir(session.id)
+                        session_ppt_copy = session_dir / "presentation.pptx"
+                        shutil.copy2(pres.storage_path, session_ppt_copy)
+                        
+                        slides_dir = session_dir / "presentation_assets" / "slides"
+                        slides_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        extractor = PowerPointSlideExtractor()
+                        slide_count = extractor.extract_slides(str(session_ppt_copy), slides_dir)
+                        
+                        # Update presentation metadata slide count if it was 0
+                        if pres.metadata_records and pres.metadata_records[0].slide_count == 0:
+                            from app.repositories.presentation_metadata_repository import presentation_metadata_repository
+                            presentation_metadata_repository.update(db, pres.metadata_records[0], slide_count=slide_count)
+                except Exception as parse_err:
+                    import logging
+                    logger = logging.getLogger("app.services.session_service")
+                    logger.error(f"SessionService | Failed to extract slide thumbnails for HR session: {parse_err}")
+
             # If script and questions are already generated, create job and mark as completed immediately
             if session.presentation_id:
                 from app.repositories.presentation_script_repository import presentation_script_repository

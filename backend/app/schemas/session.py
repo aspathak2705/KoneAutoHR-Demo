@@ -15,6 +15,7 @@ class SessionBase(BaseSchema):
 class SessionCreate(SessionBase):
     presentation_id: Optional[str] = None
     employee_list_id: Optional[str] = None
+    creation_mode: Optional[str] = "AI"
 
 class SessionUpdate(BaseSchema):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
@@ -22,6 +23,7 @@ class SessionUpdate(BaseSchema):
     scheduled_at: Optional[datetime.datetime] = None
     presentation_id: Optional[str] = None
     employee_list_id: Optional[str] = None
+    creation_mode: Optional[str] = None
 
 class SessionResponse(TimestampedSchema):
     id: str
@@ -30,6 +32,9 @@ class SessionResponse(TimestampedSchema):
     scheduled_at: Optional[datetime.datetime] = None
     presentation_id: Optional[str] = None
     employee_list_id: Optional[str] = None
+    creation_mode: str
+    package_version: Optional[str] = None
+    package_path: Optional[str] = None
 
 class SessionDetailResponse(SessionResponse):
     uploads: List[UploadResponse] = []

@@ -14,6 +14,9 @@ class Session(Base):
     scheduled_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+    creation_mode: Mapped[str] = mapped_column(String, default="AI")
+    package_version: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    package_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # Foreign Keys
     presentation_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("presentations.id", ondelete="SET NULL"), nullable=True, index=True)
