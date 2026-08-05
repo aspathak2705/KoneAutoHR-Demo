@@ -45,7 +45,13 @@ class PresentationRuntimeController:
 
         self.ppt_controller = PowerPointController()
         logger.info("PresentationRuntimeController | [PPT] Opening presentation")
-        await self.ppt_controller.open(str(session_dir / manifest["presentation"]), start_immediately=False)
+        
+        ppt_path = session_dir / manifest["presentation"]
+        if not ppt_path.exists():
+            # Try within presentation/ subfolder (standard structured mode)
+            ppt_path = session_dir / "presentation" / manifest["presentation"]
+            
+        await self.ppt_controller.open(str(ppt_path), start_immediately=False)
         self._transition_state("EDITOR_OPEN")
         logger.info("PresentationRuntimeController | [PPT] Presentation editor ready")
 
