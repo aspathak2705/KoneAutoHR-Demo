@@ -1,9 +1,3 @@
-fix: HR mode bypasses AI script/FAQ in runtime readiness check
+fix: bypass script and FAQ requirement in runtime preloading for HR Recorded sessions
 
-Backend:
-- runtime_context_service: pass creation_mode into context dict
-- runtime_readiness_service: if creation_mode==HR, mark script_ready=True and questions_ready=True (N/A), removing them from missing_components and overall_ready gate
-
-Frontend:
-- sessions-store: add creation_mode to InductionSession interface; populate from backend s.creation_mode in syncFromBackend
-- sessions.$id.tsx: hide AI Script + Expected FAQs checklist dots for HR sessions; show HR Narration Package indicator instead
+- backend/app/services/runtime_service.py (get_runtime_context): Bypass validation errors for missing AI script and employee FAQs if creation_mode is HR. Synthesize a mock script structure from the slide count to avoid downstream Null Pointer Exceptions in UI/Timeline mapping, and safely assign script ID.

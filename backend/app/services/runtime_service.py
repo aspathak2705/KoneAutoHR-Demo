@@ -82,34 +82,49 @@ class RuntimeService:
             raise ValueError("Presentation deck not loaded in this session.")
 
         # 4. Load Presentation Script
+        is_hr_mode = getattr(session, "creation_mode", "AI") == "HR"
         script = presentation_script_repository.get_active(db, presentation.id)
-        if not script or script.status not in ["ACTIVE", "COMPLETED"]:
+        if not is_hr_mode and (not script or script.status not in ["ACTIVE", "COMPLETED"]):
             raise ValueError("AI presentation script has not been generated or is not ready.")
 
-        script_payload = script.script_content
-        if isinstance(script_payload, str):
-            try:
-                import json
-                script_payload = json.loads(script_payload)
-            except Exception:
+        script_payload = {}
+        if script:
+            script_payload = script.script_content
+            if isinstance(script_payload, str):
+                try:
+                    import json
+                    script_payload = json.loads(script_payload)
+                except Exception:
+                    script_payload = {}
+            elif not isinstance(script_payload, dict):
                 script_payload = {}
-        elif not isinstance(script_payload, dict):
-            script_payload = {}
+        elif is_hr_mode:
+            slide_count = presentation.slide_count or 0
+            if slide_count == 0 and presentation.metadata_records:
+                slide_count = presentation.metadata_records[0].slide_count or 0
+            slide_narrations = {str(i): f"Slide {i} narration" for i in range(1, slide_count + 1)}
+            script_payload = {
+                "welcome_flow": {"greeting": "Welcome to the session."},
+                "slide_narrations": slide_narrations,
+                "closing_script": {"summary": "Session completed."}
+            }
 
         # 5. Load FAQ / Questions
         faq = presentation_question_repository.get_active(db, presentation.id)
-        if not faq or faq.status not in ["ACTIVE", "COMPLETED"]:
+        if not is_hr_mode and (not faq or faq.status not in ["ACTIVE", "COMPLETED"]):
             raise ValueError("Expected employee FAQs have not been prepared.")
 
-        faq_payload = faq.questions_content
-        if isinstance(faq_payload, str):
-            try:
-                import json
-                faq_payload = json.loads(faq_payload)
-            except Exception:
+        faq_payload = []
+        if faq:
+            faq_payload = faq.questions_content
+            if isinstance(faq_payload, str):
+                try:
+                    import json
+                    faq_payload = json.loads(faq_payload)
+                except Exception:
+                    faq_payload = []
+            elif not isinstance(faq_payload, list):
                 faq_payload = []
-        elif not isinstance(faq_payload, list):
-            faq_payload = []
 
         # 6. Load Employees
         if not session.employee_list:
@@ -151,7 +166,7 @@ class RuntimeService:
                 "storage_path": presentation.storage_path
             },
             "script": {
-                "id": script.id,
+                "id": script.id if script else f"hr_{presentation.id}",
                 "welcome_flow": script_payload.get("welcome_flow") if isinstance(script_payload, dict) else {},
                 "slide_narrations": script_payload.get("slide_narrations") if isinstance(script_payload, dict) else {},
                 "closing_script": script_payload.get("closing_script") if isinstance(script_payload, dict) else ""
