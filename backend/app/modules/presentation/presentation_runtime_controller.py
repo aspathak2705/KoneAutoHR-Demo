@@ -51,9 +51,9 @@ class PresentationRuntimeController:
             # Try within presentation/ subfolder (standard structured mode)
             ppt_path = session_dir / "presentation" / manifest["presentation"]
             
-        await self.ppt_controller.open(str(ppt_path), start_immediately=False)
+        await self.ppt_controller.open(str(ppt_path), start_immediately=True)
         self._transition_state("EDITOR_OPEN")
-        logger.info("PresentationRuntimeController | [PPT] Presentation editor ready")
+        logger.info("PresentationRuntimeController | [PPT] Presentation editor and slideshow ready")
 
         logger.info("PresentationRuntimeController | [SHARE] Opening share flow")
         share_succeeded = await self._share_with_retry(
@@ -62,16 +62,11 @@ class PresentationRuntimeController:
         )
         if share_succeeded:
             self.share_successful = True
-            self._transition_state("WINDOW_SHARED")
+            self._transition_state("SLIDESHOW_RUNNING")
         else:
             logger.error("PresentationRuntimeController | Sharing failed, keeping PowerPoint open for manual intervention")
             self.share_successful = False
             raise RuntimeError("Teams sharing confirmation was not detected")
-
-        if self.share_successful:
-            logger.info("PresentationRuntimeController | [PPT] Starting slideshow after sharing succeeded")
-            await self.ppt_controller.start_slideshow()
-            self._transition_state("SLIDESHOW_RUNNING")
 
         logger.info("PresentationRuntimeController | [PRESENTATION] Starting narration")
         audio = get_audio_controller(self.session_id)
