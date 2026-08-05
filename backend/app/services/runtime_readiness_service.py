@@ -29,6 +29,8 @@ class RuntimeReadinessService:
                 "missing_components": ["session"]
             }
 
+        is_hr_mode = context.get("creation_mode", "AI") == "HR"
+
         pres_asset = context.get("presentation_asset")
         emp_asset = context.get("employee_list_asset")
         script = context.get("presentation_script")
@@ -43,23 +45,31 @@ class RuntimeReadinessService:
         emp_ready = emp_asset is not None
         emp_reason = None if emp_ready else "No employee list linked"
 
-        # Script Readiness & Reason
-        script_ready = pres_ready and script is not None and bool(getattr(script, "script_content", None))
-        if script_ready:
-            script_reason = None
-        elif not pres_ready:
-            script_reason = "No presentation asset linked"
+        # Script Readiness — skipped for HR Recorded mode (no AI script needed)
+        if is_hr_mode:
+            script_ready = True
+            script_reason = "N/A (HR Recorded mode — no AI script required)"
         else:
-            script_reason = "No presentation script generated for linked presentation asset"
+            script_ready = pres_ready and script is not None and bool(getattr(script, "script_content", None))
+            if script_ready:
+                script_reason = None
+            elif not pres_ready:
+                script_reason = "No presentation asset linked"
+            else:
+                script_reason = "No presentation script generated for linked presentation asset"
 
-        # Questions Readiness & Reason
-        questions_ready = pres_ready and questions is not None and bool(getattr(questions, "questions_content", None))
-        if questions_ready:
-            questions_reason = None
-        elif not pres_ready:
-            questions_reason = "No presentation asset linked"
+        # Questions Readiness — skipped for HR Recorded mode
+        if is_hr_mode:
+            questions_ready = True
+            questions_reason = "N/A (HR Recorded mode — no AI FAQs required)"
         else:
-            questions_reason = "No expected questions/FAQs generated for linked presentation asset"
+            questions_ready = pres_ready and questions is not None and bool(getattr(questions, "questions_content", None))
+            if questions_ready:
+                questions_reason = None
+            elif not pres_ready:
+                questions_reason = "No presentation asset linked"
+            else:
+                questions_reason = "No expected questions/FAQs generated for linked presentation asset"
 
         # Package & Audio pre-generation Readiness - manifest.json single entry point
         package_dir = storage_service.get_session_dir(session_id)

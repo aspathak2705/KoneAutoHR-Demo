@@ -64,6 +64,7 @@ class RuntimeContextService:
             "session_id": session_id,
             "session_exists": True,
             "session": session,
+            "creation_mode": getattr(session, "creation_mode", "AI") or "AI",
             "presentation_asset": presentation_asset,
             "presentation_script": presentation_script,
             "presentation_questions": presentation_questions,
