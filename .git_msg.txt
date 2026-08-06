@@ -1,9 +1,7 @@
-perf: optimize AudioController routing, caching, and stream callbacks
+feat: add startup diagnostics and verification to AudioController
 
 Backend:
 - app/modules/meeting_bot/media/audio_controller.py:
-  - Cache target device index at initialization/validation to avoid polling sound devices on every play
-  - Use case-insensitive and prefix check for flexible device name matching ("CABLE Input" / "CABLE Input (VB-Audio...)")
-  - Replace sd.play convenience wrapper with explicit low-latency sd.OutputStream callback mechanism
-  - Add explicit sample rate, channel mapping validation, and mono-to-stereo normalization before starting streams
-  - Enhance log metrics to dump Device Index, Sample Rate, Channels, and Duration on playback start
+  - Enumerate and log all detected output devices on startup for diagnostic visibility
+  - Validate that the matched device supports output channels (max_output_channels > 0)
+  - Verify output device accessibility at validation stage using sd.check_output_settings to fail fast before playback begins

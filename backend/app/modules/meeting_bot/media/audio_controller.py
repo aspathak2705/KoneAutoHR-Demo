@@ -144,16 +144,22 @@ class AudioController:
             
         logger.info(f"AudioController | Zero-latency preloader completed caching {len(files)} tracks.")
     def validate_audio_route(self) -> bool:
-        """Validate that the VB-CABLE Input playback device exists and cache its index."""
+        """Validate that the VB-CABLE Input playback device exists, is accessible, and cache its index."""
         from app.core.config import settings
         import sounddevice as sd
         
         target_name = settings.AUDIO_OUTPUT_DEVICE or "CABLE Input"
         devices = sd.query_devices()
         
-        # Enumerate output devices to verify target exists (matching case-insensitive prefix/substring)
+        # Enumerate and log all detected output devices for troubleshooting
+        logger.info("Detected Output Devices:")
+        for idx, d in enumerate(devices):
+            if d.get("max_output_channels", 0) > 0:
+                logger.info(f"  [{idx}] {d.get('name')} (channels: {d.get('max_output_channels')})")
+        
+        # Find matching output device (matching case-insensitive prefix/substring)
         self._cached_device_idx = None
-        device_info_str = ""
+        selected_device_name = ""
         
         for idx, d in enumerate(devices):
             if d.get("max_output_channels", 0) > 0 and (
@@ -161,14 +167,26 @@ class AudioController:
                 d.get("name", "").lower().startswith(target_name.lower())
             ):
                 self._cached_device_idx = idx
-                device_info_str = f"index={idx}, name='{d.get('name')}'"
+                selected_device_name = d.get("name")
                 break
                 
         if self._cached_device_idx is None:
             logger.error(f"[Audio] VB-CABLE playback device not found. Expected containing: {target_name}. Please install VB-Audio Virtual Cable.")
             raise RuntimeError(f"VB-CABLE playback device not found. Expected containing: {target_name}. Please install VB-Audio Virtual Cable.")
             
-        logger.info(f"[Audio] Playback Device : {target_name} ({device_info_str}) | Status : READY")
+        # Verify device accessibility (try querying defaults or format support)
+        try:
+            sd.check_output_settings(device=self._cached_device_idx)
+        except Exception as e:
+            logger.error(f"[Audio] Selected device index {self._cached_device_idx} is not accessible: {e}")
+            raise RuntimeError(f"Selected audio device '{selected_device_name}' is inaccessible: {e}")
+            
+        logger.info(
+            f"Selected Output Device\n\n"
+            f"CABLE Input\n"
+            f"Index: {self._cached_device_idx}\n\n"
+            f"Audio Validation Passed"
+        )
         return True
 
     def play_narration(self, audio_path: Path, duration_ms: float = None) -> None:
