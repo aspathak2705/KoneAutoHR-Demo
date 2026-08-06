@@ -1,10 +1,9 @@
-feat: route presentation audio to VB-CABLE Input device
+perf: optimize AudioController routing, caching, and stream callbacks
 
 Backend:
-- requirements.txt: Add sounddevice>=0.4.6 and soundfile>=0.12.1 audio libraries
-- app/core/config.py: Add AUDIO_OUTPUT_DEVICE ("CABLE Input"), AUDIO_MONITOR_DEVICE ("Realtek Speakers"), and ENABLE_LOCAL_MONITOR (False) settings
 - app/modules/meeting_bot/media/audio_controller.py:
-  - Check availability of virtual audio cable target device at startup/validation
-  - Fail fast with explicit instruction if CABLE Input device is not found
-  - Integrate sounddevice and soundfile to stream WAV file contents directly to CABLE Input
-  - Clean up audio playing threads and state mapping correctly on pause/stop
+  - Cache target device index at initialization/validation to avoid polling sound devices on every play
+  - Use case-insensitive and prefix check for flexible device name matching ("CABLE Input" / "CABLE Input (VB-Audio...)")
+  - Replace sd.play convenience wrapper with explicit low-latency sd.OutputStream callback mechanism
+  - Add explicit sample rate, channel mapping validation, and mono-to-stereo normalization before starting streams
+  - Enhance log metrics to dump Device Index, Sample Rate, Channels, and Duration on playback start

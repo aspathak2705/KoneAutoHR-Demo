@@ -144,65 +144,101 @@ class AudioController:
             
         logger.info(f"AudioController | Zero-latency preloader completed caching {len(files)} tracks.")
     def validate_audio_route(self) -> bool:
-        """Validate that the VB-CABLE Input playback device exists."""
+        """Validate that the VB-CABLE Input playback device exists and cache its index."""
         from app.core.config import settings
         import sounddevice as sd
         
         target_name = settings.AUDIO_OUTPUT_DEVICE or "CABLE Input"
         devices = sd.query_devices()
         
-        # Enumerate output devices to verify target exists
-        found = False
+        # Enumerate output devices to verify target exists (matching case-insensitive prefix/substring)
+        self._cached_device_idx = None
         device_info_str = ""
+        
         for idx, d in enumerate(devices):
-            if d.get("max_output_channels", 0) > 0 and target_name.lower() in d.get("name", "").lower():
-                found = True
+            if d.get("max_output_channels", 0) > 0 and (
+                target_name.lower() in d.get("name", "").lower() or
+                d.get("name", "").lower().startswith(target_name.lower())
+            ):
+                self._cached_device_idx = idx
                 device_info_str = f"index={idx}, name='{d.get('name')}'"
                 break
                 
-        if not found:
-            logger.error(f"[Audio] VB-CABLE playback device not found. Expected: {target_name}. Please install VB-Audio Virtual Cable.")
-            raise RuntimeError(f"VB-CABLE playback device not found. Expected: {target_name}. Please install VB-Audio Virtual Cable.")
+        if self._cached_device_idx is None:
+            logger.error(f"[Audio] VB-CABLE playback device not found. Expected containing: {target_name}. Please install VB-Audio Virtual Cable.")
+            raise RuntimeError(f"VB-CABLE playback device not found. Expected containing: {target_name}. Please install VB-Audio Virtual Cable.")
             
         logger.info(f"[Audio] Playback Device : {target_name} ({device_info_str}) | Status : READY")
         return True
 
     def play_narration(self, audio_path: Path, duration_ms: float = None) -> None:
         """
-        Loads and starts playing narration.wav directly to VB-Cable input using sounddevice and soundfile.
+        Loads and starts playing narration.wav directly using sd.OutputStream callback for explicit lower latency control.
         """
-        self.validate_audio_route()
+        if getattr(self, "_cached_device_idx", None) is None:
+            self.validate_audio_route()
         self.stop_audio()
         
         import sounddevice as sd
         import soundfile as sf
-        from app.core.config import settings
+        import numpy as np
         
-        target_name = settings.AUDIO_OUTPUT_DEVICE or "CABLE Input"
-        devices = sd.query_devices()
-        device_index = None
-        for idx, d in enumerate(devices):
-            if d.get("max_output_channels", 0) > 0 and target_name.lower() in d.get("name", "").lower():
-                device_index = idx
-                break
-
         logger.info(f"AudioController | Reading WAV file: {audio_path}")
-        data, fs = sf.read(str(audio_path))
+        data, fs = sf.read(str(audio_path), dtype="float32")
         
-        # Start playback via sounddevice
-        sd.play(data, fs, device=device_index)
+        # Force stereo channel configuration if multi-channel, or mono if single-channel
+        # Ensure 2D array representation for sounddevice output streams
+        if len(data.shape) == 1:
+            channels = 1
+            data = data.reshape(-1, 1)
+        else:
+            channels = data.shape[1]
+            
+        duration_sec = len(data) / float(fs)
         
+        # Verbose details logging
+        logger.info(
+            f"Audio Output Device : {getattr(self, '_cached_device_idx', 'Unknown')}\n"
+            f"Device Index : {self._cached_device_idx}\n"
+            f"Sample Rate : {fs} Hz\n"
+            f"Channels : {channels}\n"
+            f"Duration : {duration_sec:.2f} sec"
+        )
+
+        current_frame = 0
+
+        def callback(outdata, frames, time_info, status):
+            nonlocal current_frame
+            if status:
+                logger.warning(f"AudioController OutputStream Status: {status}")
+            
+            chunk_size = min(len(data) - current_frame, frames)
+            if chunk_size > 0:
+                outdata[:chunk_size] = data[current_frame:current_frame + chunk_size]
+                outdata[chunk_size:] = 0
+                current_frame += chunk_size
+            else:
+                outdata.fill(0)
+                raise sd.CallbackStop
+
+        # Initialize and start output stream
+        self.stream = sd.OutputStream(
+            samplerate=fs,
+            channels=channels,
+            device=self._cached_device_idx,
+            callback=callback,
+            dtype="float32"
+        )
+        self.stream.start()
+
         if duration_ms and duration_ms > 0:
             self._total_duration_ms = float(duration_ms)
-            duration = duration_ms / 1000.0
         else:
-            duration = len(data) / float(fs)
-            self._total_duration_ms = duration * 1000.0
+            self._total_duration_ms = duration_sec * 1000.0
 
         self._start_time = time.time()
         self._playing = True
         self._pause_offset_ms = 0.0
-        logger.info(f"AudioController | Streaming narration to {target_name} (Duration: {duration:.2f}s)")
 
     @property
     def playing(self) -> bool:
@@ -227,11 +263,13 @@ class AudioController:
         return min(elapsed, self._total_duration_ms)
 
     def stop_audio(self) -> None:
-        import sounddevice as sd
-        try:
-            sd.stop()
-        except Exception:
-            pass
+        if getattr(self, "stream", None) is not None:
+            try:
+                self.stream.stop()
+                self.stream.close()
+            except Exception:
+                pass
+            self.stream = None
         self._send_command("if ($active_player) { $active_player.Stop() };")
         self._playing = False
         self._start_time = None
@@ -244,11 +282,13 @@ class AudioController:
     def pause_audio(self) -> None:
         if self._playing and self._start_time is not None:
             self._pause_offset_ms = self.position()
-            import sounddevice as sd
-            try:
-                sd.stop() # pause isn't natively stateful without chunks; stop is safe fallback
-            except Exception:
-                pass
+            if getattr(self, "stream", None) is not None:
+                try:
+                    self.stream.stop()
+                    self.stream.close()
+                except Exception:
+                    pass
+                self.stream = None
             self._send_command("if ($active_player) { $active_player.Pause() };")
             self._playing = False
             self._start_time = None
