@@ -143,58 +143,66 @@ class AudioController:
             self._durations[key] = duration
             
         logger.info(f"AudioController | Zero-latency preloader completed caching {len(files)} tracks.")
-
     def validate_audio_route(self) -> bool:
-        """Validate the configured routing target before playback begins."""
-        if self._audio_route != "teams-microphone":
-            logger.info(f"AudioController | Skipping route validation for configured route: {self._audio_route}")
-            return True
-
-        if not self._audio_input_device_name:
-            logger.info("AudioController | Audio route validation passed using default Teams microphone path")
-            return True
-
-        logger.info(f"AudioController | Audio route validation pending for input device: {self._audio_input_device_name}")
+        """Validate that the VB-CABLE Input playback device exists."""
+        from app.core.config import settings
+        import sounddevice as sd
+        
+        target_name = settings.AUDIO_OUTPUT_DEVICE or "CABLE Input"
+        devices = sd.query_devices()
+        
+        # Enumerate output devices to verify target exists
+        found = False
+        device_info_str = ""
+        for idx, d in enumerate(devices):
+            if d.get("max_output_channels", 0) > 0 and target_name.lower() in d.get("name", "").lower():
+                found = True
+                device_info_str = f"index={idx}, name='{d.get('name')}'"
+                break
+                
+        if not found:
+            logger.error(f"[Audio] VB-CABLE playback device not found. Expected: {target_name}. Please install VB-Audio Virtual Cable.")
+            raise RuntimeError(f"VB-CABLE playback device not found. Expected: {target_name}. Please install VB-Audio Virtual Cable.")
+            
+        logger.info(f"[Audio] Playback Device : {target_name} ({device_info_str}) | Status : READY")
         return True
 
     def play_narration(self, audio_path: Path, duration_ms: float = None) -> None:
         """
-        Loads and starts playing narration.wav using persistent powershell media player.
+        Loads and starts playing narration.wav directly to VB-Cable input using sounddevice and soundfile.
         """
-        if not self.validate_audio_route():
-            raise RuntimeError("Audio route validation failed before narration playback")
-
+        self.validate_audio_route()
         self.stop_audio()
         
-        uri = audio_path.resolve().as_uri()
-        cmd = (
-            f'if ($active_player) {{ $active_player.Stop() }}; '
-            f'$active_player = New-Object System.Windows.Media.MediaPlayer; '
-            f'$active_player.Open([Uri]"{uri}"); '
-            f'$active_player.Play();'
-        )
-        self._send_command(cmd)
+        import sounddevice as sd
+        import soundfile as sf
+        from app.core.config import settings
+        
+        target_name = settings.AUDIO_OUTPUT_DEVICE or "CABLE Input"
+        devices = sd.query_devices()
+        device_index = None
+        for idx, d in enumerate(devices):
+            if d.get("max_output_channels", 0) > 0 and target_name.lower() in d.get("name", "").lower():
+                device_index = idx
+                break
 
+        logger.info(f"AudioController | Reading WAV file: {audio_path}")
+        data, fs = sf.read(str(audio_path))
+        
+        # Start playback via sounddevice
+        sd.play(data, fs, device=device_index)
+        
         if duration_ms and duration_ms > 0:
             self._total_duration_ms = float(duration_ms)
             duration = duration_ms / 1000.0
         else:
-            # Parse duration from WAV file header
-            from app.services.voice.sarvam_client import SarvamClient
-            try:
-                with open(audio_path, "rb") as f:
-                    content = f.read()
-                duration = SarvamClient.get_audio_duration(content)
-            except Exception:
-                duration = 5.0 # fallback
-            if duration <= 0:
-                duration = 5.0
+            duration = len(data) / float(fs)
             self._total_duration_ms = duration * 1000.0
 
         self._start_time = time.time()
         self._playing = True
         self._pause_offset_ms = 0.0
-        logger.info(f"AudioController | Playing narration: {audio_path.name} (Duration: {duration:.2f}s)")
+        logger.info(f"AudioController | Streaming narration to {target_name} (Duration: {duration:.2f}s)")
 
     @property
     def playing(self) -> bool:
@@ -219,6 +227,11 @@ class AudioController:
         return min(elapsed, self._total_duration_ms)
 
     def stop_audio(self) -> None:
+        import sounddevice as sd
+        try:
+            sd.stop()
+        except Exception:
+            pass
         self._send_command("if ($active_player) { $active_player.Stop() };")
         self._playing = False
         self._start_time = None
@@ -231,6 +244,11 @@ class AudioController:
     def pause_audio(self) -> None:
         if self._playing and self._start_time is not None:
             self._pause_offset_ms = self.position()
+            import sounddevice as sd
+            try:
+                sd.stop() # pause isn't natively stateful without chunks; stop is safe fallback
+            except Exception:
+                pass
             self._send_command("if ($active_player) { $active_player.Pause() };")
             self._playing = False
             self._start_time = None

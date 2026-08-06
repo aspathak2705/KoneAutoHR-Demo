@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     SARVAM_PROJECT_ID: Optional[str] = Field(None, env="SARVAM_PROJECT_ID")
     EDGE_CHANNEL: str = Field("msedge", env="EDGE_CHANNEL")
 
+    AUDIO_OUTPUT_DEVICE: str = Field("CABLE Input", env="AUDIO_OUTPUT_DEVICE")
+    AUDIO_MONITOR_DEVICE: str = Field("Realtek Speakers", env="AUDIO_MONITOR_DEVICE")
+    ENABLE_LOCAL_MONITOR: bool = Field(False, env="ENABLE_LOCAL_MONITOR")
+
     @property
     def VOICE_SAMPLE_DIR(self) -> str:
         return os.path.join(self.AUTOHR_STORAGE_PATH, "voice_samples")

@@ -1,3 +1,10 @@
-fix: start slideshow before sharing screen to prevent window freeze for participants
+feat: route presentation audio to VB-CABLE Input device
 
-PowerPoint slideshow starts in a separate window ("PowerPoint Slide Show"). Previously, the controller shared the window while it was in edit mode, then started the slideshow, leaving participants looking at the static editing view while the bot controlled the active slideshow window locally. Moved slideshow start (`start_immediately=True`) before the sharing flow so that the active slideshow window is shared directly.
+Backend:
+- requirements.txt: Add sounddevice>=0.4.6 and soundfile>=0.12.1 audio libraries
+- app/core/config.py: Add AUDIO_OUTPUT_DEVICE ("CABLE Input"), AUDIO_MONITOR_DEVICE ("Realtek Speakers"), and ENABLE_LOCAL_MONITOR (False) settings
+- app/modules/meeting_bot/media/audio_controller.py:
+  - Check availability of virtual audio cable target device at startup/validation
+  - Fail fast with explicit instruction if CABLE Input device is not found
+  - Integrate sounddevice and soundfile to stream WAV file contents directly to CABLE Input
+  - Clean up audio playing threads and state mapping correctly on pause/stop
