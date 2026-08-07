@@ -19,6 +19,9 @@ class PresentationScriptService:
     async def generate_script_and_questions(
         self, db: DBSession, presentation_id: str, employee_list_id: str
     ) -> PresentationScript:
+        from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
+        presentation_asset_manager.invalidate_asset(presentation_id, "script")
+
         pres = presentation_repository.get(db, presentation_id)
         if not pres:
             raise ValueError("Presentation not found")
@@ -100,6 +103,12 @@ class PresentationScriptService:
                     llm_model=settings.LLM_MODEL
                 )
                 
+                # Save physical script file inside presentation asset registry paths
+                from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
+                paths = presentation_asset_manager.get_asset_paths(presentation_id)
+                with open(paths["script"], "w", encoding="utf-8") as sf_out:
+                    json.dump(script_payload, sf_out, indent=2)
+
                 # 3. Save PresentationQuestion
                 faq_payload = []
                 presentation_question_repository.create(
@@ -130,8 +139,18 @@ class PresentationScriptService:
         }
         validated_content["closing_script"] = validated_content.get("closing", {}).get("summary", "")
 
+        from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
+        presentation_asset_manager.invalidate_asset(script.presentation_id, "narration")
+
         with UnitOfWork(db):
             res = presentation_script_repository.update(db, script, script_content=json.dumps(validated_content))
+            
+            # Save physical script file inside presentation asset registry paths
+            from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
+            paths = presentation_asset_manager.get_asset_paths(script.presentation_id)
+            with open(paths["script"], "w", encoding="utf-8") as sf_out:
+                json.dump(validated_content, sf_out, indent=2)
+
         return res
 
 presentation_script_service = PresentationScriptService()

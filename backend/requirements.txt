@@ -23,6 +23,7 @@ requests>=2.32,<3.0
 
 # Database drivers
 psycopg2-binary>=2.9,<3.0
+psycopg[binary]
 
 # Browser / automation
 playwright>=1.49,<2.0

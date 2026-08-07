@@ -263,8 +263,20 @@ class AudioController:
         """
         Exposes playback state.
         """
-        if not self._playing or self._start_time is None:
+        if not self._playing:
             return False
+        
+        # If the sounddevice stream is still active, we are definitely playing
+        if getattr(self, "stream", None) is not None:
+            try:
+                if self.stream.active:
+                    return True
+            except Exception:
+                pass
+
+        if self._start_time is None:
+            return False
+            
         elapsed = (time.time() - self._start_time) * 1000.0 + self._pause_offset_ms
         if elapsed >= self._total_duration_ms:
             self.stop_audio()

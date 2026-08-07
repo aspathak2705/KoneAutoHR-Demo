@@ -114,8 +114,9 @@ class AssetService:
             script = presentation_script_repository.get_active(db, session.presentation_id)
             questions = presentation_question_repository.get_active(db, session.presentation_id)
 
-        has_script = script is not None and bool(script.script_content)
-        has_faq = questions is not None and bool(questions.questions_content)
+        is_hr_mode = getattr(session, "creation_mode", "AI") == "HR"
+        has_script = True if is_hr_mode else (script is not None and bool(script.script_content))
+        has_faq = True if is_hr_mode else (questions is not None and bool(questions.questions_content))
 
         meeting = db.query(Meeting).filter(Meeting.session_id == session_id).first()
         has_meeting = meeting is not None and bool(meeting.teams_url) and bool(meeting.date) and bool(meeting.time)

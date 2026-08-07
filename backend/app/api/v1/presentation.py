@@ -29,6 +29,14 @@ def get_presentation(id: str, db: DBSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Presentation not found")
     return pres
 
+@router.get("/{id}/assets-status")
+def get_presentation_assets_status(id: str, db: DBSession = Depends(get_db)):
+    from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
+    try:
+        return presentation_asset_manager.get_asset_status(db, id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.delete("/{id}", response_model=PresentationResponse)
 def delete_presentation(id: str, db: DBSession = Depends(get_db)):
     pres = presentation_service.delete(db, id)

@@ -102,7 +102,13 @@ class PresentationRuntimeController:
         try:
             await asyncio.sleep(1)
             await executor.execute(audio, handle_goto_slide)
-            logger.info("PresentationRuntimeController | Timeline execution completed successfully.")
+            
+            # Wait for narration audio playback to fully complete before exiting
+            logger.info("PresentationRuntimeController | Timeline finished. Waiting for remaining narration audio playback to complete...")
+            while audio.playing:
+                await asyncio.sleep(0.2)
+                
+            logger.info("PresentationRuntimeController | Timeline and narration audio execution completed successfully.")
             self._transition_state("FINISHED")
         finally:
             try:
@@ -143,9 +149,18 @@ class PresentationRuntimeController:
         return False
 
     async def _share_presentation_window(self, page: Optional[Page]) -> bool:
+        t_controller = self._get_teams_controller()
+        native_share = self._get_native_share_controller()
         verification = self._get_share_verification_controller()
-        logger.info("PresentationRuntimeController | [SHARE] Passive mode: waiting for presentation to be shared manually...")
-        return await verification.wait_for_share_confirmation(page, timeout=300.0)
+
+        await t_controller.open_share_panel(page)
+        await native_share.activate_picker()
+        await native_share.click_window_tab()
+        ppt_name = Path(self.ppt_path).name
+        await native_share.select_window("PowerPoint Slide Show", presentation_name=ppt_name)
+        await native_share.click_share()
+        
+        return await verification.wait_for_share_confirmation(page, timeout=10.0)
 
     def _get_teams_controller(self):
         return teams_controller

@@ -205,18 +205,49 @@ def build_package(
     session_dir = storage_service.get_session_dir(session_id)
     presentation_name = Path(session.presentation.storage_path).name
 
-    try:
-        package_builder.build_hr_package(
-            session_id=session_id,
-            session_dir=session_dir,
-            presentation_filename=presentation_name,
-            slide_count=slide_count,
-            slide_audios=slide_audios,
-            slide_notes=slide_notes
-        )
-    except Exception as e:
-        logger.exception(f"HRInduction | Failed to build package: {e}")
-        raise HTTPException(status_code=500, detail=f"Package build failed: {str(e)}")
+    from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
+    assets_status = presentation_asset_manager.check_assets(db, session.presentation_id)
+    paths = presentation_asset_manager.get_asset_paths(session.presentation_id)
+
+    if assets_status["narration_exists"] and assets_status["timeline_exists"] and assets_status["manifest_exists"]:
+        logger.info(f"HRInduction | Reusable assets found for presentation {session.presentation_id}. Copying cached artifacts...")
+        import shutil
+        shutil.copy2(paths["narration"], session_dir / "narration.wav")
+        shutil.copy2(paths["timeline"], session_dir / "presentation_timeline.json")
+        shutil.copy2(paths["manifest"], session_dir / "manifest.json")
+        
+        # Also copy slide images if they exist
+        if paths["slides_dir"].exists():
+            session_slides_dir = session_dir / "presentation_assets" / "slides"
+            session_slides_dir.mkdir(parents=True, exist_ok=True)
+            for slide_img in paths["slides_dir"].glob("slide_*.png"):
+                shutil.copy2(slide_img, session_slides_dir / slide_img.name)
+    else:
+        try:
+            package_builder.build_hr_package(
+                session_id=session_id,
+                session_dir=session_dir,
+                presentation_filename=presentation_name,
+                slide_count=slide_count,
+                slide_audios=slide_audios,
+                slide_notes=slide_notes
+            )
+            # Copy generated outputs to presentation asset manager cache
+            import shutil
+            shutil.copy2(session_dir / "narration.wav", paths["narration"])
+            shutil.copy2(session_dir / "presentation_timeline.json", paths["timeline"])
+            shutil.copy2(session_dir / "manifest.json", paths["manifest"])
+            
+            # Copy slide images to presentation asset manager cache if they exist
+            session_slides_dir = session_dir / "presentation_assets" / "slides"
+            if session_slides_dir.exists():
+                paths["slides_dir"].mkdir(parents=True, exist_ok=True)
+                for slide_img in session_slides_dir.glob("slide_*.png"):
+                    shutil.copy2(slide_img, paths["slides_dir"] / slide_img.name)
+                    
+        except Exception as e:
+            logger.exception(f"HRInduction | Failed to build package: {e}")
+            raise HTTPException(status_code=500, detail=f"Package build failed: {str(e)}")
 
     # Update session status
     try:

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 backend_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(backend_dir))
 
-os.environ.setdefault("DATABASE_URL", "sqlite:///./autohr.db")
+os.environ.setdefault("DATABASE_URL", "postgresql://postgres:AutoHR@2026Dev@db.foimubfoabibfvlvfuwi.supabase.co:5432/postgres")
 os.environ.setdefault("UPLOAD_PATH", "./uploads")
 
 from main import app

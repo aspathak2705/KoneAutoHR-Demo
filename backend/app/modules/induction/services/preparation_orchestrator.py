@@ -169,6 +169,64 @@ class PreparationOrchestrator:
             with open(session_dir / "session_script.json", "w", encoding="utf-8") as f:
                 json.dump(script_data, f, indent=2)
 
+            # Check cached presentation assets to eliminate redundant Sarvam TTS/Timeline generation
+            from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
+            assets_status = presentation_asset_manager.check_assets(db, session.presentation_id)
+            paths = presentation_asset_manager.get_asset_paths(session.presentation_id)
+
+            if assets_status["narration_exists"] and assets_status["timeline_exists"] and assets_status["manifest_exists"]:
+                logger.info(f"PreparationOrchestrator | Reusable assets found for presentation {session.presentation_id}. Copying cached artifacts...")
+                import shutil
+                shutil.copy2(paths["narration"], session_dir / "narration.wav")
+                shutil.copy2(paths["timeline"], session_dir / "presentation_timeline.json")
+                shutil.copy2(paths["manifest"], session_dir / "manifest.json")
+                
+                # Copy compatible audio_manifest.json as well if it exists or create one
+                audio_dir = session_dir / "audio"
+                audio_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(paths["narration"], audio_dir / "narration.wav")
+                
+                # Copy slides thumbnail directory to session if they exist
+                if paths["slides_dir"].exists():
+                    session_slides_dir = session_dir / "presentation_assets" / "slides"
+                    session_slides_dir.mkdir(parents=True, exist_ok=True)
+                    for slide_img in paths["slides_dir"].glob("slide_*.png"):
+                        shutil.copy2(slide_img, session_slides_dir / slide_img.name)
+                
+                # Construct inline audio manifest mapping
+                duration_ms = 0.0
+                try:
+                    with open(paths["manifest"], "r", encoding="utf-8") as mf:
+                        m_data = json.load(mf)
+                        duration_ms = m_data.get("duration_ms", 0.0)
+                except Exception:
+                    pass
+
+                audio_manifest_data = {
+                    "session_id": session_id,
+                    "presentation_id": session.presentation_id,
+                    "total_audio_tracks": 1,
+                    "tracks": [{
+                        "label": "narration",
+                        "slide_number": 1,
+                        "filename": "narration.wav",
+                        "duration": duration_ms / 1000.0,
+                        "checksum": "cached",
+                        "version": 1,
+                        "path": f"sessions/{session_id}/audio/narration.wav",
+                        "voice": "aayan",
+                        "metadata": {}
+                    }]
+                }
+                with open(session_dir / "audio_manifest.json", "w", encoding="utf-8") as f:
+                    json.dump(audio_manifest_data, f, indent=2)
+
+                with UnitOfWork(db):
+                    session_repository.update(db, session, SessionUpdate(status=SessionStatus.READY.value))
+                    presentation_job_service.update_job_status(db, audio_job.id, status="COMPLETED", progress=1.0)
+                logger.info("PreparationOrchestrator | Reusable audio & timeline package cloned successfully.")
+                return
+
             # 5. Speech Pipeline (TTS)
             with UnitOfWork(db):
                 session_repository.update(db, session, SessionUpdate(status=SessionStatus.GENERATING_AUDIO.value))
@@ -205,8 +263,19 @@ class PreparationOrchestrator:
                 session_dir=session_dir
             )
 
-            # Generate compatible audio_manifest.json for Verification & Package Builder pipeline
+            # Copy generated narration, timeline and manifest into presentation asset manager cache
             import shutil
+            shutil.copy2(audio_path, paths["narration"])
+            shutil.copy2(timeline_path, paths["timeline"])
+            shutil.copy2(manifest_path, paths["manifest"])
+            
+            # Cache slides if present in presentation_assets
+            if slides_dir.exists():
+                paths["slides_dir"].mkdir(parents=True, exist_ok=True)
+                for slide_img in slides_dir.glob("slide_*.png"):
+                    shutil.copy2(slide_img, paths["slides_dir"] / slide_img.name)
+
+            # Generate compatible audio_manifest.json for Verification & Package Builder pipeline
             from app.modules.induction.package.asset_manager import asset_manager
             
             audio_dir = session_dir / "audio"
@@ -252,6 +321,7 @@ class PreparationOrchestrator:
 
             with UnitOfWork(db):
                 presentation_job_service.update_job_status(db, audio_job.id, status="COMPLETED", progress=1.0)
+                session_repository.update(db, session, SessionUpdate(status=SessionStatus.READY.value))
 
             logger.info("PreparationOrchestrator | Audio generation completed successfully.")
 
