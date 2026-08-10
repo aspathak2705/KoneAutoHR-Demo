@@ -89,14 +89,16 @@ class RuntimeService:
 
         script_payload = {}
         if script:
-            script_payload = script.script_content
-            if isinstance(script_payload, str):
+            payload_raw = script.script_content
+            if isinstance(payload_raw, str):
                 try:
                     import json
-                    script_payload = json.loads(script_payload)
+                    script_payload = json.loads(payload_raw)
                 except Exception:
                     script_payload = {}
-            elif not isinstance(script_payload, dict):
+            elif isinstance(payload_raw, dict):
+                script_payload = payload_raw
+            else:
                 script_payload = {}
         elif is_hr_mode:
             slide_count = presentation.slide_count or 0
@@ -169,7 +171,11 @@ class RuntimeService:
                 "id": script.id if script else f"hr_{presentation.id}",
                 "welcome_flow": script_payload.get("welcome_flow") if isinstance(script_payload, dict) else {},
                 "slide_narrations": script_payload.get("slide_narrations") if isinstance(script_payload, dict) else {},
-                "closing_script": script_payload.get("closing_script") if isinstance(script_payload, dict) else ""
+                "closing_script": (
+                    script_payload.get("closing_script") if isinstance(script_payload, dict) and script_payload.get("closing_script") is not None else (
+                        {"summary": script_payload.get("closing", {}).get("summary", "")} if isinstance(script_payload, dict) and isinstance(script_payload.get("closing"), dict) else ""
+                    )
+                )
             },
             "faq": [
                 {"question": q.get("question"), "answer": q.get("answer")}
@@ -216,19 +222,35 @@ class RuntimeService:
         if not session or not session.presentation_id:
             raise ValueError("Session or presentation not found.")
             
+        is_hr_mode = getattr(session, "creation_mode", "AI") == "HR"
         script = presentation_script_repository.get_active(db, session.presentation_id)
-        if not script:
+        if not script and not is_hr_mode:
             raise ValueError("Script not found.")
 
-        script_payload = script.script_content
-        if isinstance(script_payload, str):
-            try:
-                import json
-                script_payload = json.loads(script_payload)
-            except Exception:
+        script_payload = {}
+        if script:
+            payload_raw = script.script_content
+            if isinstance(payload_raw, str):
+                try:
+                    import json
+                    script_payload = json.loads(payload_raw)
+                except Exception:
+                    script_payload = {}
+            elif isinstance(payload_raw, dict):
+                script_payload = payload_raw
+            else:
                 script_payload = {}
-        elif not isinstance(script_payload, dict):
-            script_payload = {}
+        elif is_hr_mode:
+            presentation = session.presentation
+            slide_count = presentation.slide_count or 0
+            if slide_count == 0 and presentation.metadata_records:
+                slide_count = presentation.metadata_records[0].slide_count or 0
+            slide_narrations = {str(i): f"Slide {i} narration" for i in range(1, slide_count + 1)}
+            script_payload = {
+                "welcome_flow": {"greeting": "Welcome to the session."},
+                "slide_narrations": slide_narrations,
+                "closing_script": {"summary": "Session completed."}
+            }
 
         slide_narrations = script_payload.get("slide_narrations", {}) if isinstance(script_payload, dict) else {}
         slides = []
@@ -247,10 +269,12 @@ class RuntimeService:
             slide_order = sorted([int(k) for k in slide_narrations.keys()])
             for slide_num in slide_order:
                 item = slide_narrations.get(str(slide_num), {})
+                narration_val = item.get("narration", "") if isinstance(item, dict) else str(item)
+                objective_val = item.get("learning_objective", "") if isinstance(item, dict) else ""
                 slides.append({
                     "slide_number": slide_num,
-                    "learning_objective": item.get("learning_objective", ""),
-                    "narration": item.get("narration", ""),
+                    "learning_objective": objective_val,
+                    "narration": narration_val,
                     "transition": "crossfade",
                     "embedded_video": None
                 })

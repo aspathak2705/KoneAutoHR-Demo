@@ -206,8 +206,8 @@ def build_package(
     presentation_name = Path(session.presentation.storage_path).name
 
     from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
-    assets_status = presentation_asset_manager.check_assets(db, session.presentation_id)
-    paths = presentation_asset_manager.get_asset_paths(session.presentation_id)
+    assets_status = presentation_asset_manager.check_assets(db, session.presentation_id, "HR")
+    paths = presentation_asset_manager.get_asset_paths(session.presentation_id, "HR")
 
     if assets_status["narration_exists"] and assets_status["timeline_exists"] and assets_status["manifest_exists"]:
         logger.info(f"HRInduction | Reusable assets found for presentation {session.presentation_id}. Copying cached artifacts...")

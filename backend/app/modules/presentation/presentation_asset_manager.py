@@ -17,12 +17,12 @@ class PresentationAssetManager:
     Avoids openrouter or sarvam regeneration if files are already generated.
     """
 
-    def get_asset_paths(self, presentation_id: str) -> Dict[str, Path]:
+    def get_asset_paths(self, presentation_id: str, mode: str = "AI") -> Dict[str, Path]:
         """
-        Returns structured paths for presentation assets in storage/presentations/{presentation_id}/.
+        Returns structured paths for presentation assets in storage/presentations/{presentation_id}/[AI|HR]/.
         """
-        # Store presentation-specific assets in a dedicated folder inside storage/uploads/presentations/
-        pres_dir = storage_service.presentations_dir / presentation_id
+        # Store presentation-specific assets in dedicated mode folders inside storage/uploads/presentations/
+        pres_dir = storage_service.presentations_dir / presentation_id / mode
         pres_dir.mkdir(parents=True, exist_ok=True)
         return {
             "dir": pres_dir,
@@ -33,11 +33,11 @@ class PresentationAssetManager:
             "slides_dir": pres_dir / "presentation_assets" / "slides"
         }
 
-    def check_assets(self, db: DBSession, presentation_id: str) -> Dict[str, bool]:
+    def check_assets(self, db: DBSession, presentation_id: str, mode: str = "AI") -> Dict[str, bool]:
         """
         Scans DB and disk to verify status of presentation assets.
         """
-        paths = self.get_asset_paths(presentation_id)
+        paths = self.get_asset_paths(presentation_id, mode)
         
         # Check script (DB first, then fallback file check)
         script_row = db.query(PresentationScript).filter(
@@ -68,23 +68,23 @@ class PresentationAssetManager:
             "slides_exist": slides_exist
         }
 
-    def get_asset_status(self, db: DBSession, presentation_id: str) -> Dict[str, Any]:
+    def get_asset_status(self, db: DBSession, presentation_id: str, mode: str = "AI") -> Dict[str, Any]:
         """
         Returns rich status info.
         """
-        checks = self.check_assets(db, presentation_id)
+        checks = self.check_assets(db, presentation_id, mode)
         return {
             "presentation_id": presentation_id,
             **checks
         }
 
-    def invalidate_asset(self, presentation_id: str, asset_type: str) -> None:
+    def invalidate_asset(self, presentation_id: str, asset_type: str, mode: str = "AI") -> None:
         """
         Removes generated files for regenerations.
         Follows upstream dependency chain invalidations:
         Script -> Narration -> Timeline -> Manifest
         """
-        paths = self.get_asset_paths(presentation_id)
+        paths = self.get_asset_paths(presentation_id, mode)
         to_invalidate = []
 
         if asset_type == "script":
@@ -100,7 +100,7 @@ class PresentationAssetManager:
             if a_type in paths and paths[a_type].exists():
                 try:
                     paths[a_type].unlink()
-                    logger.info(f"PresentationAssetManager | Invalidated/deleted {a_type} due to dependency trigger on {asset_type} for presentation {presentation_id}")
+                    logger.info(f"PresentationAssetManager | Invalidated/deleted {a_type} due to dependency trigger on {asset_type} for presentation {presentation_id} in {mode} mode")
                 except Exception as e:
                     logger.error(f"PresentationAssetManager | Failed to delete {a_type} file: {e}")
 

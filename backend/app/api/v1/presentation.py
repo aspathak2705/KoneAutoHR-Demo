@@ -30,10 +30,10 @@ def get_presentation(id: str, db: DBSession = Depends(get_db)):
     return pres
 
 @router.get("/{id}/assets-status")
-def get_presentation_assets_status(id: str, db: DBSession = Depends(get_db)):
+def get_presentation_assets_status(id: str, mode: str = "AI", db: DBSession = Depends(get_db)):
     from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
     try:
-        return presentation_asset_manager.get_asset_status(db, id)
+        return presentation_asset_manager.get_asset_status(db, id, mode)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
