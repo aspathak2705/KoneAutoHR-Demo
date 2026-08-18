@@ -37,10 +37,10 @@ class TeamsRuntimeService:
         coordinator = runtime_service.get_coordinator(db, session_id)
         return await coordinator.start_induction()
 
-    async def join_meeting(self, db: DBSession, session_id: str, meeting_url: str) -> bool:
+    async def join_meeting(self, db: DBSession, session_id: str, meeting_url: str, display_name: str = "KONE AI HR Officer") -> bool:
         from app.services.runtime_service import runtime_service
         coordinator = runtime_service.get_coordinator(db, session_id)
-        return await coordinator.join_meeting(meeting_url)
+        return await coordinator.join_meeting(meeting_url, display_name)
 
     async def finish_runtime(self, db: DBSession, session_id: str) -> bool:
         from app.services.runtime_service import runtime_service

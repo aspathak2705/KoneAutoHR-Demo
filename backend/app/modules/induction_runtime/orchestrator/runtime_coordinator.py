@@ -202,13 +202,13 @@ class RuntimeCoordinator:
             await self._cleanup_resources()
             return False
 
-    async def join_meeting(self, meeting_url: str) -> bool:
+    async def join_meeting(self, meeting_url: str, display_name: str = "KONE AI HR Officer") -> bool:
         """
         Lifecycle Phase: BROWSER_READY → JOINING → WAITING → CONNECTED
         
         Joins Teams meeting by delegating to MeetingBotService.
         """
-        logger.info(f"RuntimeCoordinator | START join_meeting")
+        logger.info(f"RuntimeCoordinator | START join_meeting as {display_name}")
         
         try:
             if self.session_manager.state != RuntimeState.BROWSER_READY:
@@ -254,7 +254,7 @@ class RuntimeCoordinator:
             )
             
             # Trigger join meeting
-            result = await meeting_bot_service.join_meeting(meeting_url, "KONE AI Bot", self.session_id)
+            result = await meeting_bot_service.join_meeting(meeting_url, display_name, self.session_id)
             
             # Transition to WAITING
             if not await self.session_manager.transition_to(RuntimeState.WAITING):

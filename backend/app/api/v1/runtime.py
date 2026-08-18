@@ -130,6 +130,7 @@ async def start_induction(session_id: str, db: DBSession = Depends(get_db)):
 
 class JoinMeetingRequest(BaseModel):
     meeting_url: Optional[str] = None
+    display_name: Optional[str] = None
 
 @router.post("/{session_id}/join-meeting")
 async def join_meeting_endpoint(session_id: str, req: Optional[JoinMeetingRequest] = None, db: DBSession = Depends(get_db)):
@@ -149,8 +150,13 @@ async def join_meeting_endpoint(session_id: str, req: Optional[JoinMeetingReques
         if not meeting_url:
             raise HTTPException(status_code=400, detail="Meeting URL not found")
         
+        display_name = req.display_name if req else None
+        if not display_name:
+            context = runtime_service.get_runtime_context(db, session_id)
+            display_name = context.get("persona", {}).get("ai_trainer_name") or "KONE AI Trainer"
+
         # Join meeting
-        if not await coordinator.join_meeting(meeting_url):
+        if not await coordinator.join_meeting(meeting_url, display_name):
             raise HTTPException(status_code=400, detail="Failed to join meeting")
         
         logger.info(f"API | SUCCESS POST /join-meeting - CONNECTED")

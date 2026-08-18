@@ -37,10 +37,21 @@ class BrowserManager:
             self.playwright_instance = await async_playwright().start()
 
             from app.core.config import settings
+            from app.db.database import SessionLocal
+            from app.services.agent_configuration_service import agent_configuration_service
             from pathlib import Path
-            temp_dir = Path(settings.BROWSER_PROFILE_DIR) / "msedge"
+            
+            custom_profile = None
+            with SessionLocal() as db:
+                custom_profile = agent_configuration_service.get_profile_path(db)
+
+            if custom_profile:
+                temp_dir = Path(custom_profile)
+                logger.info(f"BrowserManager | Launching with custom authenticated Edge profile: {temp_dir}")
+            else:
+                temp_dir = Path(settings.BROWSER_PROFILE_DIR) / "msedge"
+                logger.info(f"BrowserManager | Launching with default Edge profile: {temp_dir}")
             temp_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(f"BrowserManager | Launching with persistent Edge profile path: {temp_dir}")
 
             default_profile_dir = temp_dir / "Default"
             default_profile_dir.mkdir(parents=True, exist_ok=True)

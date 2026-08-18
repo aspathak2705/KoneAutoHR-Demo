@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session as DBSession
-from typing import List
+from typing import List, Optional
+import json
+from pydantic import BaseModel
 from app.db.database import get_db
 from app.schemas.meeting import (
     MeetingCreate,
@@ -71,8 +73,11 @@ def get_meeting_by_session(session_id: str, db: DBSession = Depends(get_db)):
         "organizer_name": db_meeting.organizer_name
     }
 
+class GenerateDraftRequest(BaseModel):
+    employee_ids: Optional[List[str]] = None
+
 @router.post("/session/{session_id}/generate-drafts", response_model=List[InvitationDraftResponse])
-async def generate_invitation_drafts(session_id: str, db: DBSession = Depends(get_db)):
+async def generate_invitation_drafts(session_id: str, req: Optional[GenerateDraftRequest] = None, db: DBSession = Depends(get_db)):
     session = db.query(Session).filter(Session.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found.")
@@ -92,47 +97,65 @@ async def generate_invitation_drafts(session_id: str, db: DBSession = Depends(ge
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse employee Excel: {e}")
 
+    selected_emails = []
+    missing_email_count = 0
+    
+    target_ids = req.employee_ids if req else None
+    
+    for idx, emp in enumerate(employees):
+        emp_id = emp.get("id") or emp.get("employee_id") or str(idx + 1)
+        if target_ids is not None and emp_id not in target_ids:
+            continue
+            
+        email = emp.get("email")
+        if not email:
+            missing_email_count += 1
+            continue
+        
+        email_clean = email.strip()
+        if email_clean and email_clean not in selected_emails:
+            selected_emails.append(email_clean)
+
+    if not selected_emails:
+        raise HTTPException(status_code=400, detail="No valid email addresses found or selected.")
+
     # Remove existing drafts
     db.query(InvitationDraft).filter(InvitationDraft.session_id == session_id).delete()
     db.commit()
 
-    created_drafts = []
+    subject = f"KONE Induction Invitation — Team Session"
+    body = (
+        f"<p>Dear Team,</p>"
+        f"<p>You are invited to attend the upcoming KONE employee induction session.</p>"
+        f"<p>This session will cover key onboarding items, safety guidelines, and company guidelines to kickstart your journey at KONE.</p>"
+        f"<p><strong>Session details:</strong></p>"
+        f"<ul>"
+        f"<li>Date: <strong>{meeting_date}</strong></li>"
+        f"<li>Time: <strong>{meeting_time}</strong></li>"
+        f"<li>Host: <strong>{organizer}</strong></li>"
+        f"</ul>"
+        f"<p>Please join the session using the Microsoft Teams link below:</p>"
+        f"<p><a href=\"{meeting_url}\" target=\"_blank\" style=\"display:inline-block;background-color:#0078d4;color:white;padding:8px 16px;text-decoration:none;border-radius:4px;font-weight:bold;\">Join Induction Meeting</a></p>"
+        f"{passcode_info}"
+        f"<p>Please ensure you join the session on time.</p>"
+        f"<p>Best regards,<br/>KONE HR Team</p>"
+    )
+
     with UnitOfWork(db):
-        for emp in employees:
-            name = emp.get("name") or "New Joiner"
-            email = emp.get("email")
-            if not email:
-                continue
-            
-            designation = emp.get("designation") or emp.get("role") or emp.get("title") or "Associate"
-            department = emp.get("department") or emp.get("dept") or "Operations"
-            location = emp.get("location") or emp.get("office") or "KONE Office"
-
-            subject = f"KONE Onboarding: Invitation to Induction Session — {name}"
-            body = (
-                f"<p>Dear {name},</p>"
-                f"<p>Welcome to KONE! We are thrilled to have you join our team as <strong>{designation}</strong> in the <strong>{department}</strong> department at our <strong>{location}</strong> office.</p>"
-                f"<p>You are invited to attend your personalized HR Induction Session scheduled on <strong>{meeting_date}</strong> at <strong>{meeting_time}</strong>. The session will be hosted by <strong>{organizer}</strong>.</p>"
-                f"<p>Please join the session using the Microsoft Teams link below:</p>"
-                f"<p><a href=\"{meeting_url}\" target=\"_blank\" style=\"display:inline-block;background-color:#0078d4;color:white;padding:8px 16px;text-decoration:none;border-radius:4px;font-weight:bold;\">Join Induction Meeting</a></p>"
-                f"{passcode_info}"
-                f"<p>We look forward to meeting you and helping you kickstart your journey at KONE.</p>"
-                f"<p>Best regards,<br/>KONE HR Team</p>"
-            )
-
-            draft = InvitationDraft(
-                session_id=session_id,
-                recipient_name=name,
-                recipient_email=email,
-                subject=subject,
-                body=body,
-                status="DRAFT"
-            )
-            db.add(draft)
-            created_drafts.append(draft)
+        draft = InvitationDraft(
+            session_id=session_id,
+            recipient_name="Team",
+            recipient_email=", ".join(selected_emails),
+            recipients=json.dumps(selected_emails),
+            subject=subject,
+            body=body,
+            status="DRAFT"
+        )
+        db.add(draft)
     
-    drafts = db.query(InvitationDraft).filter(InvitationDraft.session_id == session_id).all()
-    return drafts
+    db.refresh(draft)
+    
+    return [draft]
 
 @router.get("/session/{session_id}/drafts", response_model=List[InvitationDraftResponse])
 def get_invitation_drafts(session_id: str, db: DBSession = Depends(get_db)):

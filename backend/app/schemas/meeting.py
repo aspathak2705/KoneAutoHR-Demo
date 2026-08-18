@@ -33,8 +33,9 @@ class MeetingResponse(BaseSchema):
 class InvitationDraftResponse(BaseSchema):
     id: str
     session_id: str
-    recipient_name: str
-    recipient_email: str
+    recipient_name: Optional[str] = None
+    recipient_email: Optional[str] = None
+    recipients: Optional[str] = None
     subject: str
     body: str
     status: str
