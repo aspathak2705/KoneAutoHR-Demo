@@ -94,9 +94,15 @@ class CleanupService:
                 except Exception as err:
                     logger.error(f"CleanupService | Failed to delete orphan file {orphan}: {err}")
 
+        encrypted_count = sum(1 for p in presentations if getattr(p, "encryption_version", 0) > 0) + \
+                          sum(1 for e in employee_lists if getattr(e, "encryption_version", 0) > 0)
+        legacy_count = (len(presentations) + len(employee_lists)) - encrypted_count
+
         return {
             "total_presentations": len(presentations),
             "total_employee_lists": len(employee_lists),
+            "encrypted_assets": encrypted_count,
+            "legacy_plaintext_assets": legacy_count,
             "missing_physical_files": missing_physical,
             "orphan_files": orphan_files,
             "cleaned_orphans": cleaned_orphans if cleanup else [],

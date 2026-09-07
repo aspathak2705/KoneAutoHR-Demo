@@ -28,15 +28,27 @@ class EmployeeListService:
             logger.info(f"EmployeeListService | Reusing existing employee list id={existing_emp.id} for hash={file_hash}")
             return existing_emp
 
-        # If new file, save to storage
-        sanitized, storage_path, size, file_hash = await local_storage.save_file(file, "employee_lists")
+        # If new file, save encrypted file to storage
+        sanitized, storage_path, size, file_hash, enc_meta = await local_storage.save_encrypted_file(file, "employee_lists")
         
-        # Profile employee count
+        # Profile employee count via secure storage temporary decryption
         try:
+            from app.core.security.secure_storage import secure_temp_manager, encryption_service, key_manager
+            import base64
             full_path = local_storage.get_path(storage_path)
-            employees = parse_employees_excel(str(full_path))
-            employee_count = len(employees)
-        except Exception:
+            with open(full_path, "rb") as f:
+                ciphertext = f.read()
+            master_key = key_manager.get_master_key()
+            dek = encryption_service.unwrap_dek(enc_meta["wrapped_dek"], master_key)
+            nonce = base64.b64decode(enc_meta["nonce"].encode('utf-8'))
+            plaintext = encryption_service.decrypt_bytes(ciphertext, dek, nonce)
+            
+            with secure_temp_manager.create_temp_plaintext_file(plaintext, file_suffix=".xlsx") as temp_p:
+                employees = parse_employees_excel(str(temp_p))
+                employee_count = len(employees)
+        except Exception as parse_err:
+            from loguru import logger
+            logger.warning(f"EmployeeListService | Failed to parse employee count: {parse_err}")
             employee_count = 0
 
         with UnitOfWork(db):
@@ -46,7 +58,8 @@ class EmployeeListService:
                 original_filename=file.filename,
                 storage_path=storage_path,
                 employee_count=employee_count,
-                file_hash=file_hash
+                file_hash=file_hash,
+                **enc_meta
             )
             
         # Refresh the employee list object to populate database-generated defaults

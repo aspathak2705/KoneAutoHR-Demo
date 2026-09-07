@@ -56,20 +56,19 @@ class SessionService:
                 try:
                     from app.services.presentation_service import PowerPointSlideExtractor
                     from app.repositories.presentation_repository import presentation_repository
+                    from app.core.security.secure_storage import secure_storage
                     import shutil
                     from pathlib import Path
                     
                     pres = presentation_repository.get(db, session.presentation_id)
                     if pres:
                         session_dir = storage_service.get_session_dir(session.id)
-                        session_ppt_copy = session_dir / "presentation.pptx"
-                        shutil.copy2(pres.storage_path, session_ppt_copy)
-                        
                         slides_dir = session_dir / "presentation_assets" / "slides"
                         slides_dir.mkdir(parents=True, exist_ok=True)
                         
-                        extractor = PowerPointSlideExtractor()
-                        slide_count = extractor.extract_slides(str(session_ppt_copy), slides_dir)
+                        with secure_storage.open_decrypted_file(pres) as temp_ppt_path:
+                            extractor = PowerPointSlideExtractor()
+                            slide_count = extractor.extract_slides(str(temp_ppt_path), slides_dir)
                         
                         # Update presentation metadata slide count if it was 0
                         if pres.metadata_records and pres.metadata_records[0].slide_count == 0:

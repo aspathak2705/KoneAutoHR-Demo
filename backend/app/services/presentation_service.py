@@ -29,8 +29,8 @@ class PresentationService:
             logger.info(f"PresentationService | Reusing existing presentation id={existing_pres.id} for hash={file_hash}")
             return existing_pres
 
-        # If new file, save to storage
-        sanitized, storage_path, size, file_hash = await local_storage.save_file(file, "presentations")
+        # If new file, save encrypted file to storage
+        sanitized, storage_path, size, file_hash, enc_meta = await local_storage.save_encrypted_file(file, "presentations")
         
         with UnitOfWork(db):
             # Create presentation record
@@ -39,7 +39,8 @@ class PresentationService:
                 name=name,
                 original_filename=file.filename,
                 storage_path=storage_path,
-                file_hash=file_hash
+                file_hash=file_hash,
+                **enc_meta
             )
             
             # Create metadata child record (defaults)

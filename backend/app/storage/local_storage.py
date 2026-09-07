@@ -73,4 +73,50 @@ class LocalStorageProvider(StorageProvider):
         rel_key = str(target_path.relative_to(self.base_dir)).replace('\\', '/')
         return sanitized, rel_key, size, file_hash
 
+    async def save_encrypted_file(self, file: UploadFile, relative_dir: str, custom_filename: Optional[str] = None) -> Tuple[str, str, int, str, dict]:
+        """
+        Calculates SHA-256 hash on original plaintext stream, encrypts file payload via AES-256-GCM
+        and Envelope Encryption (wrapped DEK using Master Key), then writes ciphertext to disk.
+        Returns:
+            (sanitized_filename, relative_storage_key, file_size, plaintext_sha256, encryption_metadata)
+        """
+        import base64
+        from app.core.security.encryption_service import encryption_service
+        from app.core.security.key_manager import key_manager
+
+        file_name = custom_filename or file.filename or 'file'
+        sanitized = sanitize_filename(file_name)
+        target_dir = self.get_path(relative_dir)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_path = target_dir / sanitized
+
+        # 1. Calculate SHA-256 of original file content for zero-redundancy deduplication
+        file_hash = await self.calculate_upload_hash(file)
+
+        # 2. Read full content into memory for encryption
+        file.file.seek(0)
+        plaintext_content = await file.read()
+        file.file.seek(0)
+
+        # 3. Encrypt payload via AES-256-GCM and wrap DEK
+        ciphertext, dek, nonce = encryption_service.encrypt_bytes(plaintext_content)
+        master_key = key_manager.get_master_key()
+        wrapped_dek = encryption_service.wrap_dek(dek, master_key)
+
+        # 4. Save ciphertext to disk
+        with open(target_path, 'wb') as buffer:
+            buffer.write(ciphertext)
+
+        rel_key = str(target_path.relative_to(self.base_dir)).replace('\\', '/')
+        
+        enc_meta = {
+            "encryption_version": 1,
+            "encryption_algorithm": "AES-256-GCM",
+            "key_id": "win-dpapi-v1",
+            "wrapped_dek": wrapped_dek,
+            "nonce": base64.b64encode(nonce).decode('utf-8')
+        }
+
+        return sanitized, rel_key, len(plaintext_content), file_hash, enc_meta
+
 local_storage = LocalStorageProvider()

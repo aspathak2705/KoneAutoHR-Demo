@@ -48,6 +48,20 @@ async def lifespan(app: FastAPI):
         logger.critical(f"Startup Validation | Local PostgreSQL connection FAILED: {db_err}")
         raise SystemExit("Startup Validation Failure: Database connection failed.")
 
+    # Security Initialization Validation
+    try:
+        from app.core.security.key_manager import key_manager
+        from app.core.security.secure_storage import secure_temp_manager
+        master_k = key_manager.get_master_key()
+        provider_name = getattr(key_manager._provider, "__class__", {}).__name__
+        logger.info(f"Startup Validation | Security provider '{provider_name}' initialization PASSED.")
+        secure_temp_manager.cleanup_stale_temp()
+        logger.info("Startup Validation | Secure temporary storage cleanup PASSED.")
+    except Exception as sec_err:
+        logger.critical(f"Startup Validation | Security initialization FAILED: {sec_err}")
+        if getattr(settings, "SECURITY_ENABLED", True):
+            raise SystemExit("Startup Validation Failure: Security initialization failed.")
+
     # Storage folders verification and setup
     storage_dirs = [
         Path(settings.AUTOHR_STORAGE_PATH),
