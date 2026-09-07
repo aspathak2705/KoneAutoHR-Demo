@@ -17,6 +17,11 @@ if config.config_file_name is not None:
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 from app.db.base import Base
+from app.core.config import settings
+
+# Inject application settings DATABASE_URL into Alembic config
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+
 target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:

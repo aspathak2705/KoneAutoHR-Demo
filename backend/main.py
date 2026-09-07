@@ -43,9 +43,9 @@ async def lifespan(app: FastAPI):
     try:
         with engine.connect() as conn:
             conn.execute(sa.text("SELECT 1"))
-        logger.info("Startup Validation | Database connection verification PASSED.")
+        logger.info("Startup Validation | Local PostgreSQL connection verification PASSED.")
     except Exception as db_err:
-        logger.critical(f"Startup Validation | Database connection FAILED: {db_err}")
+        logger.critical(f"Startup Validation | Local PostgreSQL connection FAILED: {db_err}")
         raise SystemExit("Startup Validation Failure: Database connection failed.")
 
     # Storage folders verification and setup

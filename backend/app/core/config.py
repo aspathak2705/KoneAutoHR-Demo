@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     )
 
     # Simplified Core settings - With default fallbacks
-    DATABASE_URL: str = Field("postgresql://neondb_owner:npg_m7CnDi6hLStu@ep-wandering-fire-az3a8rra.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require", env="DATABASE_URL")
+    DATABASE_URL: str = Field("postgresql://autohr_user:autohr_password@127.0.0.1:5432/autohr", env="DATABASE_URL")
     UPLOAD_PATH: str = Field("./uploads", env="UPLOAD_PATH")
     MAX_UPLOAD_SIZE: int = Field(52428800, env="MAX_UPLOAD_SIZE")
     ALLOWED_ORIGINS: str = Field("http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173", env="ALLOWED_ORIGINS")
@@ -81,15 +81,6 @@ class Settings(BaseSettings):
                         # Override Pydantic input and OS env
                         data[k] = v
                         os.environ[k] = v
-
-        # Fallback to SQLite if DATABASE_URL contains postgresql but connection fails or is misconfigured
-        db_url = data.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
-        if db_url and "postgresql" in db_url:
-            try:
-                import psycopg2
-            except ImportError:
-                data["DATABASE_URL"] = "DATABASE_URL=postgresql://postgres.foimubfoabibfvlvfuwi:AutoHR010726@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?sslmode=require"
-                os.environ["DATABASE_URL"] = "DATABASE_URL=postgresql://postgres.foimubfoabibfvlvfuwi:AutoHR010726@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?sslmode=require"
         return data
 
     # Compatibility properties
