@@ -48,24 +48,39 @@ class PresentationAssetManager:
         if not script_exists:
             script_exists = paths["script"].exists()
 
-        # Check narration file on disk
-        narration_exists = paths["narration"].exists() and paths["narration"].stat().st_size > 0
+        # Check presentation file hash consistency
+        pres = db.query(Presentation).filter(Presentation.id == presentation_id).first()
+        version_matched = True
+        if pres and pres.file_hash:
+            # Verify asset manifest/metadata matches presentation current hash if manifest exists
+            if paths["manifest"].exists():
+                try:
+                    with open(paths["manifest"], "r", encoding="utf-8") as f:
+                        manifest_data = json.load(f)
+                        if manifest_data.get("file_hash") and manifest_data.get("file_hash") != pres.file_hash:
+                            version_matched = False
+                except Exception:
+                    pass
+
+        # Check narration file on disk (only valid if narration file exists and version matches)
+        narration_exists = paths["narration"].exists() and paths["narration"].stat().st_size > 0 and version_matched
 
         # Check timeline file
-        timeline_exists = paths["timeline"].exists() and paths["timeline"].stat().st_size > 0
+        timeline_exists = paths["timeline"].exists() and paths["timeline"].stat().st_size > 0 and version_matched
 
         # Check manifest file
-        manifest_exists = paths["manifest"].exists() and paths["manifest"].stat().st_size > 0
+        manifest_exists = paths["manifest"].exists() and paths["manifest"].stat().st_size > 0 and version_matched
 
         # Check if the slide deck extraction thumbnails exist
-        slides_exist = paths["slides_dir"].exists() and any(paths["slides_dir"].glob("slide_*.png"))
+        slides_exist = paths["slides_dir"].exists() and any(paths["slides_dir"].glob("slide_*.png")) and version_matched
 
         return {
             "script_exists": script_exists,
             "narration_exists": narration_exists,
             "timeline_exists": timeline_exists,
             "manifest_exists": manifest_exists,
-            "slides_exist": slides_exist
+            "slides_exist": slides_exist,
+            "version_matched": version_matched
         }
 
     def get_asset_status(self, db: DBSession, presentation_id: str, mode: str = "AI") -> Dict[str, Any]:
@@ -73,8 +88,13 @@ class PresentationAssetManager:
         Returns rich status info.
         """
         checks = self.check_assets(db, presentation_id, mode)
+        pres = db.query(Presentation).filter(Presentation.id == presentation_id).first()
+        ref_count = db.query(Session).filter(Session.presentation_id == presentation_id).count() if pres else 0
         return {
             "presentation_id": presentation_id,
+            "file_hash": pres.file_hash if pres else None,
+            "reference_count": ref_count,
+            "reusable": checks["script_exists"] and checks["narration_exists"],
             **checks
         }
 

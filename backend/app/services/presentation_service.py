@@ -16,7 +16,21 @@ class PresentationService:
         return presentation_repository.get(db, id)
 
     async def create_presentation(self, db: DBSession, name: str, file: UploadFile) -> Presentation:
-        sanitized, storage_path, size = await storage_service.save_presentation_file(file)
+        from app.storage.local_storage import local_storage
+        from app.storage.asset_matcher import asset_matcher
+        
+        # Calculate file hash before saving
+        file_hash = await local_storage.calculate_upload_hash(file)
+        
+        # Check for existing duplicate presentation
+        existing_pres = asset_matcher.find_duplicate_presentation(db, file_hash)
+        if existing_pres:
+            from loguru import logger
+            logger.info(f"PresentationService | Reusing existing presentation id={existing_pres.id} for hash={file_hash}")
+            return existing_pres
+
+        # If new file, save to storage
+        sanitized, storage_path, size, file_hash = await local_storage.save_file(file, "presentations")
         
         with UnitOfWork(db):
             # Create presentation record
@@ -24,7 +38,8 @@ class PresentationService:
                 db,
                 name=name,
                 original_filename=file.filename,
-                storage_path=storage_path
+                storage_path=storage_path,
+                file_hash=file_hash
             )
             
             # Create metadata child record (defaults)
@@ -49,17 +64,17 @@ class PresentationService:
         return res
 
     def delete(self, db: DBSession, id: str) -> Optional[Presentation]:
-        # Delete from disk
+        from app.storage.cleanup_service import cleanup_service
         pres = presentation_repository.get(db, id)
-        if pres and pres.storage_path:
-            import os
-            try:
-                os.remove(pres.storage_path)
-            except OSError:
-                pass
-        with UnitOfWork(db):
-            res = presentation_repository.delete(db, id)
-        return res
+        if not pres:
+            return None
+            
+        if not cleanup_service.can_delete_presentation(db, id):
+            ref_count = cleanup_service.get_presentation_reference_count(db, id)
+            raise ValueError(f"Cannot delete presentation: currently referenced by {ref_count} session(s).")
+            
+        cleanup_service.cleanup_unreferenced_presentation(db, id)
+        return pres
 
 presentation_service = PresentationService()
 

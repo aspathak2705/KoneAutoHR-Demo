@@ -15,11 +15,26 @@ class EmployeeListService:
         return employee_list_repository.get(db, id)
 
     async def create_employee_list(self, db: DBSession, name: str, file: UploadFile) -> EmployeeList:
-        sanitized, storage_path, size = await storage_service.save_employee_list_file(file)
+        from app.storage.local_storage import local_storage
+        from app.storage.asset_matcher import asset_matcher
+        
+        # Calculate upload hash before saving
+        file_hash = await local_storage.calculate_upload_hash(file)
+        
+        # Check for existing duplicate employee list
+        existing_emp = asset_matcher.find_duplicate_employee_list(db, file_hash)
+        if existing_emp:
+            from loguru import logger
+            logger.info(f"EmployeeListService | Reusing existing employee list id={existing_emp.id} for hash={file_hash}")
+            return existing_emp
+
+        # If new file, save to storage
+        sanitized, storage_path, size, file_hash = await local_storage.save_file(file, "employee_lists")
         
         # Profile employee count
         try:
-            employees = parse_employees_excel(storage_path)
+            full_path = local_storage.get_path(storage_path)
+            employees = parse_employees_excel(str(full_path))
             employee_count = len(employees)
         except Exception:
             employee_count = 0
@@ -30,7 +45,8 @@ class EmployeeListService:
                 name=name,
                 original_filename=file.filename,
                 storage_path=storage_path,
-                employee_count=employee_count
+                employee_count=employee_count,
+                file_hash=file_hash
             )
             
         # Refresh the employee list object to populate database-generated defaults
@@ -47,16 +63,16 @@ class EmployeeListService:
         return res
 
     def delete(self, db: DBSession, id: str) -> Optional[EmployeeList]:
-        # Delete from disk
+        from app.storage.cleanup_service import cleanup_service
         emp = employee_list_repository.get(db, id)
-        if emp and emp.storage_path:
-            import os
-            try:
-                os.remove(emp.storage_path)
-            except OSError:
-                pass
-        with UnitOfWork(db):
-            res = employee_list_repository.delete(db, id)
-        return res
+        if not emp:
+            return None
+            
+        if not cleanup_service.can_delete_employee_list(db, id):
+            ref_count = cleanup_service.get_employee_list_reference_count(db, id)
+            raise ValueError(f"Cannot delete employee list: currently referenced by {ref_count} session(s).")
+            
+        cleanup_service.cleanup_unreferenced_employee_list(db, id)
+        return emp
 
 employee_list_service = EmployeeListService()

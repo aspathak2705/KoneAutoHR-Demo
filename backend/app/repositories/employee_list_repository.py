@@ -12,12 +12,13 @@ class EmployeeListRepository:
         stmt = select(EmployeeList).order_by(EmployeeList.uploaded_at.desc()).offset(skip).limit(limit)
         return list(db.scalars(stmt).all())
 
-    def create(self, db: DBSession, name: str, original_filename: str, storage_path: str, employee_count: int = 0) -> EmployeeList:
+    def create(self, db: DBSession, name: str, original_filename: str, storage_path: str, employee_count: int = 0, file_hash: Optional[str] = None) -> EmployeeList:
         db_obj = EmployeeList(
             name=name,
             original_filename=original_filename,
             storage_path=storage_path,
-            employee_count=employee_count
+            employee_count=employee_count,
+            file_hash=file_hash
         )
         db.add(db_obj)
         db.flush()

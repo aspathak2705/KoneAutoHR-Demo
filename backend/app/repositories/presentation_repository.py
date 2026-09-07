@@ -12,11 +12,12 @@ class PresentationRepository:
         stmt = select(Presentation).order_by(Presentation.uploaded_at.desc()).offset(skip).limit(limit)
         return list(db.scalars(stmt).all())
 
-    def create(self, db: DBSession, name: str, original_filename: str, storage_path: str, uploaded_by: Optional[str] = None) -> Presentation:
+    def create(self, db: DBSession, name: str, original_filename: str, storage_path: str, file_hash: Optional[str] = None, uploaded_by: Optional[str] = None) -> Presentation:
         db_obj = Presentation(
             name=name,
             original_filename=original_filename,
             storage_path=storage_path,
+            file_hash=file_hash,
             uploaded_by=uploaded_by
         )
         db.add(db_obj)

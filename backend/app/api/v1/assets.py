@@ -48,3 +48,38 @@ def link_assets_to_session(session_id: str, payload: LinkAssetRequest, db: DBSes
         }
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+class CheckDuplicateRequest(BaseModel):
+    file_hash: str
+    asset_type: str  # "presentation" or "employee_list"
+
+@router.post("/check-duplicate")
+def check_duplicate_asset(payload: CheckDuplicateRequest, db: DBSession = Depends(get_db)):
+    """
+    Core Architecture — Checks if an uploaded file content hash already exists.
+    """
+    from app.storage.asset_matcher import asset_matcher
+    if payload.asset_type == "presentation":
+        existing = asset_matcher.find_duplicate_presentation(db, payload.file_hash)
+    elif payload.asset_type == "employee_list":
+        existing = asset_matcher.find_duplicate_employee_list(db, payload.file_hash)
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid asset_type")
+
+    if existing:
+        return {
+            "exists": True,
+            "asset_id": existing.id,
+            "name": existing.name,
+            "storage_path": existing.storage_path
+        }
+    return {"exists": False}
+
+@router.get("/presentations/{presentation_id}/status")
+def get_presentation_asset_status(presentation_id: str, db: DBSession = Depends(get_db)):
+    """
+    Core Architecture — Returns detailed asset status, version validity, and reference count.
+    """
+    from app.modules.presentation.presentation_asset_manager import PresentationAssetManager
+    mgr = PresentationAssetManager()
+    return mgr.get_asset_status(db, presentation_id)

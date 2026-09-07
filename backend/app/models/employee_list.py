@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from typing import List
+from typing import List, Optional
 from sqlalchemy import String, DateTime, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.database import Base
@@ -12,6 +12,7 @@ class EmployeeList(Base):
     name: Mapped[str] = mapped_column(String, index=True)
     original_filename: Mapped[str] = mapped_column(String)
     storage_path: Mapped[str] = mapped_column(String)
+    file_hash: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     uploaded_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now())
     employee_count: Mapped[int] = mapped_column(Integer, default=0)
     last_used: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now())

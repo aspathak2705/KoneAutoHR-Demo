@@ -12,6 +12,7 @@ class Presentation(Base):
     name: Mapped[str] = mapped_column(String, index=True)
     original_filename: Mapped[str] = mapped_column(String)
     storage_path: Mapped[str] = mapped_column(String)
+    file_hash: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     uploaded_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     uploaded_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now())
     last_used: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now())
