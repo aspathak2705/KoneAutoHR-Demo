@@ -6,6 +6,7 @@ from loguru import logger
 from sqlalchemy.orm import Session as DBSession
 
 from app.models.presentation import Presentation
+from app.models.session import Session
 from app.models.presentation_script import PresentationScript
 from app.models.presentation_question import PresentationQuestion
 from app.services.storage_service import storage_service
