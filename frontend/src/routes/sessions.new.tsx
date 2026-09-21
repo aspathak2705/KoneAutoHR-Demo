@@ -38,6 +38,7 @@ import {
   getSessionJobs,
   apiFetch,
   BACKEND_BASE,
+  getAuthToken,
   SavedPresentation,
   SavedEmployeeList,
   PresentationScript,
@@ -330,7 +331,7 @@ function NewSessionPage() {
       const response = await fetch(`${BACKEND_BASE}/hr-induction/upload-slide-audio`, {
         method: "POST",
         headers: {
-          "Authorization": "Bearer autohr_master_secret_token_2026"
+          "Authorization": `Bearer ${getAuthToken()}`
         },
         body: formData
       });

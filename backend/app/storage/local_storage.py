@@ -119,4 +119,42 @@ class LocalStorageProvider(StorageProvider):
 
         return sanitized, rel_key, len(plaintext_content), file_hash, enc_meta
 
+class AzureBlobStorageProvider(StorageProvider):
+    """
+    Azure Blob Storage Provider Skeleton (Future Cloud Integration Boundary).
+    Interface placeholder to support enterprise Azure Blob Storage deployment in Phase 2.
+    """
+    def __init__(self, connection_string: Optional[str] = None, container_name: Optional[str] = None):
+        self.connection_string = connection_string
+        self.container_name = container_name
+
+    def calculate_hash(self, file_path: Path) -> str:
+        raise NotImplementedError("AzureBlobStorageProvider is an architecture boundary placeholder.")
+
+    async def calculate_upload_hash(self, file: UploadFile) -> str:
+        raise NotImplementedError("AzureBlobStorageProvider is an architecture boundary placeholder.")
+
+    def exists(self, storage_key: str) -> bool:
+        raise NotImplementedError("AzureBlobStorageProvider is an architecture boundary placeholder.")
+
+    def get_path(self, storage_key: str) -> Path:
+        raise NotImplementedError("AzureBlobStorageProvider is an architecture boundary placeholder.")
+
+    def delete(self, storage_key: str) -> bool:
+        raise NotImplementedError("AzureBlobStorageProvider is an architecture boundary placeholder.")
+
+    async def save_file(self, file: UploadFile, relative_dir: str, custom_filename: Optional[str] = None) -> Tuple[str, str, int, str]:
+        raise NotImplementedError("AzureBlobStorageProvider is an architecture boundary placeholder.")
+
+
+def get_storage_provider() -> StorageProvider:
+    provider_type = getattr(settings, "STORAGE_PROVIDER", "local").lower()
+    if provider_type == "local":
+        return LocalStorageProvider()
+    elif provider_type == "azure_blob":
+        return AzureBlobStorageProvider()
+    else:
+        raise ValueError(f"Unsupported STORAGE_PROVIDER: {provider_type}")
+
+
 local_storage = LocalStorageProvider()

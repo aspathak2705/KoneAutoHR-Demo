@@ -187,12 +187,24 @@ const API = import.meta.env.VITE_API_BASE_URL;
 if (!API) {
   throw new Error("CRITICAL: VITE_API_BASE_URL environment variable is missing.");
 }
-export const BACKEND_BASE = (API as string).replace(/\/$/, "") + "/api/v1";
+export function getAuthToken(): string {
+  if (typeof window !== "undefined") {
+    const sessionToken = window.sessionStorage.getItem("autohr.auth_token");
+    if (sessionToken) return sessionToken;
+  }
+  return "autohr_dev_secret_token_local";
+}
+
+export function setAuthToken(token: string) {
+  if (typeof window !== "undefined") {
+    window.sessionStorage.setItem("autohr.auth_token", token);
+  }
+}
 
 export async function apiFetch(path: string, options?: RequestInit) {
   const url = `${BACKEND_BASE}${path}`;
   const headers = new Headers(options?.headers || {});
-  headers.set("Authorization", "Bearer autohr_master_secret_token_2026");
+  headers.set("Authorization", `Bearer ${getAuthToken()}`);
   const response = await fetch(url, { ...options, headers });
   if (!response.ok) {
     const errorText = await response.text().catch(() => "Unknown error");
@@ -692,7 +704,7 @@ export async function uploadPresentation(name: string, file: File): Promise<Save
   const res = await fetch(`${BACKEND_BASE}/presentations`, {
     method: "POST",
     headers: {
-      "Authorization": "Bearer autohr_master_secret_token_2026"
+      "Authorization": `Bearer ${getAuthToken()}`
     },
     body: formData,
   });
@@ -711,7 +723,7 @@ export async function uploadEmployeeList(name: string, file: File): Promise<Save
   const res = await fetch(`${BACKEND_BASE}/employee-lists`, {
     method: "POST",
     headers: {
-      "Authorization": "Bearer autohr_master_secret_token_2026"
+      "Authorization": `Bearer ${getAuthToken()}`
     },
     body: formData,
   });

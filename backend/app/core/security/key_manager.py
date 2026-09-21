@@ -115,6 +115,25 @@ class WindowsCredentialKeyProvider(BaseKeyProvider):
         return self.get_master_key()
 
 
+class AzureKeyVaultProvider(BaseKeyProvider):
+    """
+    Azure Key Vault Key Provider Skeleton (Future Cloud Integration Boundary).
+    Interface placeholder to support enterprise Azure Key Vault deployment.
+    """
+    def __init__(self, vault_url: Optional[str] = None):
+        super().__init__()
+        self.vault_url = vault_url
+
+    def get_master_key(self) -> bytes:
+        raise NotImplementedError(
+            "AzureKeyVaultProvider is an architecture boundary placeholder for future cloud migration. "
+            "To enable, configure Azure Key Vault SDK and credentials in Phase 2."
+        )
+
+    def get_key_by_id(self, key_id: str) -> bytes:
+        return self.get_master_key()
+
+
 class KeyManager:
     """
     Key Manager resolving current configured KeyProvider (windows_dpapi, development, azure_keyvault).
@@ -138,6 +157,8 @@ class KeyManager:
                 self._provider = DevelopmentKeyProvider()
         elif provider_type == "development":
             self._provider = DevelopmentKeyProvider()
+        elif provider_type == "azure_keyvault":
+            self._provider = AzureKeyVaultProvider()
         else:
             raise ValueError(f"Unsupported KEY_PROVIDER: {provider_type}")
 

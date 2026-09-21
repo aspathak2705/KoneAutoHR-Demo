@@ -28,15 +28,26 @@ def health_check(db: DBSession = Depends(get_db)):
     except Exception:
         storage_status = "unavailable"
 
+    # 3. Security Key Provider Check
+    key_status = "uninitialized"
+    try:
+        from app.core.security.key_manager import key_manager
+        _ = key_manager.get_master_key()
+        key_status = "initialized"
+    except Exception:
+        key_status = "uninitialized"
+
     # Determine overall status
-    is_healthy = db_status == "connected" and storage_status == "available"
+    is_healthy = db_status == "connected" and storage_status == "available" and key_status == "initialized"
     overall_status = "healthy" if is_healthy else "unhealthy"
 
     response_data = {
         "status": overall_status,
         "database": db_status,
         "storage": storage_status,
-        "version": "1.0.0"
+        "key_provider": getattr(settings, "KEY_PROVIDER", "windows_dpapi"),
+        "storage_provider": getattr(settings, "STORAGE_PROVIDER", "local"),
+        "version": settings.APP_VERSION
     }
 
     if not is_healthy:
