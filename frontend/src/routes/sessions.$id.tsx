@@ -1812,15 +1812,20 @@ function SessionDetailPage() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2">
+                    <Button variant="outline" size="sm" asChild className="text-xs h-8 gap-1.5">
+                      <a href={`${BACKEND_BASE}/runtime/${id}/presentation-file`} target="_blank" rel="noopener noreferrer">
+                        <Download className="h-3.5 w-3.5" /> Deck (.pptx)
+                      </a>
+                    </Button>
                     <Button variant="outline" size="sm" asChild className="text-xs h-8 gap-1.5">
                       <a href={`${BACKEND_BASE}/runtime/${id}/report`} target="_blank" rel="noopener noreferrer">
-                        <Download className="h-3.5 w-3.5" /> Download Report
+                        <Download className="h-3.5 w-3.5" /> Report (.md)
                       </a>
                     </Button>
                     <Button variant="outline" size="sm" asChild className="text-xs h-8 gap-1.5">
                       <a href={`${BACKEND_BASE}/runtime/${id}/transcript`} target="_blank" rel="noopener noreferrer">
-                        <Download className="h-3.5 w-3.5" /> Download Transcript
+                        <Download className="h-3.5 w-3.5" /> Transcript (.md)
                       </a>
                     </Button>
                   </div>

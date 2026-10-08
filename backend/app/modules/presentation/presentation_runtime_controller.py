@@ -84,8 +84,57 @@ class PresentationRuntimeController:
 
         from app.modules.presentation.timeline_executor import TimelineExecutor
 
+        # Load slide metadata for media timing coordination if present
+        slides_metadata = []
+        slides_meta_path = session_dir / "slides_metadata.json"
+        if slides_meta_path.exists():
+            try:
+                with open(slides_meta_path, "r", encoding="utf-8") as smf:
+                    slides_metadata = json.load(smf)
+            except Exception as sm_err:
+                logger.warning(f"PresentationRuntimeController | Could not read slides_metadata.json: {sm_err}")
+
+        # Map slide number to video info
+        slide_videos = {}
+        for s in slides_metadata:
+            s_num = s.get("slide_number")
+            v_meta = s.get("video_metadata", [])
+            if s_num and v_meta:
+                slide_videos[s_num] = v_meta
+
         executor = TimelineExecutor(str(session_dir / manifest["timeline"]))
         current_visible_slide = 1
+        slide_start_monotonic = {}
+        slide_start_monotonic[1] = asyncio.get_running_loop().time()
+
+        def is_slide_media_busy(slide_num: int) -> bool:
+            """
+            Checks if slide_num has an embedded video that is currently playing or has not
+            met its required playback duration.
+            """
+            if not self.ppt_controller:
+                return False
+
+            # Check COM player state directly
+            if self.ppt_controller.is_media_playing_on_slide(slide_num):
+                return True
+
+            # If slide has video metadata with known duration, check elapsed time on slide
+            if slide_num in slide_videos:
+                for v in slide_videos[slide_num]:
+                    dur = v.get("duration")
+                    if dur and dur > 0:
+                        start_t = slide_start_monotonic.get(slide_num)
+                        if start_t:
+                            elapsed = asyncio.get_running_loop().time() - start_t
+                            if elapsed < dur:
+                                return True
+            return False
+
+        def get_current_slide() -> int:
+            if self.ppt_controller:
+                return self.ppt_controller.get_current_slide_index()
+            return current_visible_slide
 
         async def handle_goto_slide(slide_num: int):
             nonlocal current_visible_slide
@@ -93,15 +142,34 @@ class PresentationRuntimeController:
             while current_visible_slide < slide_num:
                 await self.ppt_controller.next_slide()
                 current_visible_slide += 1
+                slide_start_monotonic[current_visible_slide] = asyncio.get_running_loop().time()
                 await asyncio.sleep(0.5)
             while current_visible_slide > slide_num:
                 await self.ppt_controller.prev_slide()
                 current_visible_slide -= 1
+                slide_start_monotonic[current_visible_slide] = asyncio.get_running_loop().time()
                 await asyncio.sleep(0.5)
+
+            # Check if entering slide with video and trigger play if needed
+            if current_visible_slide in slide_videos:
+                v_list = slide_videos[current_visible_slide]
+                for v in v_list:
+                    if not v.get("supported", True):
+                        logger.warning(
+                            f"PresentationRuntimeController | Notice on slide {current_visible_slide}: "
+                            f"{v.get('reason')}"
+                        )
+                    # Trigger play for safety if not already auto-playing
+                    self.ppt_controller.play_media_on_slide(current_visible_slide, v.get("shape_id"))
 
         try:
             await asyncio.sleep(1)
-            await executor.execute(audio, handle_goto_slide)
+            await executor.execute(
+                audio_controller=audio,
+                on_goto_slide=handle_goto_slide,
+                is_slide_busy=is_slide_media_busy,
+                get_current_slide=get_current_slide,
+            )
             
             # Wait for narration audio playback to fully complete before exiting
             logger.info("PresentationRuntimeController | Timeline finished. Waiting for remaining narration audio playback to complete...")

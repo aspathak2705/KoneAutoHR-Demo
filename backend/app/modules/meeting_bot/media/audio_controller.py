@@ -361,8 +361,16 @@ def cleanup_audio_controller(session_id: str) -> None:
         # Shut down persistent powershell process
         if ctrl._ps_process:
             try:
+                ctrl._send_command("exit")
                 ctrl._ps_process.terminate()
-            except Exception:
-                pass
+                try:
+                    ctrl._ps_process.wait(timeout=2)
+                except Exception:
+                    ctrl._ps_process.kill()
+            except Exception as e:
+                logger.debug(f"AudioController | Process terminate notice: {e}")
+            finally:
+                ctrl._ps_process = None
+        logger.info(f"AudioController | Cleaned up audio controller and subprocess for session {session_id}")
 
 

@@ -43,6 +43,6 @@ reset_database.py
 
 backend/storage
 
-tests
 scratch
 scripts
+docs

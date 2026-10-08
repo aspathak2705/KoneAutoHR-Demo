@@ -543,6 +543,32 @@ def download_session_transcript(session_id: str, db: DBSession = Depends(get_db)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.get("/{session_id}/presentation-file")
+def download_session_presentation(session_id: str, db: DBSession = Depends(get_db)):
+    """
+    Downloads the generated presentation.pptx file for the session.
+    """
+    from app.services.storage_service import storage_service
+    session_dir = storage_service.get_session_dir(session_id)
+    ppt_path = session_dir / "presentation.pptx"
+    if not ppt_path.exists():
+        ppt_path = session_dir / "presentation" / "presentation.pptx"
+    if not ppt_path.exists():
+        # Fallback to presentation registered in session
+        runtime_context = runtime_service.get_runtime_context(db, session_id)
+        candidate = runtime_context.get("presentation", {}).get("storage_path")
+        if candidate and Path(candidate).exists():
+            ppt_path = Path(candidate)
+
+    if not ppt_path.exists():
+        raise HTTPException(status_code=404, detail="Generated presentation file not found")
+
+    return FileResponse(
+        path=ppt_path,
+        filename=f"kone_presentation_{session_id}.pptx",
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
+
 @router.get("/{session_id}/attendance")
 def get_attendance_report(session_id: str, db: DBSession = Depends(get_db)):
     from app.services.attendance_service import attendance_service

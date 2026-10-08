@@ -114,6 +114,72 @@ class PowerPointController:
         logger.info("PowerPointController | [PPT] Recovering slideshow window")
         await self.wait_for_slideshow_window(timeout=10)
 
+    def get_current_slide_index(self) -> int:
+        """Return the 1-based index of the currently displayed slide in the slideshow."""
+        if self.slide_show:
+            try:
+                return int(self.slide_show.CurrentShowPosition)
+            except Exception as e:
+                logger.debug(f"PowerPointController | Failed to query CurrentShowPosition: {e}")
+        return 1
+
+    def get_slide_media_shapes(self, slide_index: int) -> list:
+        """Finds all media shapes on the requested slide."""
+        media_shapes = []
+        if not self.presentation:
+            return media_shapes
+        try:
+            slide = self.presentation.Slides(slide_index)
+            for shape in slide.Shapes:
+                # Type 16 is msoMedia
+                if shape.Type == 16:
+                    media_shapes.append(shape)
+        except Exception as e:
+            logger.debug(f"PowerPointController | Could not inspect media shapes on slide {slide_index}: {e}")
+        return media_shapes
+
+    def play_media_on_slide(self, slide_index: int, shape_id: int = None) -> bool:
+        """Starts or triggers playback for a media shape on the current slide."""
+        if not self.slide_show:
+            return False
+        try:
+            shapes = self.get_slide_media_shapes(slide_index)
+            target_shape = None
+            if shape_id is not None:
+                for s in shapes:
+                    if s.Id == shape_id:
+                        target_shape = s
+                        break
+            elif shapes:
+                target_shape = shapes[0]
+
+            if target_shape:
+                player = self.slide_show.Player(target_shape.Id)
+                player.Play()
+                logger.info(f"PowerPointController | Triggered Play() for media shape {target_shape.Id} on slide {slide_index}")
+                return True
+        except Exception as e:
+            logger.warning(f"PowerPointController | Failed to trigger media play on slide {slide_index}: {e}")
+        return False
+
+    def is_media_playing_on_slide(self, slide_index: int) -> bool:
+        """Queries if any media shape on the current slide is actively playing."""
+        if not self.slide_show:
+            return False
+        try:
+            shapes = self.get_slide_media_shapes(slide_index)
+            for s in shapes:
+                try:
+                    player = self.slide_show.Player(s.Id)
+                    # player.State: 0 = ppPlaying, 1 = ppPaused, 2 = ppStopped (or 3 in some Office editions)
+                    if player.State == 0:
+                        return True
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.debug(f"PowerPointController | Media playing query notice: {e}")
+        return False
+
     async def next_slide(self) -> None:
         """
         Navigate to next slide in show.

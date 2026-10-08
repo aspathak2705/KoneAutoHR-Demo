@@ -25,6 +25,7 @@ class PresentationParser:
                 "speaker_notes": notes or None,
                 "images": images,
                 "videos": [v["filename"] for v in videos],
+                "video_metadata": videos,
                 "has_video": len(videos) > 0
             })
 

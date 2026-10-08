@@ -74,6 +74,12 @@ class ParsingPipeline:
         export_script_to_md(scripts, session_dir / "script.md")
         logger.info(f"ParsingPipeline | Saved presentation script to {session_dir / 'script.md'}")
 
+        # Save slide metadata with video timing details for runtime synchronization
+        import json
+        with open(session_dir / "slides_metadata.json", "w", encoding="utf-8") as f:
+            json.dump(slides, f, indent=2)
+        logger.info(f"ParsingPipeline | Saved slide metadata to {session_dir / 'slides_metadata.json'}")
+
         logger.info(f"ParsingPipeline | Script generation completed successfully for session {session_id}")
 
         return {
