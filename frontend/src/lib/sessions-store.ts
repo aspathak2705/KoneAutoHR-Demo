@@ -187,6 +187,8 @@ const API = import.meta.env.VITE_API_BASE_URL;
 if (!API) {
   throw new Error("CRITICAL: VITE_API_BASE_URL environment variable is missing.");
 }
+export const BACKEND_BASE = (API as string).replace(/\/$/, "") + "/api/v1";
+
 export function getAuthToken(): string {
   if (typeof window !== "undefined") {
     const sessionToken = window.sessionStorage.getItem("autohr.auth_token");
