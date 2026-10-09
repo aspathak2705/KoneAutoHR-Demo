@@ -115,13 +115,79 @@ async def upload_slide_audio(
         "notes": notes or ""
     }
 
+@router.post("/set-slide-silent")
+def set_slide_silent(
+    session_id: str = Form(...),
+    slide_number: int = Form(...),
+    db: DBSession = Depends(get_db)
+):
+    """
+    Explicitly marks a slide as SILENT with a 5-second timeline duration.
+    Removes any previously uploaded audio file for this slide.
+    """
+    logger.info(f"HRInduction | Marking slide {slide_number} as SILENT for session {session_id}")
+    session = session_repository.get(db, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if not session.presentation:
+        raise HTTPException(status_code=400, detail="No presentation linked to this session")
+
+    # Validate slide number against slide count
+    slide_count = session.presentation.slide_count or 0
+    if slide_count == 0 and session.presentation.metadata_records:
+        slide_count = session.presentation.metadata_records[0].slide_count or 0
+
+    if slide_count > 0 and (slide_number < 1 or slide_number > slide_count):
+        raise HTTPException(status_code=400, detail=f"Slide number {slide_number} is out of bounds (1..{slide_count})")
+
+    # Safely remove any existing temp audio files for this slide
+    temp_dir = get_temp_audio_dir(session_id)
+    for ext in [".wav", ".mp3"]:
+        old_f = temp_dir / f"slide_{slide_number}{ext}"
+        if old_f.exists():
+            try:
+                old_f.unlink()
+            except Exception as e:
+                logger.warning(f"HRInduction | Failed to delete old audio {old_f}: {e}")
+
+    # Update metadata
+    metadata_path = get_metadata_path(session_id)
+    metadata = {}
+    if metadata_path.exists():
+        try:
+            with open(metadata_path, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+        except Exception:
+            pass
+
+    existing_notes = metadata.get(str(slide_number), {}).get("notes", "")
+
+    metadata[str(slide_number)] = {
+        "type": "SILENT",
+        "audio_path": None,
+        "duration_ms": 5000,
+        "notes": existing_notes
+    }
+
+    with open(metadata_path, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+
+    return {
+        "status": "SUCCESS",
+        "slide_number": slide_number,
+        "type": "SILENT",
+        "duration_ms": 5000,
+        "notes": existing_notes
+    }
+
 @router.post("/validate")
 def validate_hr_induction(
     session_id: str,
     db: DBSession = Depends(get_db)
 ):
     """
-    Validates that every slide in the presentation has an uploaded narration audio.
+    Validates that every slide in the presentation has an uploaded narration audio or is explicitly SILENT.
     """
     session = session_repository.get(db, session_id)
     if not session:
@@ -152,14 +218,22 @@ def validate_hr_induction(
     for s_num in range(1, slide_count + 1):
         s_key = str(s_num)
         if s_key not in metadata:
-            errors.append(f"Slide {s_num} is missing an audio recording")
+            errors.append(f"Slide {s_num} is missing an audio recording or silent selection")
         else:
             entry = metadata[s_key]
-            audio_path = Path(entry["audio_path"])
-            if not audio_path.exists():
-                errors.append(f"Audio file for slide {s_num} does not exist on disk")
-            if entry["duration_ms"] <= 0:
-                errors.append(f"Audio for slide {s_num} has an invalid duration (0s)")
+            is_silent = entry.get("type") == "SILENT"
+            if is_silent:
+                if entry.get("duration_ms") != 5000:
+                    errors.append(f"Slide {s_num} marked silent has invalid duration ({entry.get('duration_ms')}ms)")
+            else:
+                if not entry.get("audio_path"):
+                    errors.append(f"Slide {s_num} is missing an audio file path")
+                else:
+                    audio_path = Path(entry["audio_path"])
+                    if not audio_path.exists():
+                        errors.append(f"Audio file for slide {s_num} does not exist on disk")
+                    if entry.get("duration_ms", 0) <= 0:
+                        errors.append(f"Audio for slide {s_num} has an invalid duration (0s)")
 
     if errors:
         return {
@@ -199,8 +273,12 @@ def build_package(
         metadata = json.load(f)
 
     # Prepare PackageBuilder dicts
-    slide_audios = {int(k): Path(v["audio_path"]) for k, v in metadata.items()}
-    slide_notes = {int(k): v["notes"] for k, v in metadata.items()}
+    slide_audios = {
+        int(k): Path(v["audio_path"]) if v.get("audio_path") else None 
+        for k, v in metadata.items()
+    }
+    slide_notes = {int(k): v.get("notes", "") for k, v in metadata.items()}
+    slide_types = {int(k): v.get("type", "AUDIO") for k, v in metadata.items()}
     
     session_dir = storage_service.get_session_dir(session_id)
     presentation_name = Path(session.presentation.storage_path).name
@@ -230,7 +308,8 @@ def build_package(
                 presentation_filename=presentation_name,
                 slide_count=slide_count,
                 slide_audios=slide_audios,
-                slide_notes=slide_notes
+                slide_notes=slide_notes,
+                slide_types=slide_types
             )
             # Copy generated outputs to presentation asset manager cache
             import shutil

@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, ChevronRight, ChevronLeft, Upload, FileText, CheckCircle, Trash2, Edit2, Sparkles, Check, Play, User, Calendar, BookOpen, HelpCircle, Volume2 } from "lucide-react";
+import { ArrowLeft, ChevronRight, ChevronLeft, Upload, FileText, CheckCircle, Trash2, Edit2, Sparkles, Check, Play, User, Calendar, BookOpen, HelpCircle, Volume2, VolumeX } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
@@ -148,8 +148,9 @@ function NewSessionPage() {
   const [hrSlides, setHrSlides] = useState<number[]>([]);
   const [loadingHrSlides, setLoadingHrSlides] = useState(false);
   const [uploadingSlideIndex, setUploadingSlideIndex] = useState<number | null>(null);
+  const [settingSlideSilentIndex, setSettingSlideSilentIndex] = useState<number | null>(null);
   const [hrNotes, setHrNotes] = useState<Record<number, string>>({});
-  const [hrAudios, setHrAudios] = useState<Record<number, { duration: number; uploaded: boolean }>>({});
+  const [hrAudios, setHrAudios] = useState<Record<number, { duration: number; uploaded: boolean; is_silent?: boolean }>>({});
   const [validatingHr, setValidatingHr] = useState(false);
   const [hrValidationErrors, setHrValidationErrors] = useState<string[]>([]);
   const [packagingHr, setPackagingHr] = useState(false);
@@ -343,7 +344,7 @@ function NewSessionPage() {
       const data = await response.json();
       setHrAudios((prev) => ({
         ...prev,
-        [slideNumber]: { duration: data.duration_ms / 1000.0, uploaded: true }
+        [slideNumber]: { duration: data.duration_ms / 1000.0, uploaded: true, is_silent: false }
       }));
       toast.success(`Slide ${slideNumber} narration uploaded successfully!`);
     } catch (err: any) {
@@ -351,6 +352,43 @@ function NewSessionPage() {
       toast.error(`Failed to upload audio for Slide ${slideNumber}: ${err.message || "Unknown error"}`);
     } finally {
       setUploadingSlideIndex(null);
+    }
+  };
+
+  const handleSetSlideSilent = async (slideNumber: number) => {
+    if (!sessionDraft?.id) {
+      toast.error("Draft session not initialized. Please proceed from Step 2.");
+      return;
+    }
+    setSettingSlideSilentIndex(slideNumber);
+
+    const formData = new FormData();
+    formData.append("session_id", sessionDraft.id);
+    formData.append("slide_number", String(slideNumber));
+
+    try {
+      const response = await fetch(`${BACKEND_BASE}/hr-induction/set-slide-silent`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${getAuthToken()}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      setHrAudios((prev) => ({
+        ...prev,
+        [slideNumber]: { duration: 5.0, uploaded: true, is_silent: true }
+      }));
+      toast.success(`Slide ${slideNumber} set to Silent (5-second hold)`);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`Failed to set Slide ${slideNumber} as silent: ${err.message || "Unknown error"}`);
+    } finally {
+      setSettingSlideSilentIndex(null);
     }
   };
 
@@ -1090,15 +1128,21 @@ function NewSessionPage() {
                                 <h4 className="font-semibold text-sm">
                                   Slide {slideNum}
                                   {isUploaded && (
-                                    <span className="ml-2 text-[10px] text-green-600 font-medium">
+                                    <span className="ml-2 text-[10px] text-muted-foreground font-medium">
                                       ✓ {audioState.duration.toFixed(1)}s
                                     </span>
                                   )}
                                 </h4>
                                 {isUploaded && (
-                                  <span className="text-[10px] bg-green-500/10 text-green-600 border border-green-500/20 px-2 py-0.5 rounded-full font-medium">
-                                    Narration Ready
-                                  </span>
+                                  audioState.is_silent ? (
+                                    <span className="text-[10px] bg-amber-500/10 text-amber-600 border border-amber-500/20 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                                      <VolumeX className="h-3 w-3" /> Silent · 5 sec
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] bg-green-500/10 text-green-600 border border-green-500/20 px-2 py-0.5 rounded-full font-medium">
+                                      Narration Ready
+                                    </span>
+                                  )
                                 )}
                               </div>
 
@@ -1116,19 +1160,19 @@ function NewSessionPage() {
                                 />
                               </div>
 
-                              {/* Audio Upload */}
-                              <div className="flex items-center gap-2">
+                              {/* Audio Controls */}
+                              <div className="flex flex-wrap items-center gap-2">
                                 <label
                                   className={`flex items-center gap-2 cursor-pointer px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
                                     isUploading
                                       ? "opacity-50 pointer-events-none border-border/40 text-muted-foreground"
-                                      : isUploaded
+                                      : isUploaded && !audioState.is_silent
                                       ? "border-green-500/30 text-green-700 bg-green-500/5 hover:bg-green-500/10"
                                       : "border-violet-500/30 text-violet-700 bg-violet-500/5 hover:bg-violet-500/10"
                                   }`}
                                 >
                                   <Upload className="h-3.5 w-3.5" />
-                                  {isUploading ? "Uploading..." : isUploaded ? "Re-upload Audio" : "Upload Narration (WAV/MP3)"}
+                                  {isUploading ? "Uploading..." : isUploaded && !audioState.is_silent ? "Re-upload Audio" : "Upload Narration (WAV/MP3)"}
                                   <input
                                     type="file"
                                     accept=".wav,.mp3"
@@ -1141,6 +1185,26 @@ function NewSessionPage() {
                                     disabled={isUploading}
                                   />
                                 </label>
+
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={settingSlideSilentIndex === slideNum}
+                                  onClick={() => handleSetSlideSilent(slideNum)}
+                                  className={`h-8 text-xs gap-1.5 ${
+                                    audioState?.is_silent
+                                      ? "border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 font-semibold"
+                                      : "border-border/60 text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  <VolumeX className="h-3.5 w-3.5" />
+                                  {settingSlideSilentIndex === slideNum
+                                    ? "Setting..."
+                                    : audioState?.is_silent
+                                    ? "Silent · 5-Second Hold"
+                                    : "No Audio — 5-Second Hold"}
+                                </Button>
                               </div>
                             </div>
                           </div>
