@@ -17,6 +17,7 @@ class SessionService:
             # Copy presentation file if linked
             if session.presentation_id:
                 from app.repositories.presentation_repository import presentation_repository
+                from app.core.security.secure_storage import secure_storage
                 from app.core.constants import UploadType
                 from pathlib import Path
                 import shutil
@@ -30,12 +31,15 @@ class SessionService:
                         session_count=pres.session_count + 1
                     )
                     target_dir = storage_service.get_session_upload_dir(session.id, UploadType.PRESENTATION)
-                    dest = target_dir / Path(pres.storage_path).name
-                    shutil.copy2(pres.storage_path, dest)
+                    filename = Path(pres.original_filename or pres.storage_path).name
+                    dest = target_dir / filename
+                    with secure_storage.open_decrypted_file(pres) as temp_p:
+                        shutil.copy2(temp_p, dest)
                     
             # Copy employee list file if linked
             if session.employee_list_id:
                 from app.repositories.employee_list_repository import employee_list_repository
+                from app.core.security.secure_storage import secure_storage
                 from app.core.constants import UploadType
                 from pathlib import Path
                 import shutil
@@ -48,8 +52,10 @@ class SessionService:
                         last_used=datetime.datetime.now()
                     )
                     target_dir = storage_service.get_session_upload_dir(session.id, UploadType.EMPLOYEE_LIST)
-                    dest = target_dir / Path(emp.storage_path).name
-                    shutil.copy2(emp.storage_path, dest)
+                    filename = Path(emp.original_filename or emp.storage_path).name
+                    dest = target_dir / filename
+                    with secure_storage.open_decrypted_file(emp) as temp_e:
+                        shutil.copy2(temp_e, dest)
 
             # Slide extraction for HR Recorded Mode
             if session.creation_mode == "HR" and session.presentation_id:
