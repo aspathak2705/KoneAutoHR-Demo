@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, ChevronRight, ChevronLeft, Upload, FileText, CheckCircle, Trash2, Edit2, Sparkles, Check, Play, User, Calendar, BookOpen, HelpCircle, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, ChevronRight, ChevronLeft, Upload, FileText, CheckCircle, Trash2, Edit2, Sparkles, Check, Play, User, Calendar, BookOpen, HelpCircle, Volume2, VolumeX, Link2, Unlink } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
@@ -149,8 +149,22 @@ function NewSessionPage() {
   const [loadingHrSlides, setLoadingHrSlides] = useState(false);
   const [uploadingSlideIndex, setUploadingSlideIndex] = useState<number | null>(null);
   const [settingSlideSilentIndex, setSettingSlideSilentIndex] = useState<number | null>(null);
+  const [groupingSlideIndex, setGroupingSlideIndex] = useState<number | null>(null);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [groupStartSlide, setGroupStartSlide] = useState<number>(1);
+  const [groupEndSlide, setGroupEndSlide] = useState<number>(2);
+  const [groupAudioFile, setGroupAudioFile] = useState<File | null>(null);
+  const [submittingGroup, setSubmittingGroup] = useState(false);
   const [hrNotes, setHrNotes] = useState<Record<number, string>>({});
-  const [hrAudios, setHrAudios] = useState<Record<number, { duration: number; uploaded: boolean; is_silent?: boolean }>>({});
+  const [hrAudios, setHrAudios] = useState<Record<number, {
+    duration: number;
+    uploaded: boolean;
+    is_silent?: boolean;
+    group_type?: "MASTER" | "LINKED";
+    group_id?: string;
+    master_slide?: number;
+    group_slides?: number[];
+  }>>({});
   const [validatingHr, setValidatingHr] = useState(false);
   const [hrValidationErrors, setHrValidationErrors] = useState<string[]>([]);
   const [packagingHr, setPackagingHr] = useState(false);
@@ -389,6 +403,128 @@ function NewSessionPage() {
       toast.error(`Failed to set Slide ${slideNumber} as silent: ${err.message || "Unknown error"}`);
     } finally {
       setSettingSlideSilentIndex(null);
+    }
+  };
+
+  const handleOpenGroupModal = (startSlide: number) => {
+    setGroupStartSlide(startSlide);
+    const maxSlide = hrSlides.length > 0 ? Math.max(...hrSlides) : startSlide + 1;
+    setGroupEndSlide(Math.min(startSlide + 1, maxSlide));
+    setGroupAudioFile(null);
+    setShowGroupModal(true);
+  };
+
+  const handleApplySlideGroup = async () => {
+    if (!sessionDraft?.id) {
+      toast.error("Draft session not initialized.");
+      return;
+    }
+    if (groupEndSlide <= groupStartSlide) {
+      toast.error("End slide must be greater than start slide.");
+      return;
+    }
+    if (!groupAudioFile && !hrAudios[groupStartSlide]?.uploaded) {
+      toast.error("Please provide an audio file for the group.");
+      return;
+    }
+
+    setSubmittingGroup(true);
+    const formData = new FormData();
+    formData.append("session_id", sessionDraft.id);
+    formData.append("start_slide", String(groupStartSlide));
+    formData.append("end_slide", String(groupEndSlide));
+    if (groupAudioFile) {
+      formData.append("audio_file", groupAudioFile);
+    }
+    if (hrNotes[groupStartSlide]) {
+      formData.append("notes", hrNotes[groupStartSlide]);
+    }
+
+    try {
+      const response = await fetch(`${BACKEND_BASE}/hr-induction/set-slide-group`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${getAuthToken()}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const data = await response.json();
+      const totalDurSec = data.duration_ms / 1000.0;
+      const groupSlides: number[] = data.group_slides || [];
+
+      setHrAudios((prev) => {
+        const updated = { ...prev };
+        // Master slide
+        updated[groupStartSlide] = {
+          duration: totalDurSec,
+          uploaded: true,
+          is_silent: false,
+          group_type: "MASTER",
+          group_id: data.group_id,
+          group_slides: groupSlides
+        };
+        // Linked slides
+        for (let s = groupStartSlide + 1; s <= groupEndSlide; s++) {
+          updated[s] = {
+            duration: 0,
+            uploaded: true,
+            is_silent: false,
+            group_type: "LINKED",
+            group_id: data.group_id,
+            master_slide: groupStartSlide
+          };
+        }
+        return updated;
+      });
+
+      setShowGroupModal(false);
+      toast.success(`Slides ${groupStartSlide}–${groupEndSlide} grouped successfully with continuous narration!`);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`Failed to group slides: ${err.message || "Unknown error"}`);
+    } finally {
+      setSubmittingGroup(false);
+    }
+  };
+
+  const handleUnsetSlideGroup = async (groupId: string) => {
+    if (!sessionDraft?.id) return;
+    const formData = new FormData();
+    formData.append("session_id", sessionDraft.id);
+    formData.append("group_id", groupId);
+
+    try {
+      const response = await fetch(`${BACKEND_BASE}/hr-induction/unset-slide-group`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${getAuthToken()}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const data = await response.json();
+      const unlinked: number[] = data.unlinked_slides || [];
+
+      setHrAudios((prev) => {
+        const updated = { ...prev };
+        unlinked.forEach((num) => {
+          updated[num] = { duration: 0, uploaded: false };
+        });
+        return updated;
+      });
+      toast.success("Slide group unlinked successfully.");
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`Failed to unlink slide group: ${err.message || "Unknown error"}`);
     }
   };
 
@@ -1138,6 +1274,14 @@ function NewSessionPage() {
                                     <span className="text-[10px] bg-amber-500/10 text-amber-600 border border-amber-500/20 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
                                       <VolumeX className="h-3 w-3" /> Silent · 5 sec
                                     </span>
+                                  ) : audioState.group_type === "MASTER" ? (
+                                    <span className="text-[10px] bg-indigo-500/10 text-indigo-600 border border-indigo-500/20 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                                      <Link2 className="h-3 w-3" /> Group Master · Slides {audioState.group_slides?.join(", ")} ({audioState.duration.toFixed(1)}s)
+                                    </span>
+                                  ) : audioState.group_type === "LINKED" ? (
+                                    <span className="text-[10px] bg-blue-500/10 text-blue-600 border border-blue-500/20 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                                      <Link2 className="h-3 w-3" /> Shared with Slide {audioState.master_slide} (Continuous)
+                                    </span>
                                   ) : (
                                     <span className="text-[10px] bg-green-500/10 text-green-600 border border-green-500/20 px-2 py-0.5 rounded-full font-medium">
                                       Narration Ready
@@ -1162,55 +1306,203 @@ function NewSessionPage() {
 
                               {/* Audio Controls */}
                               <div className="flex flex-wrap items-center gap-2">
-                                <label
-                                  className={`flex items-center gap-2 cursor-pointer px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
-                                    isUploading
-                                      ? "opacity-50 pointer-events-none border-border/40 text-muted-foreground"
-                                      : isUploaded && !audioState.is_silent
-                                      ? "border-green-500/30 text-green-700 bg-green-500/5 hover:bg-green-500/10"
-                                      : "border-violet-500/30 text-violet-700 bg-violet-500/5 hover:bg-violet-500/10"
-                                  }`}
-                                >
-                                  <Upload className="h-3.5 w-3.5" />
-                                  {isUploading ? "Uploading..." : isUploaded && !audioState.is_silent ? "Re-upload Audio" : "Upload Narration (WAV/MP3)"}
-                                  <input
-                                    type="file"
-                                    accept=".wav,.mp3"
-                                    className="hidden"
-                                    onChange={async (e) => {
-                                      const f = e.target.files?.[0];
-                                      if (f) await handleUploadSlideAudio(slideNum, f);
-                                      e.target.value = "";
-                                    }}
-                                    disabled={isUploading}
-                                  />
-                                </label>
+                                {audioState?.group_type === "LINKED" ? (
+                                  <div className="text-xs text-muted-foreground italic flex items-center gap-1.5 py-1">
+                                    <Link2 className="h-3.5 w-3.5 text-blue-500" />
+                                    Continuous narration managed by Slide {audioState.master_slide}.
+                                    {audioState.group_id && (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleUnsetSlideGroup(audioState.group_id!)}
+                                        className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 gap-1 ml-1"
+                                      >
+                                        <Unlink className="h-3 w-3" /> Unlink
+                                      </Button>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <>
+                                    <label
+                                      className={`flex items-center gap-2 cursor-pointer px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+                                        isUploading
+                                          ? "opacity-50 pointer-events-none border-border/40 text-muted-foreground"
+                                          : isUploaded && !audioState.is_silent
+                                          ? "border-green-500/30 text-green-700 bg-green-500/5 hover:bg-green-500/10"
+                                          : "border-violet-500/30 text-violet-700 bg-violet-500/5 hover:bg-violet-500/10"
+                                      }`}
+                                    >
+                                      <Upload className="h-3.5 w-3.5" />
+                                      {isUploading ? "Uploading..." : isUploaded && !audioState.is_silent ? "Re-upload Audio" : "Upload Narration (WAV/MP3)"}
+                                      <input
+                                        type="file"
+                                        accept=".wav,.mp3"
+                                        className="hidden"
+                                        onChange={async (e) => {
+                                          const f = e.target.files?.[0];
+                                          if (f) await handleUploadSlideAudio(slideNum, f);
+                                          e.target.value = "";
+                                        }}
+                                        disabled={isUploading}
+                                      />
+                                    </label>
 
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={settingSlideSilentIndex === slideNum}
-                                  onClick={() => handleSetSlideSilent(slideNum)}
-                                  className={`h-8 text-xs gap-1.5 ${
-                                    audioState?.is_silent
-                                      ? "border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 font-semibold"
-                                      : "border-border/60 text-muted-foreground hover:text-foreground"
-                                  }`}
-                                >
-                                  <VolumeX className="h-3.5 w-3.5" />
-                                  {settingSlideSilentIndex === slideNum
-                                    ? "Setting..."
-                                    : audioState?.is_silent
-                                    ? "Silent · 5-Second Hold"
-                                    : "No Audio — 5-Second Hold"}
-                                </Button>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={settingSlideSilentIndex === slideNum}
+                                      onClick={() => handleSetSlideSilent(slideNum)}
+                                      className={`h-8 text-xs gap-1.5 ${
+                                        audioState?.is_silent
+                                          ? "border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 font-semibold"
+                                          : "border-border/60 text-muted-foreground hover:text-foreground"
+                                      }`}
+                                    >
+                                      <VolumeX className="h-3.5 w-3.5" />
+                                      {settingSlideSilentIndex === slideNum
+                                        ? "Setting..."
+                                        : audioState?.is_silent
+                                        ? "Silent · 5-Second Hold"
+                                        : "No Audio — 5-Second Hold"}
+                                    </Button>
+
+                                    {slideNum < hrSlides.length && (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handleOpenGroupModal(slideNum)}
+                                        className="h-8 text-xs gap-1.5 border-indigo-500/30 text-indigo-700 bg-indigo-500/5 hover:bg-indigo-500/10"
+                                      >
+                                        <Link2 className="h-3.5 w-3.5" />
+                                        Group Across Slides
+                                      </Button>
+                                    )}
+
+                                    {audioState?.group_type === "MASTER" && audioState.group_id && (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleUnsetSlideGroup(audioState.group_id!)}
+                                        className="h-8 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 gap-1"
+                                      >
+                                        <Unlink className="h-3.5 w-3.5" /> Unlink Group
+                                      </Button>
+                                    )}
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>
                         </div>
                       );
                     })}
+                  </div>
+                )}
+
+                {/* Group Across Slides Modal / Panel */}
+                {showGroupModal && (
+                  <div className="p-4 border-2 border-indigo-500/30 bg-indigo-50/10 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Link2 className="h-4 w-4 text-indigo-600" />
+                        <h4 className="font-semibold text-sm text-indigo-900">
+                          Group Continuous Narration
+                        </h4>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowGroupModal(false)}
+                        className="h-7 text-xs text-muted-foreground"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      Play one continuous audio recording seamlessly across consecutive slides without interrupting playback.
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-[10px] font-bold text-muted-foreground uppercase">Start Slide</Label>
+                        <Select
+                          value={String(groupStartSlide)}
+                          onValueChange={(val) => {
+                            const start = parseInt(val, 10);
+                            setGroupStartSlide(start);
+                            if (groupEndSlide <= start) {
+                              setGroupEndSlide(Math.min(start + 1, Math.max(...hrSlides)));
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="mt-1 h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {hrSlides.slice(0, hrSlides.length - 1).map((s) => (
+                              <SelectItem key={s} value={String(s)}>Slide {s}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <Label className="text-[10px] font-bold text-muted-foreground uppercase">End Slide</Label>
+                        <Select
+                          value={String(groupEndSlide)}
+                          onValueChange={(val) => setGroupEndSlide(parseInt(val, 10))}
+                        >
+                          <SelectTrigger className="mt-1 h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {hrSlides.filter((s) => s > groupStartSlide).map((s) => (
+                              <SelectItem key={s} value={String(s)}>Slide {s}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-[10px] font-bold text-muted-foreground uppercase">
+                        Group Audio File (WAV/MP3) {hrAudios[groupStartSlide]?.uploaded ? "(Optional if Slide " + groupStartSlide + " has audio)" : "(Required)"}
+                      </Label>
+                      <Input
+                        type="file"
+                        accept=".wav,.mp3"
+                        onChange={(e) => setGroupAudioFile(e.target.files?.[0] || null)}
+                        className="mt-1 text-xs h-9 cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowGroupModal(false)}
+                        className="h-8 text-xs"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleApplySlideGroup}
+                        disabled={submittingGroup || groupEndSlide <= groupStartSlide}
+                        className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5"
+                      >
+                        <Link2 className="h-3.5 w-3.5" />
+                        {submittingGroup ? "Applying Group..." : `Group Slides ${groupStartSlide}–${groupEndSlide}`}
+                      </Button>
+                    </div>
                   </div>
                 )}
 

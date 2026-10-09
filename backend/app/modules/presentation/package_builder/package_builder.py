@@ -88,14 +88,17 @@ class PackageBuilder:
         slide_count: int,
         slide_audios: dict[int, Optional[Path]],
         slide_notes: dict[int, str],
-        slide_types: Optional[dict[int, str]] = None
+        slide_types: Optional[dict[int, str]] = None,
+        slide_groups: Optional[dict[int, dict]] = None
     ) -> Path:
         """
         Assembles a package from HR-recorded slides, generating combined narration and timelines.
         Supports explicit SILENT slides with 5-second digital silence hold.
+        Supports multi-slide continuous grouped narration across consecutive slides.
         """
         logger.info(f"PackageBuilder | Building HR package for session: {session_id}")
         slide_types = slide_types or {}
+        slide_groups = slide_groups or {}
         
         # 1. Ensure slide_audio directory exists in session
         slide_audio_pkg_dir = session_dir / "slide_audio"
@@ -107,7 +110,7 @@ class PackageBuilder:
         ref_sampwidth = 2
         for s_idx in sorted(slide_audios.keys()):
             audio_p = slide_audios[s_idx]
-            if audio_p and audio_p.exists() and slide_types.get(s_idx) != "SILENT":
+            if audio_p and audio_p.exists() and slide_types.get(s_idx) not in ("SILENT", "GROUP_LINKED"):
                 try:
                     params = self.get_wav_params(audio_p)
                     ref_rate = params.framerate
@@ -125,9 +128,75 @@ class PackageBuilder:
         events = []
 
         for idx, slide_num in enumerate(sorted_slide_indices):
-            is_silent = slide_types.get(slide_num) == "SILENT" or slide_audios[slide_num] is None
-            
-            if is_silent:
+            s_type = slide_types.get(slide_num, "AUDIO")
+
+            if s_type == "GROUP_LINKED":
+                # Linked slide in continuous group: audio handled by master slide
+                # Do NOT append audio or advance timeline offset here (handled when master processed)
+                notes = slide_notes.get(slide_num, "")
+                group_info = slide_groups.get(slide_num, {})
+                slide_audio_metadata[str(slide_num)] = {
+                    "filename": None,
+                    "duration_ms": group_info.get("duration_ms", 0),
+                    "type": "GROUP_LINKED",
+                    "group_id": group_info.get("group_id"),
+                    "master_slide": group_info.get("master_slide"),
+                    "notes": notes
+                }
+                continue
+
+            elif s_type == "GROUP_MASTER":
+                # Master slide of continuous group
+                src_wav_path = slide_audios[slide_num]
+                dest_wav_name = f"slide_{slide_num}_group.wav"
+                dest_wav_path = slide_audio_pkg_dir / dest_wav_name
+                shutil.copy(src_wav_path, dest_wav_path)
+                total_duration_ms = self.get_wav_duration_ms(dest_wav_path)
+                input_wav_paths.append(dest_wav_path)
+
+                group_info = slide_groups.get(slide_num, {})
+                group_slides = group_info.get("group_slides", [slide_num])
+                n_slides = len(group_slides)
+
+                # Distribute duration across slides if not explicitly defined
+                custom_durations = group_info.get("slide_durations_ms", {})
+                allocated_durations = {}
+                if custom_durations and all(s in custom_durations for s in group_slides):
+                    allocated_durations = custom_durations
+                else:
+                    per_slide_ms = int(total_duration_ms / n_slides)
+                    for i, g_s in enumerate(group_slides):
+                        if i == n_slides - 1:
+                            allocated_durations[g_s] = int(total_duration_ms) - (per_slide_ms * (n_slides - 1))
+                        else:
+                            allocated_durations[g_s] = per_slide_ms
+
+                # Record master metadata
+                notes = slide_notes.get(slide_num, "")
+                slide_audio_metadata[str(slide_num)] = {
+                    "filename": dest_wav_name,
+                    "duration_ms": int(total_duration_ms),
+                    "type": "GROUP_MASTER",
+                    "group_id": group_info.get("group_id"),
+                    "group_slides": group_slides,
+                    "slide_durations_ms": allocated_durations,
+                    "notes": notes
+                }
+
+                # Emit timeline events for master slide and all linked slides
+                group_cursor_ms = current_offset_ms
+                for g_s in group_slides:
+                    events.append({
+                        "id": len(events) + 1,
+                        "time_ms": int(group_cursor_ms),
+                        "action": "goto_slide",
+                        "slide": g_s
+                    })
+                    group_cursor_ms += allocated_durations.get(g_s, 0)
+
+                current_offset_ms += total_duration_ms
+
+            elif s_type == "SILENT" or slide_audios[slide_num] is None:
                 dest_wav_name = f"slide_{slide_num}_silent.wav"
                 dest_wav_path = slide_audio_pkg_dir / dest_wav_name
                 self.generate_silence_wav(
@@ -138,34 +207,52 @@ class PackageBuilder:
                     sample_width=ref_sampwidth
                 )
                 duration_ms = 5000.0
-                is_type = "SILENT"
+                input_wav_paths.append(dest_wav_path)
+                notes = slide_notes.get(slide_num, "")
+
+                slide_audio_metadata[str(slide_num)] = {
+                    "filename": dest_wav_name,
+                    "duration_ms": int(duration_ms),
+                    "type": "SILENT",
+                    "notes": notes
+                }
+
+                events.append({
+                    "id": len(events) + 1,
+                    "time_ms": int(current_offset_ms),
+                    "action": "goto_slide",
+                    "slide": slide_num
+                })
+                current_offset_ms += duration_ms
+
             else:
                 src_wav_path = slide_audios[slide_num]
                 dest_wav_name = f"slide_{slide_num}.wav"
                 dest_wav_path = slide_audio_pkg_dir / dest_wav_name
                 shutil.copy(src_wav_path, dest_wav_path)
                 duration_ms = self.get_wav_duration_ms(dest_wav_path)
-                is_type = "AUDIO"
+                input_wav_paths.append(dest_wav_path)
+                notes = slide_notes.get(slide_num, "")
 
-            input_wav_paths.append(dest_wav_path)
-            notes = slide_notes.get(slide_num, "")
-            
-            slide_audio_metadata[str(slide_num)] = {
-                "filename": dest_wav_name,
-                "duration_ms": int(duration_ms),
-                "type": is_type,
-                "notes": notes
-            }
-            
-            # Append timeline event
-            events.append({
-                "id": idx + 1,
-                "time_ms": int(current_offset_ms),
-                "action": "goto_slide",
-                "slide": slide_num
-            })
-            
-            current_offset_ms += duration_ms
+                slide_audio_metadata[str(slide_num)] = {
+                    "filename": dest_wav_name,
+                    "duration_ms": int(duration_ms),
+                    "type": "AUDIO",
+                    "notes": notes
+                }
+
+                events.append({
+                    "id": len(events) + 1,
+                    "time_ms": int(current_offset_ms),
+                    "action": "goto_slide",
+                    "slide": slide_num
+                })
+                current_offset_ms += duration_ms
+
+        # Sort timeline events deterministically by time_ms then slide
+        events.sort(key=lambda ev: (ev["time_ms"], ev["slide"]))
+        for idx, ev in enumerate(events):
+            ev["id"] = idx + 1
 
         # 3. Concatenate wav files into single narration.wav
         narration_path = session_dir / "narration.wav"
