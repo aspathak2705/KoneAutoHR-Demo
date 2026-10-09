@@ -31,6 +31,7 @@ playwright>=1.49,<2.0
 # Audio Libraries
 sounddevice>=0.4.6
 soundfile>=0.12.1
+scipy>=1.10,<2.0
 
 # Logging / utilities
 loguru>=0.7,<1.0

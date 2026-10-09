@@ -96,15 +96,14 @@ async def upload_slide_audio(
         logger.error(f"HRInduction | Failed to save file: {e}")
         raise HTTPException(status_code=500, detail="Failed to save audio file")
 
-    # Calculate duration
-    duration_ms = package_builder.get_wav_duration_ms(target_path)
+    # Calculate duration and validate audio decode
+    duration_ms = package_builder.get_audio_duration_ms(target_path)
     if duration_ms <= 0:
-        # Fallback approximation for MP3 or WAV parsing fallback
-        try:
-            size_bytes = target_path.stat().st_size
-            duration_ms = max(3000.0, (size_bytes / 16000.0) * 1000.0)
-        except Exception:
-            duration_ms = 5000.0
+        target_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Uploaded audio file '{audio_file.filename}' is corrupted or empty (0s duration)."
+        )
 
     # Load and update metadata JSON file
     metadata_path = get_metadata_path(session_id)
@@ -284,19 +283,21 @@ async def set_slide_group(
         with open(target_path, "wb") as f:
             f.write(contents)
 
-        if ext == ".wav":
-            duration_ms = package_builder.get_wav_duration_ms(target_path)
-            if duration_ms <= 0:
-                target_path.unlink(missing_ok=True)
-                raise HTTPException(status_code=400, detail="Uploaded WAV file has invalid duration (0s)")
-        else:
-            duration_ms = 15000.0 * len(group_slides)  # Default fallback for MP3
+        duration_ms = package_builder.get_audio_duration_ms(target_path)
+        if duration_ms <= 0:
+            target_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Uploaded audio file '{audio_file.filename}' is corrupted or empty (0s duration)."
+            )
     else:
         # Check if master slide already had an audio file
         existing_master = metadata.get(str(start_slide), {})
         if existing_master.get("audio_path") and Path(existing_master["audio_path"]).exists():
             target_path = Path(existing_master["audio_path"])
             duration_ms = existing_master.get("duration_ms", 0.0)
+            if duration_ms <= 0:
+                duration_ms = package_builder.get_audio_duration_ms(target_path)
         else:
             raise HTTPException(status_code=400, detail="Audio file is required for the slide group")
 

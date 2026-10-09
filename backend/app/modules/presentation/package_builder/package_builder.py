@@ -1,10 +1,18 @@
 import json
 import datetime
+import math
 import shutil
 import wave
 from pathlib import Path
 from typing import Optional, Dict, List, Any
+import numpy as np
+import soundfile as sf
+from scipy.signal import resample_poly
 from loguru import logger
+
+CANONICAL_RATE = 44100
+CANONICAL_CHANNELS = 2
+CANONICAL_SAMPWIDTH = 2  # 16-bit PCM
 
 class PackageBuilder:
     def get_wav_params(self, file_path: Path):
@@ -14,13 +22,62 @@ class PackageBuilder:
         with wave.open(str(file_path), "rb") as w:
             return w.getparams()
 
+    def convert_to_canonical_wav(
+        self,
+        src_path: Path,
+        dst_wav_path: Path,
+        target_sr: int = CANONICAL_RATE,
+        target_ch: int = CANONICAL_CHANNELS
+    ) -> float:
+        """
+        Decodes any supported audio format (MP3, WAV, etc.) via soundfile, converts to canonical
+        PCM WAV (16-bit, 44100Hz, stereo), writes to dst_wav_path, and returns exact duration in ms.
+        Rejects empty or corrupted audio files.
+        """
+        if not src_path.exists():
+            raise FileNotFoundError(f"Source audio file not found: {src_path}")
+        if src_path.stat().st_size == 0:
+            raise ValueError(f"Audio file is empty: {src_path.name}")
+
+        try:
+            data, sr = sf.read(str(src_path), dtype="float32")
+        except Exception as e:
+            logger.error(f"PackageBuilder | Failed to decode audio file {src_path.name}: {e}")
+            raise ValueError(f"Corrupted or unsupported audio file {src_path.name}: {str(e)}")
+
+        if data.size == 0:
+            raise ValueError(f"Audio file contains no playable samples: {src_path.name}")
+
+        # Enforce target channels (stereo)
+        if data.ndim == 1:
+            data = np.column_stack([data, data])
+        elif data.ndim == 2:
+            if data.shape[1] == 1:
+                data = np.column_stack([data[:, 0], data[:, 0]])
+            elif data.shape[1] > target_ch:
+                data = data[:, :target_ch]
+
+        # Resample to canonical sample rate (44100Hz) if needed
+        if sr != target_sr:
+            gcd = math.gcd(sr, target_sr)
+            up = target_sr // gcd
+            down = sr // gcd
+            data = resample_poly(data, up, down, axis=0)
+
+        dst_wav_path.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(str(dst_wav_path), data, target_sr, subtype="PCM_16", format="WAV")
+
+        # Calculate exact duration in ms from frame count
+        duration_ms = (len(data) / float(target_sr)) * 1000.0
+        return duration_ms
+
     def generate_silence_wav(
         self,
         output_path: Path,
         duration_ms: int = 5000,
-        sample_rate: int = 44100,
-        num_channels: int = 2,
-        sample_width: int = 2
+        sample_rate: int = CANONICAL_RATE,
+        num_channels: int = CANONICAL_CHANNELS,
+        sample_width: int = CANONICAL_SAMPWIDTH
     ) -> Path:
         """
         Generates a valid PCM WAV file containing digital silence for the exact duration.
@@ -40,7 +97,7 @@ class PackageBuilder:
 
     def concatenate_wav_files(self, input_paths: list[Path], output_path: Path):
         """
-        Concatenates multiple standard WAV files into a single WAV file with parameter validation.
+        Concatenates multiple canonical WAV files into a single WAV file with parameter validation.
         """
         if not input_paths:
             raise ValueError("No input audio files provided for concatenation.")
@@ -66,10 +123,18 @@ class PackageBuilder:
                     # Write frames
                     w_out.writeframes(w_in.readframes(w_in.getnframes()))
 
-    def get_wav_duration_ms(self, file_path: Path) -> float:
+    def get_audio_duration_ms(self, file_path: Path) -> float:
         """
-        Parses wave file header to return exact duration in milliseconds.
+        Returns exact duration in milliseconds for WAV or MP3 files using soundfile header metadata.
+        Falls back to wave.open if applicable.
         """
+        try:
+            info = sf.info(str(file_path))
+            if info.duration > 0:
+                return float(info.duration * 1000.0)
+        except Exception:
+            pass
+
         try:
             with wave.open(str(file_path), "rb") as w:
                 frames = w.getnframes()
@@ -77,8 +142,14 @@ class PackageBuilder:
                 if rate > 0:
                     return (frames / float(rate)) * 1000.0
         except Exception as e:
-            logger.error(f"PackageBuilder | Failed to read WAV duration for {file_path.name}: {e}")
+            logger.error(f"PackageBuilder | Failed to read audio duration for {file_path.name}: {e}")
         return 0.0
+
+    def get_wav_duration_ms(self, file_path: Path) -> float:
+        """
+        Parses wave or audio file to return exact duration in milliseconds.
+        """
+        return self.get_audio_duration_ms(file_path)
 
     def build_hr_package(
         self,
@@ -105,22 +176,11 @@ class PackageBuilder:
         slide_audio_pkg_dir.mkdir(parents=True, exist_ok=True)
 
         # Determine reference audio parameters from first available real audio file
-        ref_rate = 44100
-        ref_channels = 2
-        ref_sampwidth = 2
-        for s_idx in sorted(slide_audios.keys()):
-            audio_p = slide_audios[s_idx]
-            if audio_p and audio_p.exists() and slide_types.get(s_idx) not in ("SILENT", "GROUP_LINKED"):
-                try:
-                    params = self.get_wav_params(audio_p)
-                    ref_rate = params.framerate
-                    ref_channels = params.nchannels
-                    ref_sampwidth = params.sampwidth
-                    break
-                except Exception:
-                    pass
+        ref_rate = CANONICAL_RATE
+        ref_channels = CANONICAL_CHANNELS
+        ref_sampwidth = CANONICAL_SAMPWIDTH
 
-        # 2. Sort and prepare slide audios, measuring durations
+        # 2. Sort and prepare slide audios, converting to canonical WAV and measuring durations
         sorted_slide_indices = sorted(slide_audios.keys())
         input_wav_paths = []
         slide_audio_metadata = {}
@@ -147,11 +207,12 @@ class PackageBuilder:
 
             elif s_type == "GROUP_MASTER":
                 # Master slide of continuous group
-                src_wav_path = slide_audios[slide_num]
+                src_audio_path = slide_audios[slide_num]
                 dest_wav_name = f"slide_{slide_num}_group.wav"
                 dest_wav_path = slide_audio_pkg_dir / dest_wav_name
-                shutil.copy(src_wav_path, dest_wav_path)
-                total_duration_ms = self.get_wav_duration_ms(dest_wav_path)
+
+                # Canonicalize audio (decode MP3/WAV to 44.1kHz stereo PCM 16-bit)
+                total_duration_ms = self.convert_to_canonical_wav(src_audio_path, dest_wav_path)
                 input_wav_paths.append(dest_wav_path)
 
                 group_info = slide_groups.get(slide_num, {})
@@ -226,11 +287,12 @@ class PackageBuilder:
                 current_offset_ms += duration_ms
 
             else:
-                src_wav_path = slide_audios[slide_num]
+                src_audio_path = slide_audios[slide_num]
                 dest_wav_name = f"slide_{slide_num}.wav"
                 dest_wav_path = slide_audio_pkg_dir / dest_wav_name
-                shutil.copy(src_wav_path, dest_wav_path)
-                duration_ms = self.get_wav_duration_ms(dest_wav_path)
+
+                # Canonicalize audio (decode MP3/WAV to 44.1kHz stereo PCM 16-bit)
+                duration_ms = self.convert_to_canonical_wav(src_audio_path, dest_wav_path)
                 input_wav_paths.append(dest_wav_path)
                 notes = slide_notes.get(slide_num, "")
 
