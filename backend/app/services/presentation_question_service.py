@@ -32,12 +32,15 @@ class PresentationQuestionService:
 
         import tempfile
         from pathlib import Path
+        from app.core.security.secure_storage import secure_storage
         
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            slide_knowledge = parse_presentation(pres.storage_path, temp_path)
+            with secure_storage.open_decrypted_file(pres) as decrypted_pres_path:
+                slide_knowledge = parse_presentation(str(decrypted_pres_path), temp_path)
             
-            raw_rows = parse_employees_excel(emp.storage_path)
+            with secure_storage.open_decrypted_file(emp) as decrypted_emp_path:
+                raw_rows = parse_employees_excel(str(decrypted_emp_path))
             employee_profiles = profile_employees(raw_rows)
             audience_summary = build_audience_summary(employee_profiles)
             

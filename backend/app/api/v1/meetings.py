@@ -93,7 +93,9 @@ async def generate_invitation_drafts(session_id: str, req: Optional[GenerateDraf
     passcode_info = f"<p>Meeting Passcode: <code>{meeting.meeting_passcode}</code></p>" if (meeting and meeting.meeting_passcode) else ""
 
     try:
-        employees = parse_employees_excel(session.employee_list.storage_path)
+        from app.core.security.secure_storage import secure_storage
+        with secure_storage.open_decrypted_file(session.employee_list) as decrypted_emp_path:
+            employees = parse_employees_excel(str(decrypted_emp_path))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse employee Excel: {e}")
 
