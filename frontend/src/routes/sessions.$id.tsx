@@ -472,11 +472,7 @@ function SessionDetailPage() {
     }
   }, [session]);
 
-  if (!session) return <SessionNotFound />;
-
-  const content = getInductionContent(session);
-  const prep = getPreparationSteps(session);
-  const bothUploaded = !!session.presentationFile && !!session.employeesFile;
+  const content = session ? getInductionContent(session) : null;
 
   // Auto-populate selected IDs on first load
   useEffect(() => {
@@ -487,6 +483,10 @@ function SessionDetailPage() {
     }
   }, [content?.employees, selectedEmployeeIds.length]);
 
+  if (!session || !content) return <SessionNotFound />;
+
+  const prep = getPreparationSteps(session);
+  const bothUploaded = !!session.presentationFile && !!session.employeesFile;
   const readyToStart = session.status === "READY" || session.status === "COMPLETED";
 
   const handleOpeningChange = (field: any, value: string) => {
