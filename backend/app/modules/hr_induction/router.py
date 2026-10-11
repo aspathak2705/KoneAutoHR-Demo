@@ -520,6 +520,16 @@ def build_package(
     session_dir = storage_service.get_session_dir(session_id)
     presentation_name = Path(session.presentation.storage_path).name
 
+    # Ensure presentation deck is copied to session_dir
+    session_ppt_copy = session_dir / presentation_name
+    if not session_ppt_copy.exists():
+        import shutil
+        from app.core.security.secure_storage import secure_storage
+        with secure_storage.open_decrypted_file(session.presentation) as decrypted_ppt:
+            shutil.copy2(decrypted_ppt, session_ppt_copy)
+            # Also keep standardized presentation.pptx alias
+            shutil.copy2(decrypted_ppt, session_dir / "presentation.pptx")
+
     from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
     assets_status = presentation_asset_manager.check_assets(db, session.presentation_id, "HR")
     paths = presentation_asset_manager.get_asset_paths(session.presentation_id, "HR")

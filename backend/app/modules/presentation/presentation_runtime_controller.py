@@ -50,6 +50,24 @@ class PresentationRuntimeController:
         if not ppt_path.exists():
             # Try within presentation/ subfolder (standard structured mode)
             ppt_path = session_dir / "presentation" / manifest["presentation"]
+        if not ppt_path.exists():
+            ppt_path = session_dir / "presentation.pptx"
+        if not ppt_path.exists():
+            # Fallback: check session presentation model and decrypt to session_dir
+            try:
+                from app.db.database import SessionLocal
+                from app.models.session import Session
+                from app.core.security.secure_storage import secure_storage
+                import shutil
+                with SessionLocal() as db:
+                    sess = db.query(Session).filter(Session.id == self.session_id).first()
+                    if sess and sess.presentation:
+                        with secure_storage.open_decrypted_file(sess.presentation) as dec_p:
+                            fallback_path = session_dir / manifest["presentation"]
+                            shutil.copy2(dec_p, fallback_path)
+                            ppt_path = fallback_path
+            except Exception as e:
+                logger.warning(f"PresentationRuntimeController | Failed to fallback-copy presentation: {e}")
             
         await self.ppt_controller.open(str(ppt_path), start_immediately=True)
         self._transition_state("EDITOR_OPEN")
