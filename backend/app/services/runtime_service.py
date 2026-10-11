@@ -132,7 +132,9 @@ class RuntimeService:
         if not session.employee_list:
             raise ValueError("Employee register list not loaded in this session.")
         try:
-            employees = parse_employees_excel(session.employee_list.storage_path)
+            from app.core.security.secure_storage import secure_storage
+            with secure_storage.open_decrypted_file(session.employee_list) as decrypted_emp_path:
+                employees = parse_employees_excel(str(decrypted_emp_path))
         except Exception as e:
             raise ValueError(f"Failed to parse employees: {str(e)}")
 

@@ -31,7 +31,9 @@ class ReportService:
         employees = []
         if session.employee_list:
             try:
-                emp_list = parse_employees_excel(session.employee_list.storage_path)
+                from app.core.security.secure_storage import secure_storage
+                with secure_storage.open_decrypted_file(session.employee_list) as decrypted_emp_path:
+                    emp_list = parse_employees_excel(str(decrypted_emp_path))
                 employees = [
                     {
                         "name": emp.get("name"),

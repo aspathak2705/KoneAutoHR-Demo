@@ -37,7 +37,9 @@ class AttendanceService:
         session = db.query(Session).filter(Session.id == session_id).first()
         if session and session.employee_list:
             try:
-                employees = parse_employees_excel(session.employee_list.storage_path)
+                from app.core.security.secure_storage import secure_storage
+                with secure_storage.open_decrypted_file(session.employee_list) as decrypted_emp_path:
+                    employees = parse_employees_excel(str(decrypted_emp_path))
                 total_invited = len(employees)
             except Exception:
                 pass
