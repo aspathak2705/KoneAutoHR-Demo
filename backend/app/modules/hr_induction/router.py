@@ -568,7 +568,7 @@ def build_package(
 
     # Update session status
     try:
-        session.status = "PREPARED"
+        session.status = SessionStatus.READY.value
         session.creation_mode = "HR"
         session.package_version = "1.0.0"
         session.package_path = str(session_dir)
@@ -581,5 +581,5 @@ def build_package(
 
     return {
         "status": "SUCCESS",
-        "message": "Presentation package compiled and session marked as PREPARED"
+        "message": "Presentation package compiled and session marked as READY"
     }
