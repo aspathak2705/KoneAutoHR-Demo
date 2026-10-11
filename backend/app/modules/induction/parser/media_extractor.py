@@ -118,18 +118,18 @@ def extract_slide_media(slide: Slide, slide_number: int, session_dir: Path) -> T
     for shape in slide.shapes:
         # 1. Image extraction
         if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
-            image_count += 1
-            image = shape.image
-            ext = image.ext  # e.g., 'png', 'jpeg'
-            img_filename = f"slide_{slide_number}_img_{image_count}.{ext}"
-            img_path = images_dir / img_filename
-
             try:
+                image = shape.image
+                ext = image.ext  # e.g., 'png', 'jpeg'
+                image_count += 1
+                img_filename = f"slide_{slide_number}_img_{image_count}.{ext}"
+                img_path = images_dir / img_filename
+
                 with open(img_path, "wb") as f:
                     f.write(image.blob)
                 image_paths.append(img_filename)
-            except Exception:
-                pass
+            except Exception as img_err:
+                logger.debug(f"MediaExtractor | Slide {slide_number} image skipped: {img_err}")
 
         # 2. Video shape detection (MEDIA = 16 or 26)
         elif shape.shape_type == MSO_SHAPE_TYPE.MEDIA:
