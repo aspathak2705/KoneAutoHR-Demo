@@ -143,49 +143,160 @@ class AudioController:
             self._durations[key] = duration
             
         logger.info(f"AudioController | Zero-latency preloader completed caching {len(files)} tracks.")
-    def validate_audio_route(self) -> bool:
-        """Validate that the VB-CABLE Input playback device exists, is accessible, and cache its index."""
+    @classmethod
+    def _is_unrelated_device(cls, name_lower: str) -> bool:
+        """Reject unrelated endpoints even if they contain 'vb-audio' or 'cable'."""
+        unrelated_patterns = [
+            "speakers (2- vb-audio",
+            "speakers (vb-audio",
+            "output (vb-audio point)",
+            "cable output",
+            "input (vb-audio point)",
+        ]
+        return any(pat in name_lower for pat in unrelated_patterns)
+
+    @classmethod
+    def _rank_device_name(cls, name: str) -> int:
+        """
+        Rank device names:
+        3: Exact 'cable input' (or 'cable input (...')
+        2: 'cable in' variants (e.g. 'cable in 16 ch', 'cable in ...')
+        1: General 'cable in' substring
+        -1: Unrelated or non-matching
+        """
+        name_lower = name.strip().lower()
+        if cls._is_unrelated_device(name_lower):
+            return -1
+
+        import re
+        # Top rank: starts with 'cable input'
+        if name_lower.startswith("cable input"):
+            return 3
+        # Rank 2: 'cable in' followed by word boundary / digits / channels
+        if re.search(r"\bcable\s+in\b", name_lower):
+            return 2
+        return -1
+
+    def validate_audio_route(self, preferred_sample_rates=(44100, 48000, 16000, 24000), preferred_channels=(2, 1)) -> bool:
+        """Validate that the intended VB-Audio Virtual Cable playback device exists, is accessible, and cache its index."""
         from app.core.config import settings
         import sounddevice as sd
         
-        target_name = settings.AUDIO_OUTPUT_DEVICE or "CABLE Input"
+        target_name = (settings.AUDIO_OUTPUT_DEVICE or "CABLE Input").strip()
         devices = sd.query_devices()
+        apis = sd.query_hostapis()
         
-        # Enumerate and log all detected output devices for troubleshooting
-        logger.info("Detected Output Devices:")
+        # Enumerate and log all detected output devices for diagnostics
+        logger.info("AudioController | Detected Output Devices:")
+        output_devices = []
         for idx, d in enumerate(devices):
             if d.get("max_output_channels", 0) > 0:
-                logger.info(f"  [{idx}] {d.get('name')} (channels: {d.get('max_output_channels')})")
+                host_api_name = apis[d.get("hostapi", 0)]["name"] if d.get("hostapi") is not None else "Unknown"
+                logger.info(
+                    f"  [{idx}] {d.get('name')} (HostAPI: {host_api_name}, "
+                    f"MaxOutChannels: {d.get('max_output_channels')}, "
+                    f"DefaultSR: {d.get('default_samplerate')})"
+                )
+                output_devices.append((idx, d, host_api_name))
         
-        # Find matching output device (matching case-insensitive prefix/substring)
-        self._cached_device_idx = None
-        selected_device_name = ""
+        # Deterministic ranked candidate gathering
+        # Format: (name_rank, host_api_priority, max_channels, device_index, device_info, host_api_name)
+        # Host API preference: DirectSound (2), MME (1), WASAPI (0), other (-1)
+        api_priority = {
+            "windows directsound": 2,
+            "mme": 1,
+            "windows wasapi": 0
+        }
         
-        for idx, d in enumerate(devices):
-            if d.get("max_output_channels", 0) > 0 and (
-                target_name.lower() in d.get("name", "").lower() or
-                d.get("name", "").lower().startswith(target_name.lower())
-            ):
-                self._cached_device_idx = idx
-                selected_device_name = d.get("name")
+        candidates = []
+        for idx, d, api_name in output_devices:
+            d_name = d.get("name", "")
+            # Check custom target name match first if specified and not default
+            if target_name.lower() not in ["cable input", "cable in"] and target_name.lower() in d_name.lower():
+                name_rank = 4
+            else:
+                name_rank = self._rank_device_name(d_name)
+            
+            if name_rank <= 0:
+                continue
+
+            api_prio = api_priority.get(api_name.lower(), -1)
+            max_ch = d.get("max_output_channels", 0)
+            candidates.append((name_rank, api_prio, max_ch, idx, d, api_name))
+        
+        if not candidates:
+            available_names = [f"[{idx}] {d.get('name')} ({api})" for idx, d, api in output_devices]
+            candidate_list_str = "\n".join(available_names) if available_names else "None"
+            logger.error(
+                f"[Audio] VB-CABLE playback device not found. Target search pattern: '{target_name}'.\n"
+                f"Available playback devices:\n{candidate_list_str}"
+            )
+            raise RuntimeError(
+                f"VB-CABLE playback device not found (target: '{target_name}'). "
+                f"Discovered playback devices:\n{candidate_list_str}\n"
+                f"Please ensure VB-Audio Virtual Cable (CABLE Input) is installed and enabled."
+            )
+
+        # Sort candidates deterministically: highest name rank, highest API priority, highest channels, lowest index
+        candidates.sort(key=lambda c: (c[0], c[1], c[2], -c[3]), reverse=True)
+
+        # Validate candidates against audio formats and choose the best working endpoint
+        selected = None
+        validation_errors = []
+
+        for name_rank, api_prio, max_ch, idx, d, api_name in candidates:
+            # Test default output settings or format compatibility
+            tested_sr = None
+            tested_ch = None
+            is_valid = False
+
+            # Check standard sample rates and channel counts
+            for sr in preferred_sample_rates:
+                for ch in preferred_channels:
+                    if ch <= max_ch:
+                        try:
+                            sd.check_output_settings(device=idx, channels=ch, samplerate=sr)
+                            is_valid = True
+                            tested_sr = sr
+                            tested_ch = ch
+                            break
+                        except Exception:
+                            pass
+                if is_valid:
+                    break
+
+            # Fallback check against device default settings
+            if not is_valid:
+                try:
+                    sd.check_output_settings(device=idx)
+                    is_valid = True
+                    tested_sr = int(d.get("default_samplerate", 44100))
+                    tested_ch = min(2, max_ch)
+                except Exception as err:
+                    validation_errors.append(f"Device [{idx}] '{d.get('name')}' ({api_name}) failed format check: {err}")
+
+            if is_valid:
+                selected = (idx, d, api_name, tested_sr, tested_ch)
                 break
-                
-        if self._cached_device_idx is None:
-            logger.error(f"[Audio] VB-CABLE playback device not found. Expected containing: {target_name}. Please install VB-Audio Virtual Cable.")
-            raise RuntimeError(f"VB-CABLE playback device not found. Expected containing: {target_name}. Please install VB-Audio Virtual Cable.")
-            
-        # Verify device accessibility (try querying defaults or format support)
-        try:
-            sd.check_output_settings(device=self._cached_device_idx)
-        except Exception as e:
-            logger.error(f"[Audio] Selected device index {self._cached_device_idx} is not accessible: {e}")
-            raise RuntimeError(f"Selected audio device '{selected_device_name}' is inaccessible: {e}")
-            
+
+        if not selected:
+            err_msg = "; ".join(validation_errors) or "No compatible channels or sample rate supported."
+            logger.error(f"[Audio] All matched VB-CABLE candidate endpoints failed validation: {err_msg}")
+            raise RuntimeError(f"VB-CABLE playback candidate validation failed: {err_msg}")
+
+        idx, d, api_name, tested_sr, tested_ch = selected
+        self._cached_device_idx = idx
+        self._cached_device_name = d.get("name")
+        self._cached_host_api = api_name
+
         logger.info(
-            f"Selected Output Device\n\n"
-            f"CABLE Input\n"
-            f"Index: {self._cached_device_idx}\n\n"
-            f"Audio Validation Passed"
+            f"AudioController | Selected Output Device:\n"
+            f"  Name: {self._cached_device_name}\n"
+            f"  Host API: {self._cached_host_api}\n"
+            f"  Device Index: {self._cached_device_idx}\n"
+            f"  Max Channels: {d.get('max_output_channels')} (Validated Channels: {tested_ch})\n"
+            f"  Default Sample Rate: {d.get('default_samplerate')} Hz (Validated SR: {tested_sr} Hz)\n"
+            f"  Audio Route Validation: PASSED"
         )
         return True
 
