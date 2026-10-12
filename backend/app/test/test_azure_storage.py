@@ -92,3 +92,44 @@ async def test_azure_blob_provider_save_file(mock_blob_service_client):
     assert storage_key == "employee_lists/test_file.txt"
     assert size == len(raw_data)
     mock_blob.upload_blob.assert_called_once_with(raw_data, overwrite=True)
+
+
+def test_secure_storage_open_decrypted_file_local_unencrypted(tmp_path):
+    """Test secure_storage open_decrypted_file with local unencrypted legacy file."""
+    from app.core.security.secure_storage import secure_storage
+
+    test_file = tmp_path / "legacy.pptx"
+    test_file.write_bytes(b"legacy presentation content")
+
+    mock_entity = MagicMock()
+    mock_entity.storage_path = str(test_file)
+    mock_entity.encryption_version = 0
+
+    with secure_storage.open_decrypted_file(mock_entity) as path:
+        assert Path(path).exists()
+        assert Path(path).read_bytes() == b"legacy presentation content"
+
+
+@patch("app.core.security.secure_storage.get_storage_provider")
+def test_secure_storage_open_decrypted_file_uses_configured_provider(mock_get_provider, tmp_path):
+    """Regression test: secure_storage.open_decrypted_file resolves path via configured provider."""
+    from app.core.security.secure_storage import secure_storage
+
+    dummy_file = tmp_path / "cached_download.pptx"
+    dummy_file.write_bytes(b"downloaded azure content")
+
+    mock_provider = MagicMock()
+    mock_provider.get_path.return_value = dummy_file
+    mock_get_provider.return_value = mock_provider
+
+    mock_entity = MagicMock()
+    mock_entity.storage_path = "presentations/cached_download.pptx"
+    mock_entity.encryption_version = 0
+
+    with secure_storage.open_decrypted_file(mock_entity) as path:
+        assert Path(path).exists()
+        assert Path(path).read_bytes() == b"downloaded azure content"
+
+    mock_get_provider.assert_called_once()
+    mock_provider.get_path.assert_called_once_with("presentations/cached_download.pptx")
+

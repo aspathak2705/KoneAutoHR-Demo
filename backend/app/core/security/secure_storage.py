@@ -10,7 +10,8 @@ from loguru import logger
 from app.core.config import settings
 from app.core.security.encryption_service import encryption_service
 from app.core.security.key_manager import key_manager
-from app.storage.local_storage import local_storage
+from app.storage.local_storage import get_storage_provider
+
 
 class SecureTempManager:
     """
@@ -71,7 +72,8 @@ class SecureStorage:
         Context manager that decrypts entity storage file and yields temp plaintext Path.
         If entity is legacy unencrypted (encryption_version == 0), returns physical path directly.
         """
-        full_path = local_storage.get_path(entity_model.storage_path)
+        provider = get_storage_provider()
+        full_path = provider.get_path(entity_model.storage_path)
         
         # Legacy unencrypted fallback
         if getattr(entity_model, "encryption_version", 0) == 0:
