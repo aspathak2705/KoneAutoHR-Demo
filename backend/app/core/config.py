@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     AUTH_TOKEN: Optional[str] = Field(None)
     KEY_PROVIDER: str = Field("windows_dpapi")
     STORAGE_PROVIDER: str = Field("local")
+    AZURE_STORAGE_CONNECTION_STRING: Optional[str] = Field(None)
+    AZURE_STORAGE_CONTAINER_NAME: str = Field("autohr-data")
+    AZURE_STORAGE_ACCOUNT_URL: Optional[str] = Field(None)
 
     # V2 Storage & Voice Provider configurations
     AUTOHR_STORAGE_PATH: str = Field("storage")

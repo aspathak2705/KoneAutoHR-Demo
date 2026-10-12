@@ -36,5 +36,10 @@ scipy>=1.10,<2.0
 # Logging / utilities
 loguru>=0.7,<1.0
 
+# Azure Cloud Storage (Phase 1/2)
+azure-storage-blob>=12.20,<13.0
+azure-identity>=1.15,<2.0
+
 # Testing
 pytest>=8.3,<9.0
+
