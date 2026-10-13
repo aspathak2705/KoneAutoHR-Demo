@@ -2,6 +2,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { LayoutDashboard, CalendarDays, Plus, BarChart3, Search, Bot } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { AuthStatusBadge } from "./auth-status-badge";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
@@ -64,6 +65,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               <KoneLogo />
             </div>
             <div className="flex-grow" />
+
+            <AuthStatusBadge />
 
             <Link 
               to="/profile" 

@@ -183,32 +183,80 @@ function seed(): InductionSession[] {
   return initial;
 }
 
-const API = import.meta.env.VITE_API_BASE_URL;
-if (!API) {
-  throw new Error("CRITICAL: VITE_API_BASE_URL environment variable is missing.");
+function validateApiBaseUrl(rawUrl?: string): string {
+  if (!rawUrl) {
+    throw new Error("CRITICAL: VITE_API_BASE_URL environment variable is missing.");
+  }
+  const isProd = import.meta.env.PROD;
+  try {
+    const parsed = new URL(rawUrl);
+    if (isProd) {
+      const isLocal = ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(parsed.hostname.toLowerCase());
+      if (isLocal) {
+        throw new Error(
+          `SECURITY VIOLATION: Production build must not point to local address (${parsed.hostname}). Set VITE_API_BASE_URL to the secure production backend HTTPS endpoint.`
+        );
+      }
+      if (parsed.protocol !== "https:") {
+        throw new Error(
+          `SECURITY VIOLATION: Production build requires HTTPS protocol. Current URL: ${rawUrl}`
+        );
+      }
+    }
+  } catch (err: any) {
+    if (err.message?.startsWith("SECURITY VIOLATION")) throw err;
+    throw new Error(`CRITICAL: Invalid VITE_API_BASE_URL URL format: "${rawUrl}" - ${err.message}`);
+  }
+  return rawUrl.replace(/\/$/, "");
 }
-export const BACKEND_BASE = (API as string).replace(/\/$/, "") + "/api/v1";
+
+const API = validateApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
+export const BACKEND_BASE = `${API}/api/v1`;
 
 export function getAuthToken(): string {
   if (typeof window !== "undefined") {
     const sessionToken = window.sessionStorage.getItem("autohr.auth_token");
-    if (sessionToken) return sessionToken;
+    if (sessionToken && sessionToken.trim().length > 0) {
+      return sessionToken.trim();
+    }
   }
-  return "autohr_dev_secret_token_local";
+  // In development mode only, provide the local mock token for developer convenience.
+  // In production builds, NEVER fall back to a hardcoded credential.
+  if (import.meta.env.DEV) {
+    return "autohr_dev_secret_token_local";
+  }
+  return "";
 }
 
 export function setAuthToken(token: string) {
   if (typeof window !== "undefined") {
-    window.sessionStorage.setItem("autohr.auth_token", token);
+    if (!token) {
+      window.sessionStorage.removeItem("autohr.auth_token");
+    } else {
+      window.sessionStorage.setItem("autohr.auth_token", token.trim());
+    }
+    // Dispatch custom event to notify reactive UI components of auth state changes
+    window.dispatchEvent(new Event("autohr:auth-change"));
   }
 }
+
+export function clearAuthToken() {
+  setAuthToken("");
+}
+
 
 export async function apiFetch(path: string, options?: RequestInit) {
   const url = `${BACKEND_BASE}${path}`;
   const headers = new Headers(options?.headers || {});
-  headers.set("Authorization", `Bearer ${getAuthToken()}`);
+  const token = getAuthToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
   const response = await fetch(url, { ...options, headers });
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(new Event("autohr:unauthorized"));
+    }
     const errorText = await response.text().catch(() => "Unknown error");
     let message = errorText || `HTTP ${response.status}`;
     try {
@@ -220,6 +268,7 @@ export async function apiFetch(path: string, options?: RequestInit) {
   if (response.status === 204) return null;
   return response.json();
 }
+
 
 let isFetching = false;
 

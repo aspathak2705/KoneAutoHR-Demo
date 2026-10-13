@@ -1,0 +1,75 @@
+name: Deploy AutoHR Frontend to Azure App Service
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "Production Backend HTTPS URL (e.g. https://api-demo.yourdomain.com)"
+        required: true
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-frontend.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate and build frontend (Nitro node-server)
+        env:
+          VITE_API_BASE_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL }}
+          NITRO_PRESET: node-server
+        run: |
+          if [ -z "$VITE_API_BASE_URL" ]; then
+            echo "::error::CRITICAL: VITE_API_BASE_URL is not set. Provide workflow input or configure repository variable VITE_API_BASE_URL."
+            exit 1
+          fi
+          npm run build
+
+      - name: Verify build artifacts
+        run: |
+          if [ ! -f .output/server/index.mjs ]; then
+            echo "::error::Build verification failed: .output/server/index.mjs does not exist!"
+            exit 1
+          fi
+          if [ ! -d .output/public ]; then
+            echo "::error::Build verification failed: .output/public does not exist!"
+            exit 1
+          fi
+          echo "Verified Nitro node-server artifact exists."
+
+      - name: Package deployment artifact (.output directory)
+        run: |
+          cd .output
+          zip -r ../deploy-package.zip .
+
+      - name: Deploy to Azure Web App (KONE-Autohr-Demo)
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: "KONE-Autohr-Demo"
+          package: frontend/deploy-package.zip
+          startup-command: "node server/index.mjs"
