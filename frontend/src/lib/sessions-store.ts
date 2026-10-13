@@ -191,7 +191,14 @@ function validateApiBaseUrl(rawUrl?: string): string {
   try {
     const parsed = new URL(rawUrl);
     if (isProd) {
-      const isLocal = ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(parsed.hostname.toLowerCase());
+      const cleanHost = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+      const isLocal =
+        cleanHost === "localhost" ||
+        cleanHost.endsWith(".localhost") ||
+        cleanHost === "127.0.0.1" ||
+        cleanHost === "::1" ||
+        cleanHost === "0.0.0.0" ||
+        cleanHost.startsWith("127.");
       if (isLocal) {
         throw new Error(
           `SECURITY VIOLATION: Production build must not point to local address (${parsed.hostname}). Set VITE_API_BASE_URL to the secure production backend HTTPS endpoint.`

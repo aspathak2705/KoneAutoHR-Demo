@@ -93,7 +93,7 @@ export function AuthStatusBadge() {
               Demo Session Access
             </DialogTitle>
             <DialogDescription>
-              Enter the authorized bearer token to connect this hosted dashboard to the AutoHR Windows execution engine.
+              Enter the shared demo access token configured for this AutoHR presentation runner.
             </DialogDescription>
           </DialogHeader>
 

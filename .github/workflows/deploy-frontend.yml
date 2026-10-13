@@ -7,12 +7,7 @@ on:
         description: "Production Backend HTTPS URL (e.g. https://api-demo.yourdomain.com)"
         required: true
         type: string
-  push:
-    branches:
-      - main
-    paths:
-      - "frontend/**"
-      - ".github/workflows/deploy-frontend.yml"
+
 
 permissions:
   id-token: write
