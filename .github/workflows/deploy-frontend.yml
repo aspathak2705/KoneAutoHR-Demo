@@ -3,11 +3,19 @@ name: Deploy AutoHR Frontend to Azure App Service
 on:
   workflow_dispatch:
     inputs:
-      api_base_url:
-        description: "Production Backend HTTPS URL (e.g. https://api-demo.yourdomain.com)"
+      deployment_mode:
+        description: "Deployment Mode"
         required: true
+        default: "ui_only"
+        type: choice
+        options:
+          - "ui_only"
+          - "connected"
+      api_base_url:
+        description: "Production Backend HTTPS URL (Required for 'connected' mode, e.g. https://api-demo.yourdomain.com)"
+        required: false
+        default: ""
         type: string
-
 
 permissions:
   id-token: write
@@ -34,15 +42,43 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate and build frontend (Nitro node-server)
+      - name: Validate inputs and build frontend (Nitro node-server)
         env:
-          VITE_API_BASE_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL }}
+          DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
+          INPUT_API_URL: ${{ inputs.api_base_url }}
+          REPO_API_URL: ${{ vars.VITE_API_BASE_URL }}
           NITRO_PRESET: node-server
         run: |
-          if [ -z "$VITE_API_BASE_URL" ]; then
-            echo "::error::CRITICAL: VITE_API_BASE_URL is not set. Provide workflow input or configure repository variable VITE_API_BASE_URL."
+          echo "Processing build for mode: $DEPLOYMENT_MODE"
+          if [ "$DEPLOYMENT_MODE" = "ui_only" ]; then
+            echo "Deploying in UI-only mode: live backend connection disabled."
+            export VITE_APP_MODE="ui_only"
+            export VITE_API_BASE_URL="ui_only"
+          elif [ "$DEPLOYMENT_MODE" = "connected" ]; then
+            RESOLVED_URL="${INPUT_API_URL:-$REPO_API_URL}"
+            if [ -z "$RESOLVED_URL" ]; then
+              echo "::error::CRITICAL: 'connected' mode requires a valid HTTPS backend URL. Provide 'api_base_url' input or configure repository variable 'VITE_API_BASE_URL'."
+              exit 1
+            fi
+            # Strict HTTPS check
+            if [[ ! "$RESOLVED_URL" =~ ^https:// ]]; then
+              echo "::error::SECURITY VIOLATION: Backend URL must start with 'https://'. Insecure HTTP or malformed URLs are rejected: $RESOLVED_URL"
+              exit 1
+            fi
+            # Loopback and local address rejection
+            LOWER_URL=$(echo "$RESOLVED_URL" | tr '[:upper:]' '[:lower:]')
+            if [[ "$LOWER_URL" =~ (localhost|127\.|0\.0\.0\.0|\[::1\]) ]]; then
+              echo "::error::SECURITY VIOLATION: Production build must not point to loopback or local address: $RESOLVED_URL"
+              exit 1
+            fi
+            export VITE_APP_MODE="connected"
+            export VITE_API_BASE_URL="$RESOLVED_URL"
+            echo "Connected mode enabled with backend endpoint."
+          else
+            echo "::error::Unrecognized deployment mode: $DEPLOYMENT_MODE"
             exit 1
           fi
+
           npm run build
 
       - name: Verify build artifacts

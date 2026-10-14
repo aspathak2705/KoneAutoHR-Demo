@@ -183,9 +183,23 @@ function seed(): InductionSession[] {
   return initial;
 }
 
+export const IS_UI_ONLY_MODE =
+  import.meta.env.VITE_APP_MODE === "ui_only" ||
+  import.meta.env.VITE_API_BASE_URL === "ui_only";
+
+export function isUiOnlyMode(): boolean {
+  return IS_UI_ONLY_MODE;
+}
+
 function validateApiBaseUrl(rawUrl?: string): string {
+  if (IS_UI_ONLY_MODE) {
+    return "ui_only";
+  }
+
   if (!rawUrl) {
-    throw new Error("CRITICAL: VITE_API_BASE_URL environment variable is missing.");
+    throw new Error(
+      "CRITICAL: VITE_API_BASE_URL environment variable is missing. Set to valid HTTPS backend URL or use VITE_APP_MODE=ui_only."
+    );
   }
   const isProd = import.meta.env.PROD;
   try {
@@ -201,7 +215,7 @@ function validateApiBaseUrl(rawUrl?: string): string {
         cleanHost.startsWith("127.");
       if (isLocal) {
         throw new Error(
-          `SECURITY VIOLATION: Production build must not point to local address (${parsed.hostname}). Set VITE_API_BASE_URL to the secure production backend HTTPS endpoint.`
+          `SECURITY VIOLATION: Production build must not point to local address (${parsed.hostname}). Set VITE_API_BASE_URL to the secure production backend HTTPS endpoint, or build in ui_only mode.`
         );
       }
       if (parsed.protocol !== "https:") {
@@ -218,7 +232,8 @@ function validateApiBaseUrl(rawUrl?: string): string {
 }
 
 const API = validateApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
-export const BACKEND_BASE = `${API}/api/v1`;
+export const BACKEND_BASE = API === "ui_only" ? "ui_only" : `${API}/api/v1`;
+
 
 export function getAuthToken(): string {
   if (typeof window !== "undefined") {
@@ -253,6 +268,11 @@ export function clearAuthToken() {
 
 
 export async function apiFetch(path: string, options?: RequestInit) {
+  if (IS_UI_ONLY_MODE) {
+    throw new Error(
+      "UI-Only Mode: Live backend connection is disabled for this hosted deployment. To trigger presentation automation, connect to the Windows AutoHR runner."
+    );
+  }
   const url = `${BACKEND_BASE}${path}`;
   const headers = new Headers(options?.headers || {});
   const token = getAuthToken();
@@ -280,10 +300,12 @@ export async function apiFetch(path: string, options?: RequestInit) {
 let isFetching = false;
 
 export async function syncFromBackend() {
+  if (IS_UI_ONLY_MODE) return;
   if (isFetching) return;
   isFetching = true;
   try {
     const backendSessions = await apiFetch("/sessions");
+
     const nextSessions: InductionSession[] = [];
 
     for (const s of backendSessions) {
