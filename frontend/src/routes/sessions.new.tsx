@@ -39,6 +39,7 @@ import {
   apiFetch,
   BACKEND_BASE,
   getAuthToken,
+  isUiOnlyMode,
   SavedPresentation,
   SavedEmployeeList,
   PresentationScript,
@@ -328,6 +329,10 @@ function NewSessionPage() {
   }, [selectedPresId, presentations]);
 
   const handleUploadSlideAudio = async (slideNumber: number, file: File) => {
+    if (isUiOnlyMode()) {
+      toast.error("UI-Only Mode: Live narration upload is disabled until connected to the Windows AutoHR runner.");
+      return;
+    }
     if (!sessionDraft?.id) {
       toast.error("Draft session not initialized. Please proceed from Step 2.");
       return;
@@ -370,6 +375,10 @@ function NewSessionPage() {
   };
 
   const handleSetSlideSilent = async (slideNumber: number) => {
+    if (isUiOnlyMode()) {
+      toast.error("UI-Only Mode: Slide audio operations are disabled until connected to the Windows AutoHR runner.");
+      return;
+    }
     if (!sessionDraft?.id) {
       toast.error("Draft session not initialized. Please proceed from Step 2.");
       return;
@@ -415,6 +424,10 @@ function NewSessionPage() {
   };
 
   const handleApplySlideGroup = async () => {
+    if (isUiOnlyMode()) {
+      toast.error("UI-Only Mode: Slide grouping is disabled until connected to the Windows AutoHR runner.");
+      return;
+    }
     if (!sessionDraft?.id) {
       toast.error("Draft session not initialized.");
       return;
@@ -493,6 +506,10 @@ function NewSessionPage() {
   };
 
   const handleUnsetSlideGroup = async (groupId: string) => {
+    if (isUiOnlyMode()) {
+      toast.error("UI-Only Mode: Slide grouping is disabled until connected to the Windows AutoHR runner.");
+      return;
+    }
     if (!sessionDraft?.id) return;
     const formData = new FormData();
     formData.append("session_id", sessionDraft.id);

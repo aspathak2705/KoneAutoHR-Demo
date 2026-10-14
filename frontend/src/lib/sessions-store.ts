@@ -777,6 +777,9 @@ export async function regeneratePresentationQuestions(presentationId: string, em
 }
 
 export async function uploadPresentation(name: string, file: File): Promise<SavedPresentation> {
+  if (IS_UI_ONLY_MODE) {
+    throw new Error("UI-Only Mode: Live presentation upload is disabled until connected to the Windows AutoHR runner.");
+  }
   const formData = new FormData();
   formData.append("name", name);
   formData.append("file", file);
@@ -796,6 +799,9 @@ export async function uploadPresentation(name: string, file: File): Promise<Save
 }
 
 export async function uploadEmployeeList(name: string, file: File): Promise<SavedEmployeeList> {
+  if (IS_UI_ONLY_MODE) {
+    throw new Error("UI-Only Mode: Live employee list upload is disabled until connected to the Windows AutoHR runner.");
+  }
   const formData = new FormData();
   formData.append("name", name);
   formData.append("file", file);
