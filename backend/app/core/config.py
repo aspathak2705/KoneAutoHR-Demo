@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     # Authentication & Security settings
     AUTH_TOKEN: Optional[str] = Field(None)
     KEY_PROVIDER: str = Field("windows_dpapi")
+    AZURE_KEYVAULT_URL: Optional[str] = Field(None)
+    APPLICATIONINSIGHTS_CONNECTION_STRING: Optional[str] = Field(None)
     STORAGE_PROVIDER: str = Field("local")
     AZURE_STORAGE_CONNECTION_STRING: Optional[str] = Field(None)
     AZURE_STORAGE_CONTAINER_NAME: str = Field("autohr-data")
