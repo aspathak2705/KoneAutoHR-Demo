@@ -132,11 +132,18 @@ def get_storage_provider() -> StorageProvider:
     if provider_type == "local":
         return LocalStorageProvider()
     elif provider_type == "azure_blob":
-        from app.storage.azure_blob_storage import AzureBlobStorageProvider
-        return AzureBlobStorageProvider()
+        if getattr(settings, "AZURE_STORAGE_CONNECTION_STRING", None) or getattr(settings, "AZURE_STORAGE_ACCOUNT_URL", None):
+            from app.storage.azure_blob_storage import AzureBlobStorageProvider
+            return AzureBlobStorageProvider()
+        raise ValueError(
+            "STORAGE_PROVIDER is configured as 'azure_blob', but AZURE_STORAGE_CONNECTION_STRING "
+            "and AZURE_STORAGE_ACCOUNT_URL are not configured. To use local storage, set STORAGE_PROVIDER=local."
+        )
     else:
         raise ValueError(f"Unsupported STORAGE_PROVIDER: {provider_type}")
 
 
 local_storage = LocalStorageProvider()
+
+
 
