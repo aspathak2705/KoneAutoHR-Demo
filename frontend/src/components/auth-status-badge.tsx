@@ -57,17 +57,7 @@ export function AuthStatusBadge() {
   const isAuthenticated = Boolean(token);
 
   if (isUiOnly) {
-    return (
-      <div className="flex items-center gap-2">
-        <span
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-          title="Hosted in UI-Only Mode: Live backend connection disabled until Windows runner is connected."
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-          UI-Only Mode
-        </span>
-      </div>
-    );
+    return null;
   }
 
   return (
