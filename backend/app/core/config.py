@@ -25,15 +25,16 @@ class Settings(BaseSettings):
     HOST: str = "127.0.0.1"
     PORT: int = 8000
 
-    # Authentication & Security settings
+    # Authentication & Security settings (Windows DPAPI & Local Storage)
     AUTH_TOKEN: Optional[str] = Field(None)
     KEY_PROVIDER: str = Field("windows_dpapi")
-    AZURE_KEYVAULT_URL: Optional[str] = Field(None)
-    APPLICATIONINSIGHTS_CONNECTION_STRING: Optional[str] = Field(None)
     STORAGE_PROVIDER: str = Field("local")
+    APPLICATIONINSIGHTS_CONNECTION_STRING: Optional[str] = Field(None)
+    AZURE_KEYVAULT_URL: Optional[str] = Field(None)
     AZURE_STORAGE_CONNECTION_STRING: Optional[str] = Field(None)
     AZURE_STORAGE_CONTAINER_NAME: str = Field("autohr-data")
     AZURE_STORAGE_ACCOUNT_URL: Optional[str] = Field(None)
+
 
     # V2 Storage & Voice Provider configurations
     AUTOHR_STORAGE_PATH: str = Field("storage")
@@ -113,12 +114,13 @@ class Settings(BaseSettings):
     @model_validator(mode="before")
     @classmethod
     def check_env_fallbacks(cls, data: dict) -> dict:
-        # 1. Parse .env file if it exists, without overriding existing host OS environment variables
+        # 1. Parse .env file if it exists, loading project-level configuration
         backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         env_candidates = [
             os.path.join(backend_dir, ".env"),
             os.path.join(os.path.dirname(backend_dir), ".env")
         ]
+        file_env = {}
         for env_file in env_candidates:
             if os.path.exists(env_file):
                 with open(env_file, "r", encoding="utf-8") as f:
@@ -130,36 +132,31 @@ class Settings(BaseSettings):
                             k, v = line.split("=", 1)
                             k = k.strip()
                             v = v.strip().strip('"').strip("'")
-                            if v and k not in data:
-                                data[k] = v
-                                if k not in os.environ:
-                                    os.environ[k] = v
+                            if v:
+                                file_env[k] = v
 
+        # Apply project .env over global OS environment if not explicitly set in constructor kwargs
+        for k, v in file_env.items():
+            if k not in data or data[k] == os.environ.get(k):
+                data[k] = v
+                os.environ[k] = v
 
         # 2. Database URL precedence:
-        # Precedence: data.get("AUTOHR_DATABASE_URL") > data.get("DATABASE_URL") > os.environ("AUTOHR_DATABASE_URL") > os.environ("DATABASE_URL") > KeyVault (if configured) > default
+        # Precedence: explicit constructor arg > project .env > os.environ > default
         raw_db_url = (
             data.get("AUTOHR_DATABASE_URL")
+            or file_env.get("AUTOHR_DATABASE_URL")
             or data.get("DATABASE_URL")
+            or file_env.get("DATABASE_URL")
             or os.environ.get("AUTOHR_DATABASE_URL")
             or os.environ.get("DATABASE_URL")
         )
 
-        # If Azure Key Vault is configured and raw_db_url not explicitly provided, attempt KeyVault lookup
-        if not raw_db_url and (data.get("AZURE_KEYVAULT_URL") or os.environ.get("AZURE_KEYVAULT_URL")):
-            try:
-                from app.core.security.key_manager import AzureKeyVaultProvider
-                akv = AzureKeyVaultProvider(vault_url=data.get("AZURE_KEYVAULT_URL") or os.environ.get("AZURE_KEYVAULT_URL"))
-                client = akv._get_client()
-                secret = client.get_secret("DATABASE-URL")
-                if secret and secret.value:
-                    raw_db_url = secret.value.strip()
-            except Exception:
-                pass
 
         if raw_db_url:
             normalized = cls._normalize_database_url(raw_db_url)
             data["DATABASE_URL"] = normalized
+
 
 
         # 3. Check AUTH_TOKEN initialization logic:

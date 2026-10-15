@@ -34,7 +34,15 @@ class LocalStorageProvider(StorageProvider):
         path = Path(storage_key)
         if path.is_absolute():
             return path
-        return (self.base_dir / storage_key).resolve()
+        
+        target = (self.base_dir / storage_key).resolve()
+        if not target.exists():
+            # Check backend-relative storage directory if running from repo root
+            backend_base = (Path(__file__).parent.parent.parent / "storage" / "uploads" / storage_key).resolve()
+            if backend_base.exists():
+                return backend_base
+        return target
+
 
     def exists(self, storage_key: str) -> bool:
         if not storage_key:

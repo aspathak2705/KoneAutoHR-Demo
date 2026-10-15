@@ -17,10 +17,20 @@ class BaseKeyProvider:
     """
     def __init__(self, key_store_dir: Optional[Path] = None):
         from app.core.config import settings
-        self.key_store_dir = key_store_dir or (Path(settings.AUTOHR_STORAGE_PATH) / "keys")
+        if key_store_dir:
+            self.key_store_dir = key_store_dir
+        else:
+            base_cand = Path(settings.AUTOHR_STORAGE_PATH) / "keys"
+            if not (base_cand / "master.dpapi").exists() and not (base_cand / "master.key").exists():
+                backend_cand = Path(__file__).parent.parent.parent.parent / "storage" / "keys"
+                if (backend_cand / "master.dpapi").exists() or (backend_cand / "master.key").exists():
+                    base_cand = backend_cand
+            self.key_store_dir = base_cand
+
         self.key_store_dir.mkdir(parents=True, exist_ok=True)
         self.key_file = self.key_store_dir / "master.key"
         self.meta_file = self.key_store_dir / "keys_metadata.json"
+
 
     def _generate_raw_key(self) -> bytes:
         return os.urandom(32)  # 256-bit AES Master Key
