@@ -30,10 +30,6 @@ class Settings(BaseSettings):
     KEY_PROVIDER: str = Field("windows_dpapi")
     STORAGE_PROVIDER: str = Field("local")
     APPLICATIONINSIGHTS_CONNECTION_STRING: Optional[str] = Field(None)
-    AZURE_KEYVAULT_URL: Optional[str] = Field(None)
-    AZURE_STORAGE_CONNECTION_STRING: Optional[str] = Field(None)
-    AZURE_STORAGE_CONTAINER_NAME: str = Field("autohr-data")
-    AZURE_STORAGE_ACCOUNT_URL: Optional[str] = Field(None)
 
 
     # V2 Storage & Voice Provider configurations

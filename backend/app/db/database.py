@@ -12,6 +12,11 @@ if DATABASE_URL.startswith("sqlite"):
 elif "postgres" in DATABASE_URL:
     # Disable prepared statement caching for Supabase transaction pooler (pgbouncer port 6543)
     connect_args["prepare_threshold"] = None
+    # TCP keepalives to prevent AWS/Supabase ELB dropping idle connections
+    connect_args["keepalives"] = 1
+    connect_args["keepalives_idle"] = 30
+    connect_args["keepalives_interval"] = 10
+    connect_args["keepalives_count"] = 5
 
 engine = create_engine(
     DATABASE_URL, 

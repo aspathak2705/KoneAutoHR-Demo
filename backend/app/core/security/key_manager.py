@@ -125,73 +125,9 @@ class WindowsCredentialKeyProvider(BaseKeyProvider):
         return self.get_master_key()
 
 
-class AzureKeyVaultProvider(BaseKeyProvider):
-    """
-    Azure Key Vault Key Provider.
-    Retrieves or generates master encryption keys via Azure Key Vault SecretClient
-    using Managed Identity (DefaultAzureCredential).
-    """
-    def __init__(self, vault_url: Optional[str] = None):
-        super().__init__()
-        from app.core.config import settings
-        self.vault_url = vault_url or settings.AZURE_KEYVAULT_URL
-        self.secret_name = "autohr-master-key"
-        self._client = None
-
-    def _get_client(self):
-        if self._client is not None:
-            return self._client
-        if not self.vault_url:
-            raise ValueError(
-                "AzureKeyVaultProvider configuration error: AZURE_KEYVAULT_URL is not configured."
-            )
-        try:
-            from azure.keyvault.secrets import SecretClient
-            from azure.identity import DefaultAzureCredential
-            credential = DefaultAzureCredential()
-            self._client = SecretClient(vault_url=self.vault_url, credential=credential)
-            return self._client
-        except ImportError:
-            raise RuntimeError(
-                "azure-keyvault-secrets and azure-identity packages are required for AzureKeyVaultProvider. "
-                "Install with `pip install azure-keyvault-secrets azure-identity`."
-            )
-
-    def get_master_key(self) -> bytes:
-        client = self._get_client()
-        try:
-            secret = client.get_secret(self.secret_name)
-            raw_b64 = secret.value
-            return base64.b64decode(raw_b64.encode("utf-8"))
-        except Exception as e:
-            # Check if secret not found (create/seed it if authorized)
-            err_msg = str(e).lower()
-            if "not found" in err_msg or "secretnotfound" in err_msg:
-                try:
-                    logger.info("AzureKeyVaultProvider | Master key secret not found. Generating new 256-bit AES master key in vault...")
-                    new_key = self._generate_raw_key()
-                    encoded = base64.b64encode(new_key).decode("utf-8")
-                    client.set_secret(self.secret_name, encoded)
-                    return new_key
-                except Exception as create_err:
-                    logger.critical(f"AzureKeyVaultProvider | Failed to generate master key in Key Vault: {create_err}")
-                    raise
-            logger.critical(f"AzureKeyVaultProvider | Failed to retrieve master key from Key Vault: {e}")
-            raise
-
-    def get_key_by_id(self, key_id: str) -> bytes:
-        client = self._get_client()
-        try:
-            secret = client.get_secret(key_id)
-            return base64.b64decode(secret.value.encode("utf-8"))
-        except Exception as e:
-            logger.critical(f"AzureKeyVaultProvider | Failed to retrieve key '{key_id}' from Key Vault: {e}")
-            raise
-
-
 class KeyManager:
     """
-    Key Manager resolving current configured KeyProvider (windows_dpapi, development, azure_keyvault).
+    Key Manager resolving current configured KeyProvider (windows_dpapi, development).
     """
     def __init__(self):
         self._provider: Optional[KeyProvider] = None
@@ -210,12 +146,15 @@ class KeyManager:
                     raise SystemExit("Security Failure: Windows DPAPI provider failed in production mode.")
                 logger.warning(f"KeyManager | DPAPI provider fallback to DevelopmentKeyProvider: {e}")
                 self._provider = DevelopmentKeyProvider()
-        elif provider_type == "development":
+            return
+
+        if provider_type == "development":
             self._provider = DevelopmentKeyProvider()
-        elif provider_type == "azure_keyvault":
-            self._provider = AzureKeyVaultProvider()
-        else:
-            raise ValueError(f"Unsupported KEY_PROVIDER: {provider_type}")
+            return
+
+        raise ValueError(
+            f"Unsupported KEY_PROVIDER: '{provider_type}'. Locked architecture only supports 'windows_dpapi' (or 'development' in dev/test)."
+        )
 
     def get_master_key(self) -> bytes:
         if self._provider is None:

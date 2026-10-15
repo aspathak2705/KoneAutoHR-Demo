@@ -43,9 +43,12 @@ async def lifespan(app: FastAPI):
     try:
         with engine.connect() as conn:
             conn.execute(sa.text("SELECT 1"))
-        logger.info("Startup Validation | Local PostgreSQL connection verification PASSED.")
+        db_target = settings.DATABASE_TARGET_INFO.get("host", "configured database")
+        logger.info(f"Startup Validation | Database ({db_target}) connection verification PASSED.")
     except Exception as db_err:
-        logger.critical(f"Startup Validation | Local PostgreSQL connection FAILED: {db_err}")
+        import re
+        sanitized_err = re.sub(r"://([^:@]+):([^@]+)@", r"://\1:***@", str(db_err))
+        logger.critical(f"Startup Validation | Database connection FAILED: {sanitized_err}")
         raise SystemExit("Startup Validation Failure: Database connection failed.")
 
     # Security Initialization Validation
