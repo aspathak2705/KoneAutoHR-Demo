@@ -9,10 +9,12 @@ from app.storage.local_storage import get_storage_provider, LocalStorageProvider
 from app.core.config import settings
 
 
-def test_default_storage_provider_is_local():
+def test_default_storage_provider_is_local(monkeypatch):
     """Verify local storage provider remains default without breaking existing setup."""
+    monkeypatch.setattr(settings, "STORAGE_PROVIDER", "local")
     provider = get_storage_provider()
     assert isinstance(provider, LocalStorageProvider)
+
 
 
 @patch("app.storage.azure_blob_storage.BlobServiceClient")

@@ -50,4 +50,6 @@ data
 
 # Test files
 backend/app/test/test_azure_keyvault.py
-backend/app/test/test_logging_scrub.py
+backend/app/test/test_logging_scrub.py
+backend/app/test/test_database_config.py
+

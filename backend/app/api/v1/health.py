@@ -10,12 +10,9 @@ router = APIRouter(prefix="/health", tags=["Health"])
 @router.get("")
 def health_check(db: DBSession = Depends(get_db)):
     # 1. Database Check
-    db_status = "disconnected"
-    try:
-        db.execute(text("SELECT 1"))
-        db_status = "connected"
-    except Exception:
-        db_status = "disconnected"
+    from app.db.database import check_database_connectivity
+    db_check = check_database_connectivity()
+    db_status = db_check["status"]
 
     # 2. Storage Check
     storage_status = "unavailable"
@@ -44,6 +41,7 @@ def health_check(db: DBSession = Depends(get_db)):
     response_data = {
         "status": overall_status,
         "database": db_status,
+        "database_target": db_check["target"],
         "storage": storage_status,
         "key_provider": getattr(settings, "KEY_PROVIDER", "windows_dpapi"),
         "storage_provider": getattr(settings, "STORAGE_PROVIDER", "local"),
