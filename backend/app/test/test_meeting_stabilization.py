@@ -55,3 +55,48 @@ def test_share_retry_resets_share_flow_before_restarting() -> None:
 
     assert result is True
     assert events == ["share", "reset", "share", "verify"]
+
+
+def test_wait_for_prejoin_detects_light_meetings_prejoin_screen() -> None:
+    controller = TeamsController()
+
+    class FakeLocator:
+        def __init__(self, visible=False, count_val=0):
+            self._visible = visible
+            self._count = count_val
+
+        @property
+        def first(self):
+            return self
+
+        async def is_visible(self, timeout=None):
+            return self._visible
+
+        async def count(self):
+            return self._count
+
+    class FakePage:
+        def __init__(self, url):
+            self.url = url
+            self.context = self
+
+        @property
+        def pages(self):
+            return [self]
+
+        def is_closed(self):
+            return False
+
+        async def title(self):
+            return "Join conversation"
+
+        def locator(self, selector):
+            # Match prejoin join button on light-meetings
+            if "join" in selector.lower():
+                return FakeLocator(visible=True, count_val=1)
+            return FakeLocator(visible=False, count_val=0)
+
+    page = FakePage("https://teams.live.com/light-meetings/launch?meeting_id=123")
+    res_page = asyncio.run(controller.wait_for_prejoin(page))
+    assert res_page.url == "https://teams.live.com/light-meetings/launch?meeting_id=123"
+

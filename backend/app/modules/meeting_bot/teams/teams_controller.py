@@ -246,117 +246,112 @@ class TeamsController:
 
         logger.info("TeamsController | [JOIN] Waiting for Teams prejoin page...")
 
-        timeout = asyncio.get_running_loop().time() + 12
+        PREJOIN_SELECTORS = [
+            "button[data-tid='prejoin-join-button']",
+            "button[data-tid*='join-button' i]",
+            "button[data-tid*='join-btn' i]",
+            "input[data-tid='prejoin-display-name']",
+            "input[data-tid*='display-name' i]",
+            "input[placeholder*='name' i]",
+            "button:has-text('Join now')",
+            "button:has-text('Join meeting')",
+            "button:has-text('Join')",
+            "button[aria-label*='Join' i]",
+            "button[data-tid='prejoin-mic-toggle']",
+            "button[data-tid='prejoin-camera-toggle']",
+            "button[aria-label*='microphone' i]",
+            "button[aria-label*='camera' i]",
+        ]
+
+        def _is_prejoin_candidate_url(u: str) -> bool:
+            clean = u.rstrip("/")
+            return any(
+                pattern in clean
+                for pattern in (
+                    "teams.live.com/v2",
+                    "light-meetings",
+                    "teams.live.com/meet",
+                    "teams.microsoft.com/meet",
+                    "teams.microsoft.com/v2",
+                    "teams.live.com",
+                    "teams.microsoft.com",
+                )
+            ) and "launcher.html" not in clean
+
+        timeout = asyncio.get_running_loop().time() + 15
+        last_checked_url = page.url
 
         while asyncio.get_running_loop().time() < timeout:
-            logger.info(f"TeamsController | [JOIN] Waiting for prejoin UI: {page.url}")
-            try:
-                logger.info(f"TeamsController | [JOIN] Page title -> {await page.title()}")
-            except Exception:
-                pass
-
             for p in page.context.pages:
                 if p.is_closed():
                     continue
-                if (
-                    "teams.live.com" in p.url
-                    or "teams.microsoft.com" in p.url
-                    or "launcher.html" in p.url
-                ):
+                if _is_prejoin_candidate_url(p.url):
                     if p != page:
-                        logger.info(f"TeamsController | [JOIN] Switching to active page: {p.url}")
+                        logger.info(f"TeamsController | [JOIN] Switching to active Teams page: {p.url}")
                         page = p
                         break
 
             if page.is_closed():
                 raise RuntimeError("TeamsController | [JOIN] Teams page was closed.")
 
-            current_url = page.url.rstrip("/")
-            if current_url == "https://teams.live.com/v2":
-                break
+            last_checked_url = page.url
+            clean_url = last_checked_url.rstrip("/")
 
-            await asyncio.sleep(0.5)
-
-        current_url = page.url.rstrip("/")
-
-        if current_url == "https://teams.live.com/v2":
-
-            try:
-                title = await page.title()
-
-                logger.info(
-                    f"TeamsController | /v2/ detected. Current title: {title}"
-                )
-
-                # If we're already in the meeting flow, don't interfere.
-                if "Meeting join" in title:
-                    logger.info(
-                        "TeamsController | Meeting join page detected. Waiting..."
-                    )
-
-                elif title.strip() == "Microsoft Teams":
-
-                    logger.warning(
-                        "TeamsController | Teams home detected. Waiting for automatic redirect..."
-                    )
-
-                    await asyncio.sleep(5)
-
-            except Exception:
-                pass
-
-            if "chrome-error" in page.url:
-                logger.warning(
-                    f"TeamsController | Detected error page '{page.url}'. Attempting page reload to bypass silent auth deadlock..."
-                )
+            if _is_prejoin_candidate_url(clean_url):
                 try:
-                    await page.reload(wait_until="domcontentloaded", timeout=15000)
-                    await asyncio.sleep(1)
-                    if "chrome-error" in page.url:
-                        # Fallback navigation back to the meeting URL directly
-                        meet_url = getattr(page.context, "_meeting_url", None)
-                        if meet_url:
-                            logger.info(f"TeamsController | Reload failed. Re-navigating to meeting URL: {meet_url}")
-                            await page.goto(meet_url, wait_until="domcontentloaded", timeout=15000)
-                except Exception as reload_err:
-                    logger.error(f"TeamsController | Page reload/goto failed: {reload_err}")
-
-            try:
-                await page.wait_for_load_state(
-                    "domcontentloaded",
-                    timeout=3000,
-                )
-            except Exception:
-                pass
-
-            PREJOIN_SELECTORS = [
-                "button[data-tid='prejoin-join-button']",
-                "input[data-tid='prejoin-display-name']",
-                "button:has-text('Join now')",
-                "button[aria-label*='Join']",
-            ]
-
-            found = False
-            for selector in PREJOIN_SELECTORS:
-                try:
-                    await page.wait_for_selector(
-                        selector,
-                        timeout=1500,
-                    )
-                    logger.info(f"TeamsController | [JOIN] Matched selector -> {selector}")
-                    found = True
-                    break
+                    title = await page.title()
+                    if title.strip() == "Microsoft Teams" and clean_url == "https://teams.live.com/v2":
+                        logger.warning("TeamsController | Teams home detected. Waiting for automatic redirect...")
+                        await asyncio.sleep(2)
                 except Exception:
                     pass
 
-            if found:
-                return page
+                if "chrome-error" in page.url:
+                    logger.warning(
+                        f"TeamsController | Detected error page '{page.url}'. Attempting page reload to bypass silent auth deadlock..."
+                    )
+                    try:
+                        await page.reload(wait_until="domcontentloaded", timeout=15000)
+                        await asyncio.sleep(1)
+                        if "chrome-error" in page.url:
+                            meet_url = getattr(page.context, "_meeting_url", None)
+                            if meet_url:
+                                logger.info(f"TeamsController | Reload failed. Re-navigating to meeting URL: {meet_url}")
+                                await page.goto(meet_url, wait_until="domcontentloaded", timeout=15000)
+                    except Exception as reload_err:
+                        logger.error(f"TeamsController | Page reload/goto failed: {reload_err}")
+
+                for selector in PREJOIN_SELECTORS:
+                    try:
+                        el = page.locator(selector).first
+                        if await el.is_visible(timeout=500):
+                            logger.info(f"TeamsController | [JOIN] Matched prejoin selector -> {selector} on {page.url}")
+                            return page
+                    except Exception:
+                        pass
 
             await asyncio.sleep(0.5)
 
-        logger.error(
-            f"TeamsController | [JOIN] Prejoin timeout. Final URL: {page.url}"
+        # Collect diagnostics on missing expected UI conditions before raising
+        tested_elements = {}
+        for sel in PREJOIN_SELECTORS:
+            try:
+                count = await page.locator(sel).count()
+                tested_elements[sel] = f"count={count}"
+            except Exception as ex:
+                tested_elements[sel] = f"error={ex}"
+
+        try:
+            page_title = await page.title()
+        except Exception:
+            page_title = "unknown"
+
+        diagnostic_details = (
+            f"Prejoin UI not detected within timeout. "
+            f"Final URL: {page.url}; Title: '{page_title}'; "
+            f"Selector evaluation: {tested_elements}"
         )
+        logger.error(f"TeamsController | [JOIN] {diagnostic_details}")
 
         sess_id = getattr(page, "_session_id", "verification_session")
         screenshot = await screen_capture.capture_step(
@@ -368,8 +363,7 @@ class TeamsController:
         logger.info(f"Diagnostic screenshot: {screenshot}")
 
         raise RuntimeError(
-            f"Timed out waiting for Teams prejoin UI. "
-            f"Current URL: {page.url}"
+            f"Timed out waiting for Teams prejoin UI. Current URL: {page.url}. Details: {diagnostic_details}"
         )
 
     async def configure_devices(self, page: Page, mute_mic: bool = True, turn_off_cam: bool = True) -> DeviceConfigurationResult:
