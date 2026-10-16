@@ -23,6 +23,9 @@ engine = create_engine(
     connect_args=connect_args, 
     echo=False,
     pool_pre_ping=True,
+    pool_size=15,
+    max_overflow=25,
+    pool_timeout=30.0,
     pool_recycle=300
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -34,7 +37,14 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
+        try:
+            db.rollback()
+        except Exception:
+            pass
         db.close()
 
 def check_database_connectivity() -> dict:

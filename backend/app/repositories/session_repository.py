@@ -1,12 +1,21 @@
 from sqlalchemy import select
-from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm import Session as DBSession, selectinload
 from typing import List, Optional
 from app.models.session import Session
 from app.schemas.session import SessionCreate, SessionUpdate
 
 class SessionRepository:
     def get(self, db: DBSession, id: str) -> Optional[Session]:
-        stmt = select(Session).where(Session.id == id)
+        stmt = (
+            select(Session)
+            .options(
+                selectinload(Session.presentation),
+                selectinload(Session.employee_list),
+                selectinload(Session.presentation_jobs),
+                selectinload(Session.uploads)
+            )
+            .where(Session.id == id)
+        )
         return db.scalars(stmt).first()
 
     def get_all(self, db: DBSession, skip: int = 0, limit: int = 100) -> List[Session]:

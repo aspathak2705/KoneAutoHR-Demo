@@ -4,6 +4,7 @@ from loguru import logger
 from app.core.exceptions import (
     BaseAppException,
     ValidationException,
+    SessionNotFoundException,
     RuntimeException,
     StorageException,
     BrowserException,
@@ -19,7 +20,9 @@ def register_exception_handlers(app: FastAPI):
         status_code = 500
         code = exc.__class__.__name__
         
-        if isinstance(exc, ValidationException):
+        if isinstance(exc, SessionNotFoundException):
+            status_code = 404
+        elif isinstance(exc, ValidationException):
             status_code = 400
         elif isinstance(exc, RuntimeException):
             status_code = 500
