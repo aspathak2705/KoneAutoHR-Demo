@@ -123,8 +123,35 @@ class StorageService:
         return sanitized, str(target_path.resolve()), size
 
     def delete_session_files(self, session_id: str):
+        import os
+        import stat
+        import time
+        from loguru import logger
+
         session_dir = self.get_session_dir(session_id)
-        if session_dir.exists() and session_dir.is_dir():
-            shutil.rmtree(session_dir)
+        if not session_dir.exists() or not session_dir.is_dir():
+            return
+
+        def _remove_readonly(func, path, exc_info):
+            # Clear read-only and retry
+            try:
+                os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+                func(path)
+            except Exception as e:
+                logger.warning(f"StorageService | _remove_readonly failed on {path}: {e}")
+
+        # Retry loop to handle transient Windows / OneDrive locking
+        max_attempts = 4
+        for attempt in range(1, max_attempts + 1):
+            try:
+                shutil.rmtree(session_dir, onerror=_remove_readonly)
+                if not session_dir.exists():
+                    logger.info(f"StorageService | Successfully deleted session directory: {session_dir}")
+                    return
+            except Exception as ex:
+                if attempt == max_attempts:
+                    logger.error(f"StorageService | Failed to remove session dir {session_dir} after {max_attempts} attempts: {ex}")
+                    raise
+                time.sleep(0.25 * attempt)
 
 storage_service = StorageService()

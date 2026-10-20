@@ -10,10 +10,46 @@ from app.db.unit_of_work import UnitOfWork
 
 class PresentationService:
     def get_all(self, db: DBSession, skip: int = 0, limit: int = 100) -> List[Presentation]:
-        return presentation_repository.get_all(db, skip, limit)
+        from app.storage.local_storage import local_storage
+        from app.core.security.secure_storage import secure_temp_manager
+        presentations = presentation_repository.get_all(db, skip, limit)
+        for pres in presentations:
+            available = False
+            if pres.storage_path and local_storage.exists(pres.storage_path):
+                try:
+                    if getattr(pres, "encryption_version", 0) > 0:
+                        available = secure_temp_manager.verify_decryptability(
+                            storage_path=pres.storage_path,
+                            wrapped_dek=pres.wrapped_dek,
+                            nonce=pres.nonce
+                        )
+                    else:
+                        available = True
+                except Exception:
+                    available = False
+            pres.is_available = available
+        return presentations
 
     def get(self, db: DBSession, id: str) -> Optional[Presentation]:
-        return presentation_repository.get(db, id)
+        from app.storage.local_storage import local_storage
+        from app.core.security.secure_storage import secure_temp_manager
+        pres = presentation_repository.get(db, id)
+        if pres:
+            available = False
+            if pres.storage_path and local_storage.exists(pres.storage_path):
+                try:
+                    if getattr(pres, "encryption_version", 0) > 0:
+                        available = secure_temp_manager.verify_decryptability(
+                            storage_path=pres.storage_path,
+                            wrapped_dek=pres.wrapped_dek,
+                            nonce=pres.nonce
+                        )
+                    else:
+                        available = True
+                except Exception:
+                    available = False
+            pres.is_available = available
+        return pres
 
     async def create_presentation(self, db: DBSession, name: str, file: UploadFile) -> Presentation:
         from app.storage.local_storage import local_storage

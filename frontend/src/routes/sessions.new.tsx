@@ -1003,38 +1003,58 @@ function NewSessionPage() {
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {presentations.map((pres) => (
-                <div
-                  key={pres.id}
-                  onClick={() => setSelectedPresId(pres.id)}
-                  className={`p-4 border rounded-xl cursor-pointer transition-all flex flex-col justify-between hover:shadow-md ${
-                    selectedPresId === pres.id
-                      ? "border-primary bg-primary/5 ring-1 ring-primary"
-                      : "border-border/60 bg-card hover:border-muted-foreground/30"
-                  }`}
-                >
-                  <div>
-                    <h3 className="font-semibold text-card-foreground">{pres.name}</h3>
-                    <p className="text-xs text-muted-foreground mt-1 truncate">{pres.original_filename}</p>
+              {presentations.map((pres) => {
+                const isUnavailable = pres.is_available === false;
+                return (
+                  <div
+                    key={pres.id}
+                    onClick={() => {
+                      if (isUnavailable) {
+                        toast.error("This presentation's file is missing or unreadable on the server. Please upload or select a valid presentation.");
+                        return;
+                      }
+                      setSelectedPresId(pres.id);
+                    }}
+                    className={`p-4 border rounded-xl transition-all flex flex-col justify-between ${
+                      isUnavailable
+                        ? "opacity-60 bg-muted/20 border-dashed border-destructive/40 cursor-not-allowed"
+                        : "cursor-pointer hover:shadow-md"
+                    } ${
+                      selectedPresId === pres.id
+                        ? "border-primary bg-primary/5 ring-1 ring-primary"
+                        : (!isUnavailable ? "border-border/60 bg-card hover:border-muted-foreground/30" : "")
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="font-semibold text-card-foreground">{pres.name}</h3>
+                        {isUnavailable && (
+                          <Badge variant="destructive" className="text-[10px] uppercase font-bold tracking-wider">
+                            File Missing
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1 truncate">{pres.original_filename}</p>
+                    </div>
+                    
+                    {selectedPresId === pres.id ? (
+                      <div className="mt-4 pt-3 border-t border-border/40 grid grid-cols-2 gap-y-2 gap-x-4 text-xs text-muted-foreground">
+                        <div>Uploaded: <span className="font-semibold text-foreground">{new Date(pres.uploaded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span></div>
+                        <div>Sessions Count: <span className="font-semibold text-foreground">{pres.session_count} runs</span></div>
+                        <div>Slides: <span className="font-semibold text-foreground">{pres.slide_count || (script ? Object.keys(script.script_content.slide_narrations || {}).length : 0)} slides</span></div>
+                        {creationMode === "AI" && <div>Presentation Script: <span className={`font-semibold ${script ? "text-green-600" : "text-amber-600"}`}>{script ? "✓ Ready" : "Not Prepared"}</span></div>}
+                        {creationMode === "AI" && <div>Employee Questions: <span className={`font-semibold ${questions ? "text-green-600" : "text-amber-600"}`}>{questions ? "✓ Ready" : "Not Prepared"}</span></div>}
+                        {creationMode === "HR" && <div className="col-span-2">Mode: <span className="font-semibold text-violet-600">HR Recorded — Upload slide narrations next</span></div>}
+                      </div>
+                    ) : (
+                      <div className="mt-4 pt-3 border-t border-border/40 flex justify-between items-center text-xs text-muted-foreground">
+                        <span>Used in {pres.session_count} sessions</span>
+                        <span>Uploaded {new Date(pres.uploaded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
+                      </div>
+                    )}
                   </div>
-                  
-                  {selectedPresId === pres.id ? (
-                    <div className="mt-4 pt-3 border-t border-border/40 grid grid-cols-2 gap-y-2 gap-x-4 text-xs text-muted-foreground">
-                      <div>Uploaded: <span className="font-semibold text-foreground">{new Date(pres.uploaded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span></div>
-                      <div>Sessions Count: <span className="font-semibold text-foreground">{pres.session_count} runs</span></div>
-                      <div>Slides: <span className="font-semibold text-foreground">{pres.slide_count || (script ? Object.keys(script.script_content.slide_narrations || {}).length : 0)} slides</span></div>
-                      {creationMode === "AI" && <div>Presentation Script: <span className={`font-semibold ${script ? "text-green-600" : "text-amber-600"}`}>{script ? "✓ Ready" : "Not Prepared"}</span></div>}
-                      {creationMode === "AI" && <div>Employee Questions: <span className={`font-semibold ${questions ? "text-green-600" : "text-amber-600"}`}>{questions ? "✓ Ready" : "Not Prepared"}</span></div>}
-                      {creationMode === "HR" && <div className="col-span-2">Mode: <span className="font-semibold text-violet-600">HR Recorded — Upload slide narrations next</span></div>}
-                    </div>
-                  ) : (
-                    <div className="mt-4 pt-3 border-t border-border/40 flex justify-between items-center text-xs text-muted-foreground">
-                      <span>Used in {pres.session_count} sessions</span>
-                      <span>Uploaded {new Date(pres.uploaded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="border-t border-border pt-6">
@@ -1087,35 +1107,55 @@ function NewSessionPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {employeeLists.map((emp) => (
-                <div
-                  key={emp.id}
-                  onClick={() => setSelectedEmpId(emp.id)}
-                  className={`p-4 border rounded-xl cursor-pointer transition-all flex flex-col justify-between hover:shadow-md ${
-                    selectedEmpId === emp.id
-                      ? "border-primary bg-primary/5 ring-1 ring-primary"
-                      : "border-border/60 bg-card hover:border-muted-foreground/30"
-                  }`}
-                >
-                  <div>
-                    <h3 className="font-semibold text-card-foreground">{emp.name}</h3>
-                    <p className="text-xs text-muted-foreground mt-1 truncate">{emp.original_filename}</p>
+              {employeeLists.map((emp) => {
+                const isUnavailable = emp.is_available === false;
+                return (
+                  <div
+                    key={emp.id}
+                    onClick={() => {
+                      if (isUnavailable) {
+                        toast.error("This employee list's file is missing or unreadable on the server. Please upload or select a valid list.");
+                        return;
+                      }
+                      setSelectedEmpId(emp.id);
+                    }}
+                    className={`p-4 border rounded-xl transition-all flex flex-col justify-between ${
+                      isUnavailable
+                        ? "opacity-60 bg-muted/20 border-dashed border-destructive/40 cursor-not-allowed"
+                        : "cursor-pointer hover:shadow-md"
+                    } ${
+                      selectedEmpId === emp.id
+                        ? "border-primary bg-primary/5 ring-1 ring-primary"
+                        : (!isUnavailable ? "border-border/60 bg-card hover:border-muted-foreground/30" : "")
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="font-semibold text-card-foreground">{emp.name}</h3>
+                        {isUnavailable && (
+                          <Badge variant="destructive" className="text-[10px] uppercase font-bold tracking-wider">
+                            File Missing
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1 truncate">{emp.original_filename}</p>
+                    </div>
+                    
+                    {selectedEmpId === emp.id ? (
+                      <div className="mt-4 pt-3 border-t border-border/40 grid grid-cols-2 gap-y-2 gap-x-4 text-xs text-muted-foreground">
+                        <div>Uploaded: <span className="font-semibold text-foreground">{new Date(emp.uploaded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span></div>
+                        <div>Employees: <span className="font-semibold text-foreground">{emp.employee_count} Attendees</span></div>
+                        <div>Last Used: <span className="font-semibold text-foreground">{new Date(emp.last_used).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span></div>
+                      </div>
+                    ) : (
+                      <div className="mt-4 pt-3 border-t border-border/40 flex justify-between items-center text-xs text-muted-foreground">
+                        <span>{emp.employee_count} Employees</span>
+                        <span>Uploaded {new Date(emp.uploaded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
+                      </div>
+                    )}
                   </div>
-                  
-                  {selectedEmpId === emp.id ? (
-                    <div className="mt-4 pt-3 border-t border-border/40 grid grid-cols-2 gap-y-2 gap-x-4 text-xs text-muted-foreground">
-                      <div>Uploaded: <span className="font-semibold text-foreground">{new Date(emp.uploaded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span></div>
-                      <div>Employees: <span className="font-semibold text-foreground">{emp.employee_count} Attendees</span></div>
-                      <div>Last Used: <span className="font-semibold text-foreground">{new Date(emp.last_used).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span></div>
-                    </div>
-                  ) : (
-                    <div className="mt-4 pt-3 border-t border-border/40 flex justify-between items-center text-xs text-muted-foreground">
-                      <span>{emp.employee_count} Employees</span>
-                      <span>Uploaded {new Date(emp.uploaded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="border-t border-border pt-6">

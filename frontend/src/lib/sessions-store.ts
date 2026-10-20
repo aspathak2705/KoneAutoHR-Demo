@@ -22,6 +22,7 @@ export interface SavedPresentation {
   last_used: string;
   session_count: number;
   slide_count: number;
+  is_available?: boolean;
 }
 
 export interface SavedEmployeeList {
@@ -32,6 +33,7 @@ export interface SavedEmployeeList {
   uploaded_at: string;
   employee_count: number;
   last_used: string;
+  is_available?: boolean;
 }
 
 export interface PresentationScript {

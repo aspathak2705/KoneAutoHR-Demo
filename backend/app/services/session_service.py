@@ -119,12 +119,16 @@ class SessionService:
 
     def delete_session(self, db: DBSession, id: str) -> Session:
         from app.storage.cleanup_service import cleanup_service
+        from loguru import logger
         session = self.get_session(db, id)  # Raises if not found
         pres_id = session.presentation_id
         emp_id = session.employee_list_id
         
         # 1. Delete session files (session-specific directories)
-        storage_service.delete_session_files(id)
+        try:
+            storage_service.delete_session_files(id)
+        except Exception as e:
+            logger.warning(f"SessionService | Could not fully delete session directory for {id}: {e}")
         
         # 2. Remove session DB record inside unit of work and commit transaction
         with UnitOfWork(db):
@@ -133,9 +137,15 @@ class SessionService:
             
         # 3. Clean up unreferenced shared assets if no other sessions reference them
         if pres_id:
-            cleanup_service.cleanup_unreferenced_presentation(db, pres_id)
+            try:
+                cleanup_service.cleanup_unreferenced_presentation(db, pres_id)
+            except Exception as e:
+                logger.warning(f"SessionService | Could not cleanup unreferenced presentation {pres_id}: {e}")
         if emp_id:
-            cleanup_service.cleanup_unreferenced_employee_list(db, emp_id)
+            try:
+                cleanup_service.cleanup_unreferenced_employee_list(db, emp_id)
+            except Exception as e:
+                logger.warning(f"SessionService | Could not cleanup unreferenced employee list {emp_id}: {e}")
             
         return res
 

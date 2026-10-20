@@ -18,3 +18,4 @@ class EmployeeListResponse(BaseSchema):
     employee_count: int
     uploaded_at: datetime.datetime
     last_used: datetime.datetime
+    is_available: bool = True

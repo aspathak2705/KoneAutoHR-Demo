@@ -13,17 +13,31 @@ class AssetMatcher:
     def find_duplicate_presentation(self, db: DBSession, file_hash: str) -> Optional[Presentation]:
         if not file_hash:
             return None
-        pres = db.query(Presentation).filter(Presentation.file_hash == file_hash).first()
-        if pres and local_storage.exists(pres.storage_path):
-            return pres
+        from app.core.security.secure_storage import secure_storage
+        candidates = db.query(Presentation).filter(Presentation.file_hash == file_hash).all()
+        for pres in candidates:
+            if pres and local_storage.exists(pres.storage_path):
+                # Verify asset is readable with current master key before reusing
+                try:
+                    with secure_storage.open_decrypted_file(pres):
+                        return pres
+                except Exception as err:
+                    logger.warning(f"AssetMatcher | Candidate presentation id={pres.id} cannot be decrypted ({err}). Skipping reuse.")
         return None
 
     def find_duplicate_employee_list(self, db: DBSession, file_hash: str) -> Optional[EmployeeList]:
         if not file_hash:
             return None
-        emp = db.query(EmployeeList).filter(EmployeeList.file_hash == file_hash).first()
-        if emp and local_storage.exists(emp.storage_path):
-            return emp
+        from app.core.security.secure_storage import secure_storage
+        candidates = db.query(EmployeeList).filter(EmployeeList.file_hash == file_hash).all()
+        for emp in candidates:
+            if emp and local_storage.exists(emp.storage_path):
+                # Verify asset is readable with current master key before reusing
+                try:
+                    with secure_storage.open_decrypted_file(emp):
+                        return emp
+                except Exception as err:
+                    logger.warning(f"AssetMatcher | Candidate employee list id={emp.id} cannot be decrypted ({err}). Skipping reuse.")
         return None
 
 asset_matcher = AssetMatcher()

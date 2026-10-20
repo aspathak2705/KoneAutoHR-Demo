@@ -9,10 +9,46 @@ from app.db.unit_of_work import UnitOfWork
 
 class EmployeeListService:
     def get_all(self, db: DBSession, skip: int = 0, limit: int = 100) -> List[EmployeeList]:
-        return employee_list_repository.get_all(db, skip, limit)
+        from app.storage.local_storage import local_storage
+        from app.core.security.secure_storage import secure_temp_manager
+        emp_lists = employee_list_repository.get_all(db, skip, limit)
+        for emp in emp_lists:
+            available = False
+            if emp.storage_path and local_storage.exists(emp.storage_path):
+                try:
+                    if getattr(emp, "encryption_version", 0) > 0:
+                        available = secure_temp_manager.verify_decryptability(
+                            storage_path=emp.storage_path,
+                            wrapped_dek=emp.wrapped_dek,
+                            nonce=emp.nonce
+                        )
+                    else:
+                        available = True
+                except Exception:
+                    available = False
+            emp.is_available = available
+        return emp_lists
 
     def get(self, db: DBSession, id: str) -> Optional[EmployeeList]:
-        return employee_list_repository.get(db, id)
+        from app.storage.local_storage import local_storage
+        from app.core.security.secure_storage import secure_temp_manager
+        emp = employee_list_repository.get(db, id)
+        if emp:
+            available = False
+            if emp.storage_path and local_storage.exists(emp.storage_path):
+                try:
+                    if getattr(emp, "encryption_version", 0) > 0:
+                        available = secure_temp_manager.verify_decryptability(
+                            storage_path=emp.storage_path,
+                            wrapped_dek=emp.wrapped_dek,
+                            nonce=emp.nonce
+                        )
+                    else:
+                        available = True
+                except Exception:
+                    available = False
+            emp.is_available = available
+        return emp
 
     async def create_employee_list(self, db: DBSession, name: str, file: UploadFile) -> EmployeeList:
         from app.storage.local_storage import local_storage

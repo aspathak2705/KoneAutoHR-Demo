@@ -22,3 +22,4 @@ class PresentationResponse(BaseSchema):
     last_used: datetime.datetime
     session_count: int
     slide_count: int
+    is_available: bool = True

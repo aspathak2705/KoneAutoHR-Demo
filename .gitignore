@@ -52,5 +52,8 @@ data
 backend/app/test/test_logging_scrub.py
 backend/app/test/test_database_config.py
 backend/app/test/test_local_architecture_cleanup.py
+test
+audit_reports
 
-
+
+

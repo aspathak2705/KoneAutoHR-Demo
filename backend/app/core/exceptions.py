@@ -17,6 +17,14 @@ class StorageException(BaseAppException):
     """Raised when file storage or asset operations fail."""
     pass
 
+class DecryptionException(StorageException):
+    """Raised when asset decryption fails due to corrupted data, invalid tag, or mismatched key."""
+    pass
+
+class StorageFileNotFoundException(StorageException):
+    """Raised when a storage asset physical file is missing on disk."""
+    pass
+
 class BrowserException(BaseAppException):
     """Raised when Teams browser driver or page interactions fail."""
     pass

@@ -286,24 +286,27 @@ def get_runtime_audio_tracks(session_id: str, db: DBSession = Depends(get_db)):
             if (audio_dir / std).exists():
                 tracks.append(std)
                 
-        # Slides audio tracks
-        slides_info = runtime_service.get_slide_controller(db, session_id)
-        slides = slides_info.get("slides", [])
-        for s in slides:
-            slide_file = f"slide_{s['slide_number']}.mp3"
-            if (audio_dir / slide_file).exists() and slide_file not in tracks:
-                tracks.append(slide_file)
+        # Slides audio tracks (safely attempted if script is ready)
+        try:
+            slides_info = runtime_service.get_slide_controller(db, session_id)
+            slides = slides_info.get("slides", [])
+            for s in slides:
+                slide_file = f"slide_{s['slide_number']}.mp3"
+                if (audio_dir / slide_file).exists() and slide_file not in tracks:
+                    tracks.append(slide_file)
+        except (ValueError, Exception) as controller_err:
+            logger.debug(f"API | Slide controller not yet populated for session {session_id}: {controller_err}")
                 
         # Fallback directory scanner for any other generated audios
         if audio_dir.exists():
             for f in audio_dir.iterdir():
-                if f.is_file() and f.suffix == ".mp3" and f.name not in tracks:
+                if f.is_file() and f.suffix.lower() == ".mp3" and f.name not in tracks:
                     tracks.append(f.name)
                     
         return tracks
     except Exception as e:
         logger.error(f"API | Failed to list audio tracks: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        return []
 
 @router.post("/{session_id}/audio/play")
 async def play_runtime_audio_track(session_id: str, req: Dict[str, str]):

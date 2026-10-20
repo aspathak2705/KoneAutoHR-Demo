@@ -75,6 +75,14 @@ class SecureStorage:
         provider = get_storage_provider()
         full_path = provider.get_path(entity_model.storage_path)
         
+        if not full_path.exists():
+            from app.core.exceptions import StorageFileNotFoundException
+            raise StorageFileNotFoundException(
+                f"Storage file '{entity_model.storage_path}' referenced by {entity_model.__class__.__name__} "
+                f"id={getattr(entity_model, 'id', 'unknown')} not found at physical path: {full_path}",
+                {"entity_id": getattr(entity_model, "id", None), "storage_path": entity_model.storage_path}
+            )
+
         # Legacy unencrypted fallback
         if getattr(entity_model, "encryption_version", 0) == 0:
             yield full_path
@@ -84,11 +92,22 @@ class SecureStorage:
         with open(full_path, "rb") as f:
             ciphertext = f.read()
 
-        master_key = key_manager.get_master_key()
-        dek = encryption_service.unwrap_dek(entity_model.wrapped_dek, master_key)
-        nonce = base64.b64decode(entity_model.nonce.encode('utf-8'))
-        
-        plaintext = encryption_service.decrypt_bytes(ciphertext, dek, nonce)
+        try:
+            master_key = key_manager.get_master_key()
+            dek = encryption_service.unwrap_dek(entity_model.wrapped_dek, master_key)
+            nonce = base64.b64decode(entity_model.nonce.encode('utf-8'))
+            plaintext = encryption_service.decrypt_bytes(ciphertext, dek, nonce)
+        except Exception as crypt_err:
+            from app.core.exceptions import DecryptionException
+            logger.error(
+                f"SecureStorage | Decryption failed for {entity_model.__class__.__name__} "
+                f"id={getattr(entity_model, 'id', 'unknown')}: {crypt_err}"
+            )
+            raise DecryptionException(
+                f"Failed to decrypt {entity_model.__class__.__name__} asset '{getattr(entity_model, 'original_filename', entity_model.storage_path)}': "
+                f"cryptographic integrity check failed or material was encrypted under a different master key.",
+                {"entity_id": getattr(entity_model, "id", None), "error": str(crypt_err)}
+            ) from crypt_err
         
         suffix = Path(entity_model.original_filename).suffix or ".tmp"
         with secure_temp_manager.create_temp_plaintext_file(plaintext, file_suffix=suffix) as temp_path:
