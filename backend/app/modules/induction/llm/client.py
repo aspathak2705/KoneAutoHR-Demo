@@ -49,6 +49,7 @@ class LLMClient:
             if is_openrouter:
                 kwargs["extra_body"] = {"reasoning": {"enabled": True}}
             elif is_nvidia:
+                # NVIDIA NIM OpenAI-compatible endpoint accepts chat_template_kwargs and reasoning_budget
                 kwargs["extra_body"] = {
                     "chat_template_kwargs": {"enable_thinking": True},
                     "reasoning_budget": 16384
@@ -56,7 +57,7 @@ class LLMClient:
             else:
                 kwargs["response_format"] = {"type": "json_object"}
 
-            logger.info(f"Sending request to {self.provider}")
+            logger.info(f"Sending request to {self.provider} (model: {self.model})")
             response = await client.chat.completions.create(**kwargs)
             logger.info("Response received")
             content = response.choices[0].message.content
@@ -71,12 +72,32 @@ class LLMClient:
             return content, latency, prompt_tokens, completion_tokens
 
         except Exception as e:
-            logger.error(f"API request failed (network/provider issue): {str(e)}")
-            raise LLMConnectionError(f"Failed to communicate with LLM provider: {str(e)}")
+            err_msg = str(e)
+            logger.error(f"API request failed (network/provider issue): {err_msg}")
+
+            # Check for permanent HTTP errors (404 Not Found, 401 Unauthorized, 403 Forbidden)
+            status_code = getattr(e, "status_code", None)
+            is_404 = status_code == 404 or "404" in err_msg or "Not found" in err_msg or "not_found" in err_msg
+            is_auth_error = status_code in (401, 403) or "401" in err_msg or "403" in err_msg or "Unauthorized" in err_msg
+
+            if is_404:
+                raise LLMConnectionError(
+                    f"LLM endpoint or model not found (HTTP 404). Provider: '{self.provider}', "
+                    f"Model: '{self.model}', Base URL: '{self.base_url}'. "
+                    f"Check LLM_MODEL and LLM_BASE_URL configuration or NVIDIA function/account entitlement. Details: {err_msg}"
+                ) from e
+            elif is_auth_error:
+                raise LLMConnectionError(
+                    f"LLM authentication failed (HTTP {status_code or '401/403'}). "
+                    f"Check LLM_API_KEY configuration for provider '{self.provider}'. Details: {err_msg}"
+                ) from e
+
+            raise LLMConnectionError(f"Failed to communicate with LLM provider: {err_msg}") from e
 
     async def generate_json(self, prompt: str, schema_validator: Optional[Callable[[dict], None]] = None, name: str = "llm_call") -> dict:
         """
         Generates JSON structure with extraction, schema validation, and single automatic retry.
+        Permanent connection or provider configuration errors (e.g. 404/401) fail fast without retry.
         """
         # Attempt 1
         raw_content = None
@@ -108,6 +129,10 @@ class LLMClient:
             })
             return parsed_data
 
+        except LLMConnectionError:
+            # Do NOT retry permanent network / provider configuration errors (e.g., 404, 401)
+            logger.error(f"Permanent connection/configuration failure for [{name}]. Aborting retry.")
+            raise
         except (LLMResponseParseError, LLMResponseValidationError, Exception) as attempt1_err:
             # Determine specific logging case
             if isinstance(attempt1_err, LLMResponseParseError):
@@ -144,6 +169,8 @@ class LLMClient:
                 logger.info(f"Successfully generated valid JSON for [{name}] on retry attempt.")
                 return parsed_data_retry
 
+            except LLMConnectionError:
+                raise
             except Exception as attempt2_err:
                 logger.error(f"JSON generation failed on retry attempt for [{name}]: {attempt2_err}")
                 raise InvalidResponseError("The AI returned an invalid response format. Please try again.")
