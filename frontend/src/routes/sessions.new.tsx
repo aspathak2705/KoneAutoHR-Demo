@@ -654,7 +654,7 @@ function NewSessionPage() {
         setForm(prev => ({ ...prev, title: prev.title || d.title || d.name || '' }));
 
         // For HR mode: backend extracted slides during session creation.
-        // Re-fetch presentations so slide_count is updated, then set hrSlides.
+        // Re-fetch presentations so slide_count is updated, then set hrSlides and seed existing audio.
         if (creationMode === "HR") {
           setLoadingHrSlides(true);
           try {
@@ -666,11 +666,38 @@ function NewSessionPage() {
               const slidesArray = Array.from({ length: totalSlides }, (_, i) => i + 1);
               setHrSlides(slidesArray);
               const initialNotes: Record<number, string> = {};
-              const initialAudios: Record<number, { duration: number; uploaded: boolean }> = {};
+              const initialAudios: Record<number, { duration: number; uploaded: boolean; is_silent?: boolean }> = {};
               slidesArray.forEach((num) => {
                 initialNotes[num] = "";
                 initialAudios[num] = { duration: 0, uploaded: false };
               });
+
+              // Check if session has seeded HR metadata from presentation cache
+              try {
+                const metaRes = await fetch(`${BACKEND_BASE}/hr-induction/metadata/${d.id}`, {
+                  headers: { "Authorization": `Bearer ${getAuthToken()}` }
+                });
+                if (metaRes.ok) {
+                  const metaJson = await metaRes.json();
+                  const slideMeta = metaJson.metadata || {};
+                  Object.entries(slideMeta).forEach(([numStr, item]: [string, any]) => {
+                    const num = parseInt(numStr, 10);
+                    if (num) {
+                      initialNotes[num] = item.notes || "";
+                      const isSilent = item.type === "SILENT";
+                      const durSec = (item.duration_ms || 0) / 1000.0;
+                      initialAudios[num] = {
+                        duration: durSec,
+                        uploaded: true,
+                        is_silent: isSilent
+                      };
+                    }
+                  });
+                }
+              } catch (metaErr) {
+                console.debug("Could not fetch initial hr metadata:", metaErr);
+              }
+
               setHrNotes(initialNotes);
               setHrAudios(initialAudios);
             }

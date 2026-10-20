@@ -46,20 +46,52 @@ def get_slide_thumbnail(session_id: str, slide_number: int):
 
 
 @router.get("/metadata/{session_id}")
-def get_hr_metadata(session_id: str):
+def get_hr_metadata(session_id: str, db: DBSession = Depends(get_db)):
     """
     Returns current slide metadata mapping for session if present.
+    If session metadata is missing but presentation has cached HR assets, returns cached metadata.
     """
     metadata_path = get_metadata_path(session_id)
-    if not metadata_path.exists():
-        return {"metadata": {}}
-    try:
-        with open(metadata_path, "r", encoding="utf-8") as f:
-            metadata = json.load(f)
-        return {"metadata": metadata}
-    except Exception as e:
-        logger.error(f"Failed to read metadata: {e}")
-        return {"metadata": {}}
+    if metadata_path.exists():
+        try:
+            with open(metadata_path, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+            if metadata:
+                return {"metadata": metadata}
+        except Exception as e:
+            logger.error(f"Failed to read metadata: {e}")
+
+    # Fallback: check if linked presentation has cached HR manifest
+    session = session_repository.get(db, session_id)
+    if session and session.presentation_id:
+        from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
+        paths = presentation_asset_manager.get_asset_paths(session.presentation_id, "HR")
+        if paths["manifest"].exists():
+            try:
+                with open(paths["manifest"], "r", encoding="utf-8") as mf:
+                    m_data = json.load(mf)
+                slide_meta = m_data.get("slide_audio_metadata", {})
+                if slide_meta:
+                    synthesized = {}
+                    for s_num_str, meta in slide_meta.items():
+                        s_type = meta.get("type", "AUDIO")
+                        synthesized[s_num_str] = {
+                            "type": s_type,
+                            "audio_path": str(paths["narration"].resolve()) if s_type != "SILENT" else None,
+                            "duration_ms": meta.get("duration_ms", 0),
+                            "notes": meta.get("notes", "")
+                        }
+                    # Also persist to session directory
+                    try:
+                        with open(metadata_path, "w", encoding="utf-8") as out_f:
+                            json.dump(synthesized, out_f, indent=2)
+                    except Exception:
+                        pass
+                    return {"metadata": synthesized}
+            except Exception as cached_err:
+                logger.error(f"Failed to read cached manifest for session {session_id}: {cached_err}")
+
+    return {"metadata": {}}
 
 
 @router.post("/upload-slide-audio")
@@ -392,9 +424,28 @@ def validate_hr_induction(
     slide_count = 0
     if session.presentation.metadata_records:
         slide_count = session.presentation.metadata_records[0].slide_count
+    if slide_count <= 0 and session.presentation.slide_count:
+        slide_count = session.presentation.slide_count
 
     if slide_count <= 0:
         raise HTTPException(status_code=400, detail="Presentation slide count is zero or not processed yet")
+
+    # If presentation has complete cached HR assets, validate succeeds directly
+    from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
+    assets_status = presentation_asset_manager.check_assets(db, session.presentation_id, "HR")
+    paths = presentation_asset_manager.get_asset_paths(session.presentation_id, "HR")
+    if assets_status.get("narration_exists") and assets_status.get("manifest_exists") and paths["manifest"].exists():
+        try:
+            with open(paths["manifest"], "r", encoding="utf-8") as mf:
+                m_data = json.load(mf)
+            dur = m_data.get("duration_ms", 0)
+            return {
+                "valid": True,
+                "slide_count": slide_count,
+                "total_duration_ms": dur
+            }
+        except Exception:
+            pass
 
     metadata_path = get_metadata_path(session_id)
     if not metadata_path.exists():

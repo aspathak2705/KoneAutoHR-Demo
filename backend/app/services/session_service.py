@@ -72,14 +72,46 @@ class SessionService:
                         slides_dir = session_dir / "presentation_assets" / "slides"
                         slides_dir.mkdir(parents=True, exist_ok=True)
                         
-                        with secure_storage.open_decrypted_file(pres) as temp_ppt_path:
-                            extractor = PowerPointSlideExtractor()
-                            slide_count = extractor.extract_slides(str(temp_ppt_path), slides_dir)
+                        from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
+                        cached_paths = presentation_asset_manager.get_asset_paths(session.presentation_id, "HR")
+                        cached_status = presentation_asset_manager.check_assets(db, session.presentation_id, "HR")
+
+                        # If pre-existing cached slides exist, copy them directly without invoking COM extractor
+                        if cached_status.get("slides_exist") and cached_paths["slides_dir"].exists():
+                            copied_count = 0
+                            for slide_img in cached_paths["slides_dir"].glob("slide_*.png"):
+                                shutil.copy2(slide_img, slides_dir / slide_img.name)
+                                copied_count += 1
+                            slide_count = copied_count
+                        else:
+                            with secure_storage.open_decrypted_file(pres) as temp_ppt_path:
+                                extractor = PowerPointSlideExtractor()
+                                slide_count = extractor.extract_slides(str(temp_ppt_path), slides_dir)
                         
                         # Update presentation metadata slide count if it was 0
                         if pres.metadata_records and pres.metadata_records[0].slide_count == 0:
                             from app.repositories.presentation_metadata_repository import presentation_metadata_repository
                             presentation_metadata_repository.update(db, pres.metadata_records[0], slide_count=slide_count)
+
+                        # If presentation already has cached narration and manifest, seed hr_slide_metadata.json
+                        if cached_status.get("narration_exists") and cached_paths["manifest"].exists():
+                            import json
+                            with open(cached_paths["manifest"], "r", encoding="utf-8") as mf:
+                                manifest_data = json.load(mf)
+                            slide_meta = manifest_data.get("slide_audio_metadata", {})
+                            if slide_meta:
+                                hr_meta = {}
+                                for s_num_str, meta in slide_meta.items():
+                                    s_type = meta.get("type", "AUDIO")
+                                    hr_meta[s_num_str] = {
+                                        "type": s_type,
+                                        "audio_path": str(cached_paths["narration"].resolve()) if s_type != "SILENT" else None,
+                                        "duration_ms": meta.get("duration_ms", 0),
+                                        "notes": meta.get("notes", "")
+                                    }
+                                meta_file = session_dir / "hr_slide_metadata.json"
+                                with open(meta_file, "w", encoding="utf-8") as hmf:
+                                    json.dump(hr_meta, hmf, indent=2)
                 except Exception as parse_err:
                     import logging
                     logger = logging.getLogger("app.services.session_service")
