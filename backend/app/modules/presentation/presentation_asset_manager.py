@@ -21,17 +21,20 @@ class PresentationAssetManager:
     def get_asset_paths(self, presentation_id: str, mode: str = "AI") -> Dict[str, Path]:
         """
         Returns structured paths for presentation assets in storage/presentations/{presentation_id}/[AI|HR]/.
+        Uses local_storage to resolve existing paths across repo root and backend storage roots.
         """
-        # Store presentation-specific assets in dedicated mode folders inside storage/uploads/presentations/
-        pres_dir = storage_service.presentations_dir / presentation_id / mode
+        from app.storage.local_storage import local_storage
+        rel_prefix = f"presentations/{presentation_id}/{mode}"
+        pres_dir = local_storage.get_path(rel_prefix)
         pres_dir.mkdir(parents=True, exist_ok=True)
+
         return {
             "dir": pres_dir,
-            "script": pres_dir / "script.json",
-            "narration": pres_dir / "narration.wav",
-            "timeline": pres_dir / "presentation_timeline.json",
-            "manifest": pres_dir / "manifest.json",
-            "slides_dir": pres_dir / "presentation_assets" / "slides"
+            "script": local_storage.get_path(f"{rel_prefix}/script.json"),
+            "narration": local_storage.get_path(f"{rel_prefix}/narration.wav"),
+            "timeline": local_storage.get_path(f"{rel_prefix}/presentation_timeline.json"),
+            "manifest": local_storage.get_path(f"{rel_prefix}/manifest.json"),
+            "slides_dir": local_storage.get_path(f"{rel_prefix}/presentation_assets/slides")
         }
 
     def check_assets(self, db: DBSession, presentation_id: str, mode: str = "AI") -> Dict[str, bool]:

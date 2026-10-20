@@ -113,4 +113,26 @@ class SecureStorage:
         with secure_temp_manager.create_temp_plaintext_file(plaintext, file_suffix=suffix) as temp_path:
             yield temp_path
 
+    def verify_decryptability(self, storage_path: str, wrapped_dek: Optional[str] = None, nonce: Optional[str] = None) -> bool:
+        if not storage_path:
+            return False
+        provider = get_storage_provider()
+        full_path = provider.get_path(storage_path)
+        if not full_path.exists():
+            return False
+        if not wrapped_dek or not nonce:
+            return True
+        try:
+            master_key = key_manager.get_master_key()
+            dek = encryption_service.unwrap_dek(wrapped_dek, master_key)
+            nonce_bytes = base64.b64decode(nonce.encode('utf-8'))
+            with open(full_path, 'rb') as f:
+                ciphertext = f.read()
+            encryption_service.decrypt_bytes(ciphertext, dek, nonce_bytes)
+            return True
+        except Exception as e:
+            logger.debug(f'SecureStorage | verify_decryptability failed for {storage_path}: {e}')
+            return False
+
 secure_storage = SecureStorage()
+SecureTempManager.verify_decryptability = staticmethod(secure_storage.verify_decryptability)
