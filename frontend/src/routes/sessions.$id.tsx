@@ -24,6 +24,7 @@ import {
   VolumeX,
   Mail,
   Copy,
+  RefreshCw,
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
@@ -58,6 +59,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { InductionUpdateModal } from "@/components/InductionUpdateModal";
 import { StatusBadge } from "@/components/status-badge";
 import {
   BACKEND_BASE,
@@ -227,6 +229,7 @@ function SessionDetailPage() {
   }, [session]);
 
   // Runtime states
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const [slidesConfig, setSlidesConfig] = useState<any | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -1420,13 +1423,23 @@ function SessionDetailPage() {
                   <p className="text-xs text-muted-foreground">
                     All components are verified. Prepare the AutoHR meeting engine now.
                   </p>
-                  <Button
-                    onClick={handlePrepareRuntime}
-                    disabled={!readiness?.is_ready}
-                    className="w-full bg-primary hover:bg-primary/95 text-primary-foreground gap-2 font-semibold"
-                  >
-                    <PlayCircle className="h-4.5 w-4.5" /> Prepare Runtime
-                  </Button>
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      onClick={handlePrepareRuntime}
+                      disabled={!readiness?.is_ready}
+                      className="w-full bg-primary hover:bg-primary/95 text-primary-foreground gap-2 font-semibold"
+                    >
+                      <PlayCircle className="h-4.5 w-4.5" /> Prepare Runtime
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsUpdateModalOpen(true)}
+                      className="w-full border-primary/40 text-primary hover:bg-primary/10 gap-2 font-semibold text-xs h-9"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" /> Update Existing Induction
+                    </Button>
+                  </div>
                   {!readiness?.is_ready && (
                     <p className="text-[10px] text-amber-600 text-center font-medium">
                       * Please complete all runtime readiness checklist items first.
@@ -2197,6 +2210,16 @@ function SessionDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <InductionUpdateModal
+        isOpen={isUpdateModalOpen}
+        onClose={() => setIsUpdateModalOpen(false)}
+        sessionId={id}
+        totalSlides={presentation?.total_slides || 37}
+        onUpdateSuccess={() => {
+          sync();
+          toast.success("Induction assets refreshed!");
+        }}
+      />
     </div>
   );
 }
@@ -2217,6 +2240,16 @@ function SectionShell({
         <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">{title}</h2>
       </div>
       {children}
+      <InductionUpdateModal
+        isOpen={isUpdateModalOpen}
+        onClose={() => setIsUpdateModalOpen(false)}
+        sessionId={id}
+        totalSlides={presentation?.total_slides || 37}
+        onUpdateSuccess={() => {
+          sync();
+          toast.success("Induction assets refreshed!");
+        }}
+      />
     </div>
   );
 }
@@ -2231,6 +2264,16 @@ function SessionNotFound() {
       <Button asChild>
         <Link to="/sessions">Back to Sessions</Link>
       </Button>
+      <InductionUpdateModal
+        isOpen={isUpdateModalOpen}
+        onClose={() => setIsUpdateModalOpen(false)}
+        sessionId={id}
+        totalSlides={presentation?.total_slides || 37}
+        onUpdateSuccess={() => {
+          sync();
+          toast.success("Induction assets refreshed!");
+        }}
+      />
     </div>
   );
 }
