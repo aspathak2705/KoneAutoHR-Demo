@@ -154,10 +154,20 @@ class PowerPointController:
                 target_shape = shapes[0]
 
             if target_shape:
-                player = self.slide_show.Player(target_shape.Id)
-                player.Play()
-                logger.info(f"PowerPointController | Triggered Play() for media shape {target_shape.Id} on slide {slide_index}")
-                return True
+                # Unmute media shape in MediaFormat if muted to ensure audio plays
+                try:
+                    if hasattr(target_shape, "MediaFormat") and target_shape.MediaFormat.Muted:
+                        target_shape.MediaFormat.Muted = False
+                except Exception as mute_err:
+                    logger.debug(f"PowerPointController | Could not unmute MediaFormat for shape {target_shape.Id}: {mute_err}")
+
+                view = getattr(self.slide_show, "View", self.slide_show)
+                get_player = getattr(view, "Player", None) or getattr(self.slide_show, "Player", None)
+                if get_player:
+                    player = get_player(target_shape.Id)
+                    player.Play()
+                    logger.info(f"PowerPointController | Triggered Play() for media shape {target_shape.Id} on slide {slide_index}")
+                    return True
         except Exception as e:
             logger.warning(f"PowerPointController | Failed to trigger media play on slide {slide_index}: {e}")
         return False
@@ -168,14 +178,17 @@ class PowerPointController:
             return False
         try:
             shapes = self.get_slide_media_shapes(slide_index)
-            for s in shapes:
-                try:
-                    player = self.slide_show.Player(s.Id)
-                    # player.State: 0 = ppPlaying, 1 = ppPaused, 2 = ppStopped (or 3 in some Office editions)
-                    if player.State == 0:
-                        return True
-                except Exception:
-                    pass
+            view = getattr(self.slide_show, "View", self.slide_show)
+            get_player = getattr(view, "Player", None) or getattr(self.slide_show, "Player", None)
+            if get_player:
+                for s in shapes:
+                    try:
+                        player = get_player(s.Id)
+                        # player.State: 0 = ppPlaying, 1 = ppPaused, 2 = ppStopped (or 3 in some Office editions)
+                        if player.State == 0:
+                            return True
+                    except Exception:
+                        pass
         except Exception as e:
             logger.debug(f"PowerPointController | Media playing query notice: {e}")
         return False

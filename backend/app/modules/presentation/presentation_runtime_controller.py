@@ -112,13 +112,40 @@ class PresentationRuntimeController:
             except Exception as sm_err:
                 logger.warning(f"PresentationRuntimeController | Could not read slides_metadata.json: {sm_err}")
 
-        # Map slide number to video info
+        # Map slide number to video info (load from slides_metadata.json or dynamically inspect presentation)
         slide_videos = {}
         for s in slides_metadata:
             s_num = s.get("slide_number")
             v_meta = s.get("video_metadata", [])
             if s_num and v_meta:
                 slide_videos[s_num] = v_meta
+
+        # Fallback: scan media shapes directly from presentation COM if slides_metadata is absent or lacks entries
+        if not slide_videos and self.ppt_controller and self.ppt_controller.presentation:
+            try:
+                pres_com = self.ppt_controller.presentation
+                for s_idx in range(1, pres_com.Slides.Count + 1):
+                    shapes = self.ppt_controller.get_slide_media_shapes(s_idx)
+                    if shapes:
+                        v_list = []
+                        for shp in shapes:
+                            dur = 0.0
+                            try:
+                                if hasattr(shp, "MediaFormat") and shp.MediaFormat.Length > 0:
+                                    dur = shp.MediaFormat.Length / 1000.0
+                            except Exception:
+                                pass
+                            v_list.append({
+                                "shape_id": shp.Id,
+                                "shape_name": shp.Name,
+                                "duration": dur,
+                                "supported": True
+                            })
+                        slide_videos[s_idx] = v_list
+                if slide_videos:
+                    logger.info(f"PresentationRuntimeController | Dynamically discovered media on slides: {list(slide_videos.keys())}")
+            except Exception as dyn_err:
+                logger.debug(f"PresentationRuntimeController | Dynamic media scan notice: {dyn_err}")
 
         executor = TimelineExecutor(str(session_dir / manifest["timeline"]))
         current_visible_slide = 1
