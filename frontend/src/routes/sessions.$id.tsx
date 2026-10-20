@@ -302,7 +302,7 @@ function SessionDetailPage() {
           }
 
           if (status.state === "COMPLETED") {
-            syncFromBackend(id);
+            syncFromBackend();
           }
         })
         .catch(console.error);
@@ -1679,7 +1679,7 @@ function SessionDetailPage() {
                       <Button
                         variant="destructive"
                         size="sm"
-                        onClick={handleLeaveMeeting}
+                        onClick={handleStopRuntime}
                         className="h-8 px-3 text-xs"
                       >
                         Disconnect Call
@@ -1781,7 +1781,7 @@ function SessionDetailPage() {
                       Simulate Drop
                     </Button>
                     <Button
-                      onClick={handleLeaveMeeting}
+                      onClick={handleStopRuntime}
                       className="bg-green-600 hover:bg-green-700 text-white text-xs h-8"
                     >
                       Finalize Onboarding Session
@@ -2214,9 +2214,9 @@ function SessionDetailPage() {
         isOpen={isUpdateModalOpen}
         onClose={() => setIsUpdateModalOpen(false)}
         sessionId={id}
-        totalSlides={presentation?.total_slides || 37}
+        totalSlides={session?.presentation?.slide_count || slidesConfig?.total_slides || 37}
         onUpdateSuccess={() => {
-          sync();
+          syncFromBackend();
           toast.success("Induction assets refreshed!");
         }}
       />

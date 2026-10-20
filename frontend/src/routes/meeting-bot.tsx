@@ -483,10 +483,10 @@ function MeetingBotDashboard() {
               <div className="flex justify-between items-center text-xs">
                 <span className="text-muted-foreground">Call session connected:</span>
                 <Badge 
-                  variant={status?.health?.meeting_connected ? "default" : "secondary"}
-                  className={status?.health?.meeting_connected ? "bg-green-500 hover:bg-green-600 text-white" : ""}
+                  variant={(status?.health?.meeting_active || (status?.health as any)?.meeting_connected) ? "default" : "secondary"}
+                  className={(status?.health?.meeting_active || (status?.health as any)?.meeting_connected) ? "bg-green-500 hover:bg-green-600 text-white" : ""}
                 >
-                  {status?.health?.meeting_connected ? "ACTIVE" : "INACTIVE"}
+                  {(status?.health?.meeting_active || (status?.health as any)?.meeting_connected) ? "ACTIVE" : "INACTIVE"}
                 </Badge>
               </div>
             </CardContent>

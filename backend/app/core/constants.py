@@ -10,6 +10,7 @@ class SessionStatus(str, Enum):
     REGISTERING_ASSETS = "REGISTERING_ASSETS"
     VERIFYING = "VERIFYING"
     READY = "READY"
+    COMPLETED = "COMPLETED"
     FAILED = "FAILED"
 
 class UploadType(str, Enum):

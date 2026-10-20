@@ -10,6 +10,7 @@ export type SessionStatus =
   | "REGISTERING_ASSETS"
   | "VERIFYING"
   | "READY"
+  | "COMPLETED"
   | "FAILED";
 
 export interface SavedPresentation {
@@ -70,6 +71,7 @@ export interface PresentationQuestion {
 export interface InductionSession {
   id: string;
   title: string;
+  name?: string;
   department: string;
   trainer: string;
   date: string; // ISO date
@@ -96,6 +98,7 @@ export const STATUS_LABEL: Record<SessionStatus, string> = {
   REGISTERING_ASSETS: "Registering assets...",
   VERIFYING: "Verifying package integrity...",
   READY: "Ready for launch",
+  COMPLETED: "Completed",
   FAILED: "Failed",
 };
 
@@ -452,7 +455,7 @@ export async function updateSession(id: string, patch: Partial<InductionSession>
 
   let backendStatus = undefined;
   if (patch.status) {
-    if (patch.status === "CREATED") backendStatus = "PENDING";
+    if (patch.status === "PENDING") backendStatus = "PENDING";
     else if (patch.status === "READY") backendStatus = "READY";
     else if (patch.status === "COMPLETED") backendStatus = "COMPLETED";
     else if (patch.status === "FAILED") backendStatus = "FAILED";
@@ -909,6 +912,7 @@ export interface InvitationDraft {
   session_id: string;
   recipient_name: string;
   recipient_email: string;
+  recipients?: string;
   subject: string;
   body: string;
   status: string;
@@ -923,6 +927,7 @@ export interface ReadinessStatus {
   has_script: boolean;
   has_faq: boolean;
   has_meeting: boolean;
+  has_audio?: boolean;
   is_ready: boolean;
 }
 
@@ -987,6 +992,9 @@ export interface RuntimeStatus {
   current_slide: number;
   last_heartbeat?: string | null;
   last_error?: string | null;
+  narration_state?: string | null;
+  speech_state?: string | null;
+  reconnect_count?: number;
   presentation_ready: boolean;
   employees_ready: boolean;
   meeting_ready: boolean;

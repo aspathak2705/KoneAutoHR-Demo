@@ -651,7 +651,7 @@ function NewSessionPage() {
           creation_mode: creationMode
         } as any);
         setSessionDraft(d);
-        setForm(prev => ({ ...prev, title: prev.title || d.name }));
+        setForm(prev => ({ ...prev, title: prev.title || d.title || d.name || '' }));
 
         // For HR mode: backend extracted slides during session creation.
         // Re-fetch presentations so slide_count is updated, then set hrSlides.
