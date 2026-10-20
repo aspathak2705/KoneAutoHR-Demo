@@ -154,12 +154,15 @@ class PowerPointController:
                 target_shape = shapes[0]
 
             if target_shape:
-                # Unmute media shape in MediaFormat if muted to ensure audio plays
+                # Unmute media shape and ensure full volume in MediaFormat so audio plays audibly
                 try:
-                    if hasattr(target_shape, "MediaFormat") and target_shape.MediaFormat.Muted:
-                        target_shape.MediaFormat.Muted = False
+                    if hasattr(target_shape, "MediaFormat"):
+                        if hasattr(target_shape.MediaFormat, "Muted") and target_shape.MediaFormat.Muted:
+                            target_shape.MediaFormat.Muted = False
+                        if hasattr(target_shape.MediaFormat, "Volume") and target_shape.MediaFormat.Volume < 1.0:
+                            target_shape.MediaFormat.Volume = 1.0
                 except Exception as mute_err:
-                    logger.debug(f"PowerPointController | Could not unmute MediaFormat for shape {target_shape.Id}: {mute_err}")
+                    logger.debug(f"PowerPointController | Could not configure MediaFormat for shape {target_shape.Id}: {mute_err}")
 
                 view = getattr(self.slide_show, "View", self.slide_show)
                 get_player = getattr(view, "Player", None) or getattr(self.slide_show, "Player", None)

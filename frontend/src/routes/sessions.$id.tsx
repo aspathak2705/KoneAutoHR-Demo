@@ -2240,16 +2240,6 @@ function SectionShell({
         <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">{title}</h2>
       </div>
       {children}
-      <InductionUpdateModal
-        isOpen={isUpdateModalOpen}
-        onClose={() => setIsUpdateModalOpen(false)}
-        sessionId={id}
-        totalSlides={presentation?.total_slides || 37}
-        onUpdateSuccess={() => {
-          sync();
-          toast.success("Induction assets refreshed!");
-        }}
-      />
     </div>
   );
 }
@@ -2264,16 +2254,6 @@ function SessionNotFound() {
       <Button asChild>
         <Link to="/sessions">Back to Sessions</Link>
       </Button>
-      <InductionUpdateModal
-        isOpen={isUpdateModalOpen}
-        onClose={() => setIsUpdateModalOpen(false)}
-        sessionId={id}
-        totalSlides={presentation?.total_slides || 37}
-        onUpdateSuccess={() => {
-          sync();
-          toast.success("Induction assets refreshed!");
-        }}
-      />
     </div>
   );
 }
