@@ -53,6 +53,8 @@ class TimelineExecutor:
                             while is_slide_busy(cur_slide):
                                 await asyncio.sleep(0.3)
                             logger.info(f"TimelineExecutor | Slide {cur_slide} media completed. Resuming narration audio.")
+                            # Resynchronize current_pos after pause/resume cycle
+                            current_pos = audio_controller.position()
                             audio_controller.resume_audio()
 
                     self.executed_event_ids.add(event_id)

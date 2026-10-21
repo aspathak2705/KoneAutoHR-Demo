@@ -505,11 +505,9 @@ class RuntimeCoordinator:
         presentation_active = observation.presentation_state in ["POWERPOINT_SHARED", "SCREEN_SHARING"]
         if ObservationEvent.PRESENTATION_STARTED in observation.events or (self.session_manager.state == RuntimeState.CONNECTED and presentation_active):
             if self.session_manager.state == RuntimeState.CONNECTED:
-                if getattr(self, "induction_started", False):
-                    logger.info(f"RuntimeCoordinator | Presentation started, transitioning to PRESENTING")
-                    if await self.session_manager.transition_to(RuntimeState.PRESENTING):
-                        asyncio.create_task(self._run_greeting_flow())
-                    return
+                # Automatic presentation playback and greeting is managed via explicit Start Induction POST /start-induction.
+                # Do not trigger greeting flow from background observer polling.
+                pass
 
         # Handle slide changes during PRESENTING
         if ObservationEvent.SLIDE_CHANGED in observation.events:
@@ -519,12 +517,9 @@ class RuntimeCoordinator:
                     logger.info(f"RuntimeCoordinator | Slide changed to {slide_num}")
                     self.memory.record_slide_reached(slide_num, f"Slide {slide_num}")
                     
-                    # Interrupt active voice narration
-                    if self.config.voice_enabled:
-                        self.voice_output.interrupt()
-                    
-                    # Speak new slide narration
-                    asyncio.create_task(self._speak_slide_narration(slide_num))
+                    # Presentation audio and progression is authoritatively managed by PresentationRuntimeController.
+                    # Do not trigger redundant voice narration from background observer polling.
+                    logger.info("RuntimeCoordinator | Slide changed detected by observer: %s", slide_num)
 
         # Transition: PRESENTING → FINISHED (presentation ended)
         if ObservationEvent.PRESENTATION_ENDED in observation.events:

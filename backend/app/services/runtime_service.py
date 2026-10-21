@@ -24,6 +24,10 @@ class RuntimeService:
         logger.info(f"RuntimeService | START create_runtime_and_coordinator for session {session_id}")
         
         try:
+            # Clean up any leftover audio controller or process from a previous run of this session
+            from app.modules.meeting_bot.media.audio_controller import cleanup_audio_controller
+            cleanup_audio_controller(session_id)
+
             # Create Runtime database entry
             runtime_id = str(uuid.uuid4())
             runtime = Runtime(
