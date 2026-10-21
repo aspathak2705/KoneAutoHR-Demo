@@ -154,6 +154,13 @@ class PowerPointController:
                 target_shape = shapes[0]
 
             if target_shape:
+                # Ensure loop is disabled so media does not replay continuously
+                try:
+                    if hasattr(target_shape, "AnimationSettings") and hasattr(target_shape.AnimationSettings, "PlaySettings"):
+                        target_shape.AnimationSettings.PlaySettings.LoopUntilStopped = False
+                except Exception as loop_err:
+                    logger.debug(f"PowerPointController | LoopUntilStopped config notice: {loop_err}")
+
                 # Unmute media shape and ensure full volume in MediaFormat so audio plays audibly
                 try:
                     if hasattr(target_shape, "MediaFormat"):
@@ -187,8 +194,17 @@ class PowerPointController:
                 for s in shapes:
                     try:
                         player = get_player(s.Id)
-                        # player.State: 0 = ppPlaying, 1 = ppPaused, 2 = ppStopped (or 3 in some Office editions)
+                        # ppPlaying is 0 in PowerPoint COM.
+                        # Also check CurrentPosition vs MediaFormat Length:
+                        # if CurrentPosition reached within 200ms of length or State != 0, it is not playing.
                         if player.State == 0:
+                            try:
+                                if hasattr(s, "MediaFormat") and s.MediaFormat.Length > 0:
+                                    pos = getattr(player, "CurrentPosition", 0)
+                                    if pos >= (s.MediaFormat.Length - 200):
+                                        return False
+                            except Exception:
+                                pass
                             return True
                     except Exception:
                         pass

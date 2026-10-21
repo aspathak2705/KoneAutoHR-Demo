@@ -188,17 +188,32 @@ class PresentationRuntimeController:
 
             # If video was started, check if it's still playing or within its duration
             if slide_num in slide_video_started:
+                # 1. Check COM player state
                 if self.ppt_controller.is_media_playing_on_slide(slide_num):
                     return True
+
+                # 2. Check duration elapsed if duration is known
+                has_known_duration = False
                 for v in slide_videos[slide_num]:
                     dur = v.get("duration")
                     if dur and dur > 0:
+                        has_known_duration = True
                         start_t = slide_start_monotonic.get(f"{slide_num}_video")
                         if start_t:
                             elapsed = asyncio.get_running_loop().time() - start_t
                             if elapsed < dur:
                                 return True
+
+                # 3. If duration was not known, ensure at least a 2.0s buffer elapsed after trigger before marking finished
+                if not has_known_duration:
+                    start_t = slide_start_monotonic.get(f"{slide_num}_video")
+                    if start_t:
+                        elapsed = asyncio.get_running_loop().time() - start_t
+                        if elapsed < 2.0:
+                            return True
+
                 slide_video_finished.add(slide_num)
+                logger.info(f"PresentationRuntimeController | Video playback on slide {slide_num} finished. Releasing slide.")
                 return False
 
             # Video hasn't started yet: slide is busy waiting for video to play
