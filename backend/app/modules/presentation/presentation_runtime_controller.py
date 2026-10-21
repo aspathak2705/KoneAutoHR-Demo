@@ -224,33 +224,17 @@ class PresentationRuntimeController:
                 return self.ppt_controller.get_current_slide_index()
             return current_visible_slide
 
-        async def check_and_play_slide_video(slide_num: int):
+        async def play_slide_video_now(slide_num: int):
             """
-            Starts the embedded video on slide_num ONLY AFTER the slide's narration has finished.
+            Starts the embedded video on slide_num.
+            Guaranteed to run only once per slide.
             """
             if slide_num not in slide_videos or slide_num in slide_video_started:
                 return
 
-            bounds = slide_narration_bounds.get(slide_num)
-            has_narration = False
-            if bounds:
-                st_ms, end_ms = bounds
-                s_meta = manifest.get("slide_audio_metadata", {}).get(str(slide_num), {})
-                if s_meta.get("type") != "SILENT" and (end_ms - st_ms) > 100:
-                    has_narration = True
-
-            # If slide has narration, wait until current playback position reaches or exceeds end_ms
-            if has_narration and bounds:
-                _, end_ms = bounds
-                while audio.playing and audio.position() < (end_ms - 50):
-                    await asyncio.sleep(0.1)
-
-            if slide_num in slide_video_started:
-                return
-
             slide_video_started.add(slide_num)
             slide_start_monotonic[f"{slide_num}_video"] = asyncio.get_running_loop().time()
-            logger.info(f"PresentationRuntimeController | Narration finished for slide {slide_num}. Starting embedded video playback now.")
+            logger.info(f"PresentationRuntimeController | Starting embedded video playback on slide {slide_num}.")
 
             v_list = slide_videos.get(slide_num, [])
             for v in v_list:
@@ -263,20 +247,37 @@ class PresentationRuntimeController:
         async def handle_goto_slide(slide_num: int):
             nonlocal current_visible_slide
             logger.info(f"PresentationRuntimeController | Event trigger: goto_slide {slide_num} (current slide: {current_visible_slide})")
-            while current_visible_slide < slide_num:
-                await self.ppt_controller.next_slide()
-                current_visible_slide += 1
+            if current_visible_slide != slide_num:
+                await self.ppt_controller.goto_slide(slide_num)
+                current_visible_slide = slide_num
                 slide_start_monotonic[current_visible_slide] = asyncio.get_running_loop().time()
-                await asyncio.sleep(0.5)
-            while current_visible_slide > slide_num:
-                await self.ppt_controller.prev_slide()
-                current_visible_slide -= 1
-                slide_start_monotonic[current_visible_slide] = asyncio.get_running_loop().time()
-                await asyncio.sleep(0.5)
 
-            # Check if entering slide with video and launch sequencing task
+            # For slides with video:
+            # If the slide has NO narration, start video immediately upon slide entry.
+            # If the slide DOES have narration, check_and_play_slide_video / timeline will trigger it when narration finishes.
             if current_visible_slide in slide_videos:
-                asyncio.create_task(check_and_play_slide_video(current_visible_slide))
+                bounds = slide_narration_bounds.get(current_visible_slide)
+                has_narration = False
+                if bounds:
+                    st_ms, end_ms = bounds
+                    s_meta = manifest.get("slide_audio_metadata", {}).get(str(current_visible_slide), {})
+                    if s_meta.get("type") != "SILENT" and (end_ms - st_ms) > 100:
+                        has_narration = True
+
+                if not has_narration:
+                    await play_slide_video_now(current_visible_slide)
+                else:
+                    # Slide has narration: launch task to wait until narration ends, then play video
+                    async def wait_narration_and_play(target_slide: int):
+                        target_bounds = slide_narration_bounds.get(target_slide)
+                        if target_bounds:
+                            _, target_end_ms = target_bounds
+                            while audio.playing and audio.position() < (target_end_ms - 50):
+                                await asyncio.sleep(0.1)
+                        if target_slide == current_visible_slide:
+                            await play_slide_video_now(target_slide)
+
+                    asyncio.create_task(wait_narration_and_play(current_visible_slide))
 
         try:
             await asyncio.sleep(1)

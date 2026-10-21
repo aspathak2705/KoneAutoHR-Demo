@@ -55,6 +55,8 @@ class TimelineExecutor:
                             logger.info(f"TimelineExecutor | Slide {cur_slide} media completed. Resuming narration audio.")
                             audio_controller.resume_audio()
 
+                    self.executed_event_ids.add(event_id)
+
                     if action == "goto_slide":
                         logger.info(
                             f"TimelineExecutor | Triggering event {event_id}: goto_slide {slide_num} "
@@ -67,8 +69,6 @@ class TimelineExecutor:
                                 on_goto_slide(slide_num)
                         except Exception as e:
                             logger.error(f"TimelineExecutor | Event handler failed: {e}")
-
-                    self.executed_event_ids.add(event_id)
 
             await asyncio.sleep(0.1)
 

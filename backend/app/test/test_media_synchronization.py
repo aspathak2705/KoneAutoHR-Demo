@@ -134,5 +134,46 @@ def test_powerpoint_controller_media_methods():
     assert hasattr(controller, "get_slide_media_shapes")
     assert hasattr(controller, "play_media_on_slide")
     assert hasattr(controller, "is_media_playing_on_slide")
+    assert hasattr(controller, "goto_slide")
     assert controller.get_current_slide_index() == 1
     assert controller.is_media_playing_on_slide(1) is False
+
+
+@pytest.mark.asyncio
+async def test_timeline_executor_executes_each_event_exactly_once(tmp_path):
+    """
+    Verify TimelineExecutor marks event executed immediately, avoiding duplicate goto_slide triggers.
+    """
+    timeline_file = tmp_path / "test_timeline_exact.json"
+    timeline_content = """{
+        "version": "1.0",
+        "duration_ms": 500,
+        "events": [
+            {"id": 1, "time_ms": 0, "action": "goto_slide", "slide": 1},
+            {"id": 2, "time_ms": 100, "action": "goto_slide", "slide": 2}
+        ]
+    }"""
+    timeline_file.write_text(timeline_content, encoding="utf-8")
+
+    executor = TimelineExecutor(str(timeline_file))
+
+    audio = MagicMock()
+    audio.position.return_value = 150
+    audio.playing = True
+
+    calls = []
+
+    async def mock_goto(slide_num):
+        calls.append(slide_num)
+        if len(calls) >= 2:
+            audio.playing = False
+
+    await executor.execute(
+        audio_controller=audio,
+        on_goto_slide=mock_goto,
+        is_slide_busy=lambda s: False,
+        get_current_slide=lambda: 1
+    )
+
+    assert calls == [1, 2]
+    assert len(executor.executed_event_ids) == 2

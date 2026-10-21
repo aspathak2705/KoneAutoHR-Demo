@@ -212,6 +212,29 @@ class PowerPointController:
             logger.debug(f"PowerPointController | Media playing query notice: {e}")
         return False
 
+    async def goto_slide(self, slide_index: int) -> None:
+        """
+        Navigate directly to a specific slide in show.
+        """
+        if self.slide_show:
+            try:
+                view = getattr(self.slide_show, "View", self.slide_show)
+                if hasattr(view, "GotoSlide"):
+                    view.GotoSlide(slide_index)
+                    logger.info(f"PowerPointController | Navigated directly to slide {slide_index}.")
+                else:
+                    cur = self.get_current_slide_index()
+                    while cur < slide_index:
+                        await self.next_slide()
+                        cur += 1
+                        await asyncio.sleep(0.1)
+                    while cur > slide_index:
+                        await self.prev_slide()
+                        cur -= 1
+                        await asyncio.sleep(0.1)
+            except Exception as e:
+                logger.error(f"PowerPointController | goto_slide {slide_index} failed: {e}")
+
     async def next_slide(self) -> None:
         """
         Navigate to next slide in show.
