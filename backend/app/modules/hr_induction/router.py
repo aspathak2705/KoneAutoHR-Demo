@@ -61,36 +61,6 @@ def get_hr_metadata(session_id: str, db: DBSession = Depends(get_db)):
         except Exception as e:
             logger.error(f"Failed to read metadata: {e}")
 
-    # Fallback: check if linked presentation has cached HR manifest
-    session = session_repository.get(db, session_id)
-    if session and session.presentation_id:
-        from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
-        paths = presentation_asset_manager.get_asset_paths(session.presentation_id, "HR")
-        if paths["manifest"].exists():
-            try:
-                with open(paths["manifest"], "r", encoding="utf-8") as mf:
-                    m_data = json.load(mf)
-                slide_meta = m_data.get("slide_audio_metadata", {})
-                if slide_meta:
-                    synthesized = {}
-                    for s_num_str, meta in slide_meta.items():
-                        s_type = meta.get("type", "AUDIO")
-                        synthesized[s_num_str] = {
-                            "type": s_type,
-                            "audio_path": str(paths["narration"].resolve()) if s_type != "SILENT" else None,
-                            "duration_ms": meta.get("duration_ms", 0),
-                            "notes": meta.get("notes", "")
-                        }
-                    # Also persist to session directory
-                    try:
-                        with open(metadata_path, "w", encoding="utf-8") as out_f:
-                            json.dump(synthesized, out_f, indent=2)
-                    except Exception:
-                        pass
-                    return {"metadata": synthesized}
-            except Exception as cached_err:
-                logger.error(f"Failed to read cached manifest for session {session_id}: {cached_err}")
-
     return {"metadata": {}}
 
 
@@ -582,50 +552,35 @@ def build_package(
             shutil.copy2(decrypted_ppt, session_dir / "presentation.pptx")
 
     from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
-    assets_status = presentation_asset_manager.check_assets(db, session.presentation_id, "HR")
     paths = presentation_asset_manager.get_asset_paths(session.presentation_id, "HR")
 
-    if assets_status["narration_exists"] and assets_status["timeline_exists"] and assets_status["manifest_exists"]:
-        logger.info(f"HRInduction | Reusable assets found for presentation {session.presentation_id}. Copying cached artifacts...")
+    try:
+        package_builder.build_hr_package(
+            session_id=session_id,
+            session_dir=session_dir,
+            presentation_filename=presentation_name,
+            slide_count=slide_count,
+            slide_audios=slide_audios,
+            slide_notes=slide_notes,
+            slide_types=slide_types,
+            slide_groups=slide_groups
+        )
+        # Copy generated outputs to presentation asset manager cache
         import shutil
-        shutil.copy2(paths["narration"], session_dir / "narration.wav")
-        shutil.copy2(paths["timeline"], session_dir / "presentation_timeline.json")
-        shutil.copy2(paths["manifest"], session_dir / "manifest.json")
+        shutil.copy2(session_dir / "narration.wav", paths["narration"])
+        shutil.copy2(session_dir / "presentation_timeline.json", paths["timeline"])
+        shutil.copy2(session_dir / "manifest.json", paths["manifest"])
         
-        # Also copy slide images if they exist
-        if paths["slides_dir"].exists():
-            session_slides_dir = session_dir / "presentation_assets" / "slides"
-            session_slides_dir.mkdir(parents=True, exist_ok=True)
-            for slide_img in paths["slides_dir"].glob("slide_*.png"):
-                shutil.copy2(slide_img, session_slides_dir / slide_img.name)
-    else:
-        try:
-            package_builder.build_hr_package(
-                session_id=session_id,
-                session_dir=session_dir,
-                presentation_filename=presentation_name,
-                slide_count=slide_count,
-                slide_audios=slide_audios,
-                slide_notes=slide_notes,
-                slide_types=slide_types,
-                slide_groups=slide_groups
-            )
-            # Copy generated outputs to presentation asset manager cache
-            import shutil
-            shutil.copy2(session_dir / "narration.wav", paths["narration"])
-            shutil.copy2(session_dir / "presentation_timeline.json", paths["timeline"])
-            shutil.copy2(session_dir / "manifest.json", paths["manifest"])
-            
-            # Copy slide images to presentation asset manager cache if they exist
-            session_slides_dir = session_dir / "presentation_assets" / "slides"
-            if session_slides_dir.exists():
-                paths["slides_dir"].mkdir(parents=True, exist_ok=True)
-                for slide_img in session_slides_dir.glob("slide_*.png"):
-                    shutil.copy2(slide_img, paths["slides_dir"] / slide_img.name)
-                    
-        except Exception as e:
-            logger.exception(f"HRInduction | Failed to build package: {e}")
-            raise HTTPException(status_code=500, detail=f"Package build failed: {str(e)}")
+        # Copy slide images to presentation asset manager cache if they exist
+        session_slides_dir = session_dir / "presentation_assets" / "slides"
+        if session_slides_dir.exists():
+            paths["slides_dir"].mkdir(parents=True, exist_ok=True)
+            for slide_img in session_slides_dir.glob("slide_*.png"):
+                shutil.copy2(slide_img, paths["slides_dir"] / slide_img.name)
+                
+    except Exception as e:
+        logger.exception(f"HRInduction | Failed to build package: {e}")
+        raise HTTPException(status_code=500, detail=f"Package build failed: {str(e)}")
 
     # Update session status
     try:

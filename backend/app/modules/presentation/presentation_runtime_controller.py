@@ -152,6 +152,25 @@ class PresentationRuntimeController:
         slide_start_monotonic = {}
         slide_start_monotonic[1] = asyncio.get_running_loop().time()
 
+        # Map slide number to narration window (start_ms, end_ms) based on timeline / manifest
+        slide_narration_bounds = {}
+        events_list = sorted(executor.events, key=lambda x: x.get("time_ms", 0))
+        for i, ev in enumerate(events_list):
+            s_num = ev.get("slide")
+            st_ms = float(ev.get("time_ms", 0))
+            s_audio_meta = manifest.get("slide_audio_metadata", {}).get(str(s_num), {})
+            dur_ms = s_audio_meta.get("duration_ms")
+            if dur_ms is not None and dur_ms > 0:
+                end_ms = st_ms + float(dur_ms)
+            elif i + 1 < len(events_list):
+                end_ms = float(events_list[i + 1].get("time_ms", 0))
+            else:
+                end_ms = float(manifest.get("duration_ms", st_ms))
+            slide_narration_bounds[s_num] = (st_ms, end_ms)
+
+        slide_video_started = set()
+        slide_video_finished = set()
+
         def is_slide_media_busy(slide_num: int) -> bool:
             """
             Checks if slide_num has an embedded video that is currently playing or has not
@@ -160,26 +179,71 @@ class PresentationRuntimeController:
             if not self.ppt_controller:
                 return False
 
-            # Check COM player state directly
-            if self.ppt_controller.is_media_playing_on_slide(slide_num):
-                return True
+            if slide_num not in slide_videos:
+                return False
 
-            # If slide has video metadata with known duration, check elapsed time on slide
-            if slide_num in slide_videos:
+            # If video has finished completely, slide is no longer busy
+            if slide_num in slide_video_finished:
+                return False
+
+            # If video was started, check if it's still playing or within its duration
+            if slide_num in slide_video_started:
+                if self.ppt_controller.is_media_playing_on_slide(slide_num):
+                    return True
                 for v in slide_videos[slide_num]:
                     dur = v.get("duration")
                     if dur and dur > 0:
-                        start_t = slide_start_monotonic.get(slide_num)
+                        start_t = slide_start_monotonic.get(f"{slide_num}_video")
                         if start_t:
                             elapsed = asyncio.get_running_loop().time() - start_t
                             if elapsed < dur:
                                 return True
-            return False
+                slide_video_finished.add(slide_num)
+                return False
+
+            # Video hasn't started yet: slide is busy waiting for video to play
+            return True
 
         def get_current_slide() -> int:
             if self.ppt_controller:
                 return self.ppt_controller.get_current_slide_index()
             return current_visible_slide
+
+        async def check_and_play_slide_video(slide_num: int):
+            """
+            Starts the embedded video on slide_num ONLY AFTER the slide's narration has finished.
+            """
+            if slide_num not in slide_videos or slide_num in slide_video_started:
+                return
+
+            bounds = slide_narration_bounds.get(slide_num)
+            has_narration = False
+            if bounds:
+                st_ms, end_ms = bounds
+                s_meta = manifest.get("slide_audio_metadata", {}).get(str(slide_num), {})
+                if s_meta.get("type") != "SILENT" and (end_ms - st_ms) > 100:
+                    has_narration = True
+
+            # If slide has narration, wait until current playback position reaches or exceeds end_ms
+            if has_narration and bounds:
+                _, end_ms = bounds
+                while audio.playing and audio.position() < (end_ms - 50):
+                    await asyncio.sleep(0.1)
+
+            if slide_num in slide_video_started:
+                return
+
+            slide_video_started.add(slide_num)
+            slide_start_monotonic[f"{slide_num}_video"] = asyncio.get_running_loop().time()
+            logger.info(f"PresentationRuntimeController | Narration finished for slide {slide_num}. Starting embedded video playback now.")
+
+            v_list = slide_videos.get(slide_num, [])
+            for v in v_list:
+                if not v.get("supported", True):
+                    logger.warning(
+                        f"PresentationRuntimeController | Notice on slide {slide_num}: {v.get('reason')}"
+                    )
+                self.ppt_controller.play_media_on_slide(slide_num, v.get("shape_id"))
 
         async def handle_goto_slide(slide_num: int):
             nonlocal current_visible_slide
@@ -195,17 +259,9 @@ class PresentationRuntimeController:
                 slide_start_monotonic[current_visible_slide] = asyncio.get_running_loop().time()
                 await asyncio.sleep(0.5)
 
-            # Check if entering slide with video and trigger play if needed
+            # Check if entering slide with video and launch sequencing task
             if current_visible_slide in slide_videos:
-                v_list = slide_videos[current_visible_slide]
-                for v in v_list:
-                    if not v.get("supported", True):
-                        logger.warning(
-                            f"PresentationRuntimeController | Notice on slide {current_visible_slide}: "
-                            f"{v.get('reason')}"
-                        )
-                    # Trigger play for safety if not already auto-playing
-                    self.ppt_controller.play_media_on_slide(current_visible_slide, v.get("shape_id"))
+                asyncio.create_task(check_and_play_slide_video(current_visible_slide))
 
         try:
             await asyncio.sleep(1)

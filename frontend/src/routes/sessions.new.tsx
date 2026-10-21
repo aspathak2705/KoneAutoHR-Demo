@@ -672,32 +672,6 @@ function NewSessionPage() {
                 initialAudios[num] = { duration: 0, uploaded: false };
               });
 
-              // Check if session has seeded HR metadata from presentation cache
-              try {
-                const metaRes = await fetch(`${BACKEND_BASE}/hr-induction/metadata/${d.id}`, {
-                  headers: { "Authorization": `Bearer ${getAuthToken()}` }
-                });
-                if (metaRes.ok) {
-                  const metaJson = await metaRes.json();
-                  const slideMeta = metaJson.metadata || {};
-                  Object.entries(slideMeta).forEach(([numStr, item]: [string, any]) => {
-                    const num = parseInt(numStr, 10);
-                    if (num) {
-                      initialNotes[num] = item.notes || "";
-                      const isSilent = item.type === "SILENT";
-                      const durSec = (item.duration_ms || 0) / 1000.0;
-                      initialAudios[num] = {
-                        duration: durSec,
-                        uploaded: true,
-                        is_silent: isSilent
-                      };
-                    }
-                  });
-                }
-              } catch (metaErr) {
-                console.debug("Could not fetch initial hr metadata:", metaErr);
-              }
-
               setHrNotes(initialNotes);
               setHrAudios(initialAudios);
             }
@@ -983,7 +957,7 @@ function NewSessionPage() {
               <BookOpen className="h-5 w-5 text-primary" /> Step 1: Presentation Setup
             </CardTitle>
             <CardDescription>
-              Choose a PowerPoint presentation slide deck from your saved library or upload a new training deck.
+              Upload your PowerPoint presentation slide deck (.pptx) to set up this induction session.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -1029,67 +1003,21 @@ function NewSessionPage() {
                 </button>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {presentations.map((pres) => {
-                const isUnavailable = pres.is_available === false;
-                return (
-                  <div
-                    key={pres.id}
-                    onClick={() => {
-                      if (isUnavailable) {
-                        toast.error("This presentation's file is missing or unreadable on the server. Please upload or select a valid presentation.");
-                        return;
-                      }
-                      setSelectedPresId(pres.id);
-                    }}
-                    className={`p-4 border rounded-xl transition-all flex flex-col justify-between ${
-                      isUnavailable
-                        ? "opacity-60 bg-muted/20 border-dashed border-destructive/40 cursor-not-allowed"
-                        : "cursor-pointer hover:shadow-md"
-                    } ${
-                      selectedPresId === pres.id
-                        ? "border-primary bg-primary/5 ring-1 ring-primary"
-                        : (!isUnavailable ? "border-border/60 bg-card hover:border-muted-foreground/30" : "")
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="font-semibold text-card-foreground">{pres.name}</h3>
-                        {isUnavailable && (
-                          <Badge variant="destructive" className="text-[10px] uppercase font-bold tracking-wider">
-                            File Missing
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1 truncate">{pres.original_filename}</p>
-                    </div>
-                    
-                    {selectedPresId === pres.id ? (
-                      <div className="mt-4 pt-3 border-t border-border/40 grid grid-cols-2 gap-y-2 gap-x-4 text-xs text-muted-foreground">
-                        <div>Uploaded: <span className="font-semibold text-foreground">{new Date(pres.uploaded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span></div>
-                        <div>Sessions Count: <span className="font-semibold text-foreground">{pres.session_count} runs</span></div>
-                        <div>Slides: <span className="font-semibold text-foreground">{pres.slide_count || (script ? Object.keys(script.script_content.slide_narrations || {}).length : 0)} slides</span></div>
-                        {creationMode === "AI" && <div>Presentation Script: <span className={`font-semibold ${script ? "text-green-600" : "text-amber-600"}`}>{script ? "✓ Ready" : "Not Prepared"}</span></div>}
-                        {creationMode === "AI" && <div>Employee Questions: <span className={`font-semibold ${questions ? "text-green-600" : "text-amber-600"}`}>{questions ? "✓ Ready" : "Not Prepared"}</span></div>}
-                        {creationMode === "HR" && <div className="col-span-2">Mode: <span className="font-semibold text-violet-600">HR Recorded — Upload slide narrations next</span></div>}
-                      </div>
-                    ) : (
-                      <div className="mt-4 pt-3 border-t border-border/40 flex justify-between items-center text-xs text-muted-foreground">
-                        <span>Used in {pres.session_count} sessions</span>
-                        <span>Uploaded {new Date(pres.uploaded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
 
-            <div className="border-t border-border pt-6">
-              <h3 className="text-sm font-semibold mb-3">Upload New Presentation</h3>
-              <form onSubmit={handleUploadPres} className="flex flex-col sm:flex-row gap-3">
+            {/* Upload Area */}
+            <div className="p-6 border-2 border-dashed border-border rounded-xl space-y-4 text-center bg-muted/10">
+              <Upload className="h-10 w-10 text-muted-foreground/60 mx-auto" />
+              <div>
+                <h3 className="font-semibold text-base">Upload PowerPoint Presentation</h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Upload a .pptx slide deck. The system will extract slides and prepare them for induction.
+                </p>
+              </div>
+
+              <form onSubmit={handleUploadPres} className="flex flex-col sm:flex-row gap-3 max-w-xl mx-auto pt-2">
                 <div className="flex-1">
                   <Input
-                    placeholder="Presentation Name (e.g. Safety Training)"
+                    placeholder="Presentation Name (e.g. Safety Induction)"
                     value={newPresName}
                     onChange={(e) => setNewPresName(e.target.value)}
                   />
@@ -1098,14 +1026,27 @@ function NewSessionPage() {
                   <Input
                     type="file"
                     accept=".pptx"
-                    onChange={(e) => setNewPresFile(e.target.files?.[0] || null)}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] || null;
+                      setNewPresFile(f);
+                      if (f && !newPresName.trim()) {
+                        setNewPresName(f.name.replace(/\.[^/.]+$/, ""));
+                      }
+                    }}
                     className="cursor-pointer"
                   />
-                  <Button type="submit" disabled={uploadingPres}>
-                    <Upload className="h-4 w-4 mr-2" /> Upload
+                  <Button type="submit" disabled={uploadingPres || !newPresFile}>
+                    <Upload className="h-4 w-4 mr-2" /> {uploadingPres ? "Uploading..." : "Upload"}
                   </Button>
                 </div>
               </form>
+
+              {selectedPresId && (
+                <div className="mt-4 p-3 bg-primary/10 border border-primary/20 rounded-lg text-sm text-primary flex items-center justify-center gap-2">
+                  <Check className="h-4 w-4" />
+                  <span>Selected Presentation: <strong>{presentations.find(p => p.id === selectedPresId)?.name || "Uploaded Presentation"}</strong></span>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end pt-4 border-t border-border">
@@ -1129,65 +1070,21 @@ function NewSessionPage() {
               <User className="h-5 w-5 text-primary" /> Step 2: Employee List Setup
             </CardTitle>
             <CardDescription>
-              Select an attendee Excel register sheet or upload a new new-hire batch list.
+              Upload an attendee Excel register sheet (.xlsx) for this induction session.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {employeeLists.map((emp) => {
-                const isUnavailable = emp.is_available === false;
-                return (
-                  <div
-                    key={emp.id}
-                    onClick={() => {
-                      if (isUnavailable) {
-                        toast.error("This employee list's file is missing or unreadable on the server. Please upload or select a valid list.");
-                        return;
-                      }
-                      setSelectedEmpId(emp.id);
-                    }}
-                    className={`p-4 border rounded-xl transition-all flex flex-col justify-between ${
-                      isUnavailable
-                        ? "opacity-60 bg-muted/20 border-dashed border-destructive/40 cursor-not-allowed"
-                        : "cursor-pointer hover:shadow-md"
-                    } ${
-                      selectedEmpId === emp.id
-                        ? "border-primary bg-primary/5 ring-1 ring-primary"
-                        : (!isUnavailable ? "border-border/60 bg-card hover:border-muted-foreground/30" : "")
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="font-semibold text-card-foreground">{emp.name}</h3>
-                        {isUnavailable && (
-                          <Badge variant="destructive" className="text-[10px] uppercase font-bold tracking-wider">
-                            File Missing
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1 truncate">{emp.original_filename}</p>
-                    </div>
-                    
-                    {selectedEmpId === emp.id ? (
-                      <div className="mt-4 pt-3 border-t border-border/40 grid grid-cols-2 gap-y-2 gap-x-4 text-xs text-muted-foreground">
-                        <div>Uploaded: <span className="font-semibold text-foreground">{new Date(emp.uploaded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span></div>
-                        <div>Employees: <span className="font-semibold text-foreground">{emp.employee_count} Attendees</span></div>
-                        <div>Last Used: <span className="font-semibold text-foreground">{new Date(emp.last_used).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span></div>
-                      </div>
-                    ) : (
-                      <div className="mt-4 pt-3 border-t border-border/40 flex justify-between items-center text-xs text-muted-foreground">
-                        <span>{emp.employee_count} Employees</span>
-                        <span>Uploaded {new Date(emp.uploaded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            {/* Upload Area */}
+            <div className="p-6 border-2 border-dashed border-border rounded-xl space-y-4 text-center bg-muted/10">
+              <Upload className="h-10 w-10 text-muted-foreground/60 mx-auto" />
+              <div>
+                <h3 className="font-semibold text-base">Upload Employee List</h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Upload an Excel (.xlsx) file containing attendee details, employee IDs, and names.
+                </p>
+              </div>
 
-            <div className="border-t border-border pt-6">
-              <h3 className="text-sm font-semibold mb-3">Upload New Employee List</h3>
-              <form onSubmit={handleUploadEmp} className="flex flex-col sm:flex-row gap-3">
+              <form onSubmit={handleUploadEmp} className="flex flex-col sm:flex-row gap-3 max-w-xl mx-auto pt-2">
                 <div className="flex-1">
                   <Input
                     placeholder="Batch Name (e.g. July 2026 Batch)"
@@ -1199,14 +1096,27 @@ function NewSessionPage() {
                   <Input
                     type="file"
                     accept=".xlsx"
-                    onChange={(e) => setNewEmpFile(e.target.files?.[0] || null)}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] || null;
+                      setNewEmpFile(f);
+                      if (f && !newEmpName.trim()) {
+                        setNewEmpName(f.name.replace(/\.[^/.]+$/, ""));
+                      }
+                    }}
                     className="cursor-pointer"
                   />
-                  <Button type="submit" disabled={uploadingEmp}>
-                    <Upload className="h-4 w-4 mr-2" /> Upload
+                  <Button type="submit" disabled={uploadingEmp || !newEmpFile}>
+                    <Upload className="h-4 w-4 mr-2" /> {uploadingEmp ? "Uploading..." : "Upload"}
                   </Button>
                 </div>
               </form>
+
+              {selectedEmpId && (
+                <div className="mt-4 p-3 bg-primary/10 border border-primary/20 rounded-lg text-sm text-primary flex items-center justify-center gap-2">
+                  <Check className="h-4 w-4" />
+                  <span>Selected List: <strong>{employeeLists.find(e => e.id === selectedEmpId)?.name || "Uploaded Employee List"}</strong> ({employeeLists.find(e => e.id === selectedEmpId)?.employee_count || 0} attendees)</span>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-between pt-4 border-t border-border">
@@ -1254,25 +1164,6 @@ function NewSessionPage() {
             {/* ===== HR RECORDED MODE ===== */}
             {creationMode === "HR" ? (
               <div className="space-y-5">
-                {/* Narration Reuse Panel */}
-                <div className="p-4 rounded-xl border border-border/60 bg-muted/10 space-y-2 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-muted-foreground uppercase text-[10px] tracking-wider">Narration Audio Status</span>
-                    <Badge variant={assetsStatus?.narration_exists ? "default" : "destructive"} className="text-[9px]">
-                      {assetsStatus?.narration_exists ? "Generated" : "Missing"}
-                    </Badge>
-                  </div>
-                  {assetsStatus?.narration_exists ? (
-                    <div className="text-violet-700 bg-violet-500/5 border border-violet-500/20 p-2.5 rounded-lg leading-normal">
-                      <strong>✓ Pre-existing Narration Detected:</strong> An HR recorded narration file (`narration.wav`) is already generated for this presentation. You can proceed directly to build the package.
-                    </div>
-                  ) : (
-                    <div className="text-amber-700 bg-amber-500/5 border border-amber-500/20 p-2.5 rounded-lg leading-normal">
-                      <strong>Notice:</strong> No Narration file is generated for this presentation yet. Please upload audio for each slide below, then validate and click "Build Package".
-                    </div>
-                  )}
-                </div>
-
                 {/* Progress Summary */}
                 <div className="flex items-center justify-between p-3 bg-muted/40 rounded-xl border border-border/40">
                   <div className="flex items-center gap-2 text-sm">
@@ -1634,25 +1525,6 @@ function NewSessionPage() {
             {/* ===== AI MODE CONTENT ===== */}
             {creationMode === "AI" && (
               <>
-                {/* Narration Reuse Panel */}
-                <div className="p-4 rounded-xl border border-border/60 bg-muted/10 space-y-2 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-muted-foreground uppercase text-[10px] tracking-wider">Narration Audio Status</span>
-                    <Badge variant={assetsStatus?.narration_exists ? "default" : "destructive"} className="text-[9px]">
-                      {assetsStatus?.narration_exists ? "Generated" : "Missing"}
-                    </Badge>
-                  </div>
-                  {assetsStatus?.narration_exists ? (
-                    <div className="text-green-700 bg-green-500/5 border border-green-500/20 p-2.5 rounded-lg leading-normal">
-                      <strong>✓ Pre-existing Narration Detected:</strong> An AI narration file (`narration.wav`) is already generated for this presentation. You can proceed directly to the next step to continue with the existing narration file.
-                    </div>
-                  ) : (
-                    <div className="text-amber-700 bg-amber-500/5 border border-amber-500/20 p-2.5 rounded-lg leading-normal">
-                      <strong>Notice:</strong> No Narration file is generated for this presentation yet. Please scroll down to "Advanced Settings" to generate the TTS Audio and compile the package.
-                    </div>
-                  )}
-                </div>
-
                 {!script ? (
                   <div className="p-8 border border-dashed border-border rounded-xl text-center space-y-4">
                     <FileText className="h-10 w-10 text-muted-foreground/60 mx-auto" />

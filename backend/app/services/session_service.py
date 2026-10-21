@@ -92,26 +92,6 @@ class SessionService:
                         if pres.metadata_records and pres.metadata_records[0].slide_count == 0:
                             from app.repositories.presentation_metadata_repository import presentation_metadata_repository
                             presentation_metadata_repository.update(db, pres.metadata_records[0], slide_count=slide_count)
-
-                        # If presentation already has cached narration and manifest, seed hr_slide_metadata.json
-                        if cached_status.get("narration_exists") and cached_paths["manifest"].exists():
-                            import json
-                            with open(cached_paths["manifest"], "r", encoding="utf-8") as mf:
-                                manifest_data = json.load(mf)
-                            slide_meta = manifest_data.get("slide_audio_metadata", {})
-                            if slide_meta:
-                                hr_meta = {}
-                                for s_num_str, meta in slide_meta.items():
-                                    s_type = meta.get("type", "AUDIO")
-                                    hr_meta[s_num_str] = {
-                                        "type": s_type,
-                                        "audio_path": str(cached_paths["narration"].resolve()) if s_type != "SILENT" else None,
-                                        "duration_ms": meta.get("duration_ms", 0),
-                                        "notes": meta.get("notes", "")
-                                    }
-                                meta_file = session_dir / "hr_slide_metadata.json"
-                                with open(meta_file, "w", encoding="utf-8") as hmf:
-                                    json.dump(hr_meta, hmf, indent=2)
                 except Exception as parse_err:
                     import logging
                     logger = logging.getLogger("app.services.session_service")
