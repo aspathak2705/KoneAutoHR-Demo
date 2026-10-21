@@ -334,18 +334,20 @@ class AudioController:
             f"Duration : {duration_sec:.2f} sec"
         )
 
-        current_frame = 0
+        self._audio_data = data
+        self._audio_fs = fs
+        self._audio_channels = channels
+        self._current_frame = 0
 
         def callback(outdata, frames, time_info, status):
-            nonlocal current_frame
             if status:
                 logger.warning(f"AudioController OutputStream Status: {status}")
             
-            chunk_size = min(len(data) - current_frame, frames)
+            chunk_size = min(len(self._audio_data) - self._current_frame, frames)
             if chunk_size > 0:
-                outdata[:chunk_size] = data[current_frame:current_frame + chunk_size]
+                outdata[:chunk_size] = self._audio_data[self._current_frame:self._current_frame + chunk_size]
                 outdata[chunk_size:] = 0
-                current_frame += chunk_size
+                self._current_frame += chunk_size
             else:
                 outdata.fill(0)
                 raise sd.CallbackStop
@@ -439,6 +441,36 @@ class AudioController:
         if not self._playing:
             self._start_time = time.time()
             self._playing = True
+
+            # If sounddevice stream was stopped during pause, restart stream from self._current_frame
+            if getattr(self, "stream", None) is None and getattr(self, "_audio_data", None) is not None:
+                try:
+                    import sounddevice as sd
+
+                    def callback(outdata, frames, time_info, status):
+                        if status:
+                            logger.warning(f"AudioController OutputStream Status: {status}")
+                        chunk_size = min(len(self._audio_data) - self._current_frame, frames)
+                        if chunk_size > 0:
+                            outdata[:chunk_size] = self._audio_data[self._current_frame:self._current_frame + chunk_size]
+                            outdata[chunk_size:] = 0
+                            self._current_frame += chunk_size
+                        else:
+                            outdata.fill(0)
+                            raise sd.CallbackStop
+
+                    self.stream = sd.OutputStream(
+                        samplerate=self._audio_fs,
+                        channels=self._audio_channels,
+                        device=self._cached_device_idx,
+                        callback=callback,
+                        dtype="float32"
+                    )
+                    self.stream.start()
+                    logger.info(f"AudioController | Restarted sounddevice stream from frame {self._current_frame}")
+                except Exception as stream_err:
+                    logger.error(f"AudioController | Failed to restart sounddevice stream on resume: {stream_err}")
+
             self._send_command("if ($active_player) { $active_player.Play() };")
             logger.info(f"AudioController | Audio playback resumed from {self._pause_offset_ms:.0f}ms")
 
