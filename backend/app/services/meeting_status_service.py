@@ -48,17 +48,19 @@ class MeetingStatusService:
 
         participants = len(filtered_participants)
 
-        # 3. Evaluate presentation status
+        # 3. Evaluate presentation status (prefer cached observation frame; avoid triggering heavy Playwright DOM scans on status polls)
         try:
             from app.modules.presentation_observer.services.presentation_observer_service import presentation_observer_service
             from app.modules.semantic_browser.models.presentation_state import PresentationMode
-            if bot and bot.context.page and not bot.context.page.is_closed():
+            obs = presentation_observer_service.get_latest_observation(session_id)
+            if not obs and bot and bot.context.page and not bot.context.page.is_closed():
                 obs = await presentation_observer_service.run_observation_cycle(session_id)
-                if obs:
-                    presentation_detected = obs.presentation_state in [
-                        PresentationMode.POWERPOINT_SHARED,
-                        PresentationMode.SCREEN_SHARING
-                    ]
+
+            if obs:
+                presentation_detected = obs.presentation_state in [
+                    PresentationMode.POWERPOINT_SHARED,
+                    PresentationMode.SCREEN_SHARING
+                ]
             else:
                 presentation_detected = False
         except Exception as e:

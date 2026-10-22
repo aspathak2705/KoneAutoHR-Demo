@@ -19,6 +19,7 @@ class TimelineExecutor:
         on_goto_slide: Callable[[int], Any],
         is_slide_busy: Optional[Callable[[int], bool]] = None,
         get_current_slide: Optional[Callable[[], int]] = None,
+        start_slide_media: Optional[Callable[[int], Any]] = None,
     ) -> None:
         """
         Executes events matching the active audio playback time offset.
@@ -45,11 +46,19 @@ class TimelineExecutor:
                         cur_slide = get_current_slide()
                         if cur_slide != slide_num and is_slide_busy(cur_slide):
                             logger.info(
-                                f"TimelineExecutor | Slide {cur_slide} is still playing media. "
+                                f"TimelineExecutor | Slide {cur_slide} narration completed. "
                                 f"Holding timeline progression before entering Slide {slide_num}..."
                             )
                             # Temporarily pause narration stream so narration does not skip ahead
                             audio_controller.pause_audio()
+                            
+                            # Authoritatively trigger embedded video on cur_slide if not already started
+                            if start_slide_media:
+                                if asyncio.iscoroutinefunction(start_slide_media):
+                                    await start_slide_media(cur_slide)
+                                else:
+                                    start_slide_media(cur_slide)
+
                             while is_slide_busy(cur_slide):
                                 await asyncio.sleep(0.3)
                             logger.info(f"TimelineExecutor | Slide {cur_slide} media completed. Resuming narration audio.")
@@ -79,6 +88,11 @@ class TimelineExecutor:
             cur_slide = get_current_slide()
             if is_slide_busy(cur_slide):
                 logger.info(f"TimelineExecutor | Waiting for final slide {cur_slide} video to complete...")
+                if start_slide_media:
+                    if asyncio.iscoroutinefunction(start_slide_media):
+                        await start_slide_media(cur_slide)
+                    else:
+                        start_slide_media(cur_slide)
                 while is_slide_busy(cur_slide):
                     await asyncio.sleep(0.3)
 

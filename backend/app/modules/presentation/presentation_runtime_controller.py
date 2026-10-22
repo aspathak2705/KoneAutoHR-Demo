@@ -254,7 +254,8 @@ class PresentationRuntimeController:
 
             # For slides with video:
             # If the slide has NO narration, start video immediately upon slide entry.
-            # If the slide DOES have narration, check_and_play_slide_video / timeline will trigger it when narration finishes.
+            # If the slide DOES have narration, TimelineExecutor authoritatively triggers it when narration finishes
+            # before advancing to the next slide, ensuring no overlap and no detached tasks.
             if current_visible_slide in slide_videos:
                 bounds = slide_narration_bounds.get(current_visible_slide)
                 has_narration = False
@@ -266,18 +267,6 @@ class PresentationRuntimeController:
 
                 if not has_narration:
                     await play_slide_video_now(current_visible_slide)
-                else:
-                    # Slide has narration: launch task to wait until narration ends, then play video
-                    async def wait_narration_and_play(target_slide: int):
-                        target_bounds = slide_narration_bounds.get(target_slide)
-                        if target_bounds:
-                            _, target_end_ms = target_bounds
-                            while audio.playing and audio.position() < (target_end_ms - 50):
-                                await asyncio.sleep(0.1)
-                        if target_slide == current_visible_slide:
-                            await play_slide_video_now(target_slide)
-
-                    asyncio.create_task(wait_narration_and_play(current_visible_slide))
 
         try:
             await asyncio.sleep(1)
@@ -286,6 +275,7 @@ class PresentationRuntimeController:
                 on_goto_slide=handle_goto_slide,
                 is_slide_busy=is_slide_media_busy,
                 get_current_slide=get_current_slide,
+                start_slide_media=play_slide_video_now,
             )
             
             # Wait for narration audio playback to fully complete before exiting

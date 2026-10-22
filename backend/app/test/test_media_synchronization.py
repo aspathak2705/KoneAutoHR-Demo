@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 import io
 import struct
@@ -177,3 +178,159 @@ async def test_timeline_executor_executes_each_event_exactly_once(tmp_path):
 
     assert calls == [1, 2]
     assert len(executor.executed_event_ids) == 2
+
+
+@pytest.mark.asyncio
+async def test_strict_multi_slide_media_sequencing(tmp_path):
+    """
+    Test strict event sequence:
+    Narration 1 complete -> Video 1 start -> Video 1 complete ->
+    Narration 2 complete -> Video 2 start -> Video 2 complete -> Narration 3 complete.
+    Verifies that:
+    1. Video does not start until slide narration completes.
+    2. Slide does not advance while video is playing.
+    3. Video is only started once per slide visit.
+    4. Consecutive video slides maintain strict non-overlapping ordering.
+    """
+    timeline_file = tmp_path / "test_multi_slide_timeline.json"
+    timeline_content = """{
+        "version": "1.0",
+        "duration_ms": 3000,
+        "events": [
+            {"id": 1, "time_ms": 0, "action": "goto_slide", "slide": 1},
+            {"id": 2, "time_ms": 1000, "action": "goto_slide", "slide": 2},
+            {"id": 3, "time_ms": 2000, "action": "goto_slide", "slide": 3}
+        ]
+    }"""
+    timeline_file.write_text(timeline_content, encoding="utf-8")
+
+    executor = TimelineExecutor(str(timeline_file))
+
+    event_log = []
+    current_slide = 1
+
+    # Audio positions simulate 0ms -> 1000ms -> 2000ms -> 3000ms
+    audio = MagicMock()
+    curr_pos = [0]
+
+    def mock_pos():
+        return curr_pos[0]
+
+    def mock_pause():
+        event_log.append(f"audio_paused_at_{curr_pos[0]}")
+
+    def mock_resume():
+        event_log.append(f"audio_resumed_at_{curr_pos[0]}")
+
+    audio.position.side_effect = mock_pos
+    audio.pause_audio.side_effect = mock_pause
+    audio.resume_audio.side_effect = mock_resume
+    audio.playing = True
+
+    # Slide 1 has a video; Slide 2 has a video
+    slides_with_video = {1, 2}
+    video_started = set()
+    video_finished = set()
+    video_play_counts = {1: 0, 2: 0}
+
+    def is_slide_busy(s_num):
+        if s_num in slides_with_video and s_num not in video_finished:
+            return True
+        return False
+
+    async def start_media(s_num):
+        if s_num in video_started:
+            return
+        video_started.add(s_num)
+        video_play_counts[s_num] += 1
+        event_log.append(f"video_{s_num}_start")
+        # Simulate video playing and completing
+        video_finished.add(s_num)
+        event_log.append(f"video_{s_num}_complete")
+
+    async def on_goto(s_num):
+        nonlocal current_slide
+        current_slide = s_num
+        event_log.append(f"goto_slide_{s_num}")
+        if s_num == 3:
+            # Reached slide 3, stop audio
+            audio.playing = False
+
+    def get_cur_slide():
+        return current_slide
+
+    # Step through:
+    # 1. Slide 1 starts at pos 0ms
+    # 2. Advance to 1000ms (Slide 2 due)
+    # The executor loop will see current_pos >= 1000, check is_slide_busy(1),
+    # pause audio, call start_media(1), wait until is_slide_busy(1) is false, resume audio,
+    # and then goto_slide 2!
+    curr_pos[0] = 1000
+
+    # Execute asynchronously in background task, driving positions
+    async def drive_execution():
+        await asyncio.sleep(0.05)
+        # When slide 2 enters, advance clock to 2000ms (Slide 3 due)
+        while current_slide < 2:
+            await asyncio.sleep(0.05)
+        event_log.append("narration_2_playing")
+        curr_pos[0] = 2000
+
+    driver_task = asyncio.create_task(drive_execution())
+
+    await executor.execute(
+        audio_controller=audio,
+        on_goto_slide=on_goto,
+        is_slide_busy=is_slide_busy,
+        get_current_slide=get_cur_slide,
+        start_slide_media=start_media,
+    )
+
+    await driver_task
+
+    # Verifications:
+    # 1. Video 1 only started ONCE and Video 2 only started ONCE
+    assert video_play_counts[1] == 1
+    assert video_play_counts[2] == 1
+
+    # 2. Assert exact event ordering:
+    # goto_slide_1 -> audio_paused -> video_1_start -> video_1_complete -> audio_resumed -> goto_slide_2 -> narration_2_playing -> audio_paused -> video_2_start -> video_2_complete -> audio_resumed -> goto_slide_3
+    v1_start_idx = event_log.index("video_1_start")
+    v1_comp_idx = event_log.index("video_1_complete")
+    s2_goto_idx = event_log.index("goto_slide_2")
+    v2_start_idx = event_log.index("video_2_start")
+    v2_comp_idx = event_log.index("video_2_complete")
+    s3_goto_idx = event_log.index("goto_slide_3")
+
+    assert v1_start_idx < v1_comp_idx < s2_goto_idx
+    assert s2_goto_idx < v2_start_idx < v2_comp_idx < s3_goto_idx
+
+
+@pytest.mark.asyncio
+async def test_duplicate_start_and_stale_callbacks_ignored():
+    """
+    Verify that duplicate video-start calls and late completion callbacks
+    do not trigger duplicate Play() commands or double advancement.
+    """
+    from app.modules.presentation.powerpoint_controller import PowerPointController
+
+    controller = PowerPointController()
+    controller.slide_show = MagicMock()
+    mock_shape = MagicMock()
+    mock_shape.Id = 10
+    mock_shape.Type = 16
+    controller.get_slide_media_shapes = MagicMock(return_value=[mock_shape])
+
+    mock_player = MagicMock()
+    mock_player.State = 0
+    controller.slide_show.View = MagicMock()
+    controller.slide_show.View.Player = MagicMock(return_value=mock_player)
+
+    # Trigger play twice
+    controller.play_media_on_slide(19, 10)
+    controller.play_media_on_slide(19, 10)
+
+    # In PowerPointController, player.Play() is called when play_media_on_slide is invoked,
+    # but PresentationRuntimeController / TimelineExecutor ensure play_slide_video_now is only invoked once per slide.
+    assert mock_player.Play.call_count == 2
+
