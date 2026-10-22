@@ -334,3 +334,51 @@ async def test_duplicate_start_and_stale_callbacks_ignored():
     # but PresentationRuntimeController / TimelineExecutor ensure play_slide_video_now is only invoked once per slide.
     assert mock_player.Play.call_count == 2
 
+
+def test_sanitize_media_playback_disables_autoplay_and_looping():
+    """
+    Verify PowerPointController.sanitize_media_playback strips WithPrevious (autoplay)
+    and LoopUntilStopped on all presentation slides.
+    """
+    from app.modules.presentation.powerpoint_controller import PowerPointController
+
+    controller = PowerPointController()
+    mock_pres = MagicMock()
+    mock_pres.Slides.Count = 2
+
+    # Slide 1: Shape with WithPrevious and Loop
+    s1 = MagicMock()
+    shp1 = MagicMock()
+    shp1.Type = 16
+    shp1.Id = 101
+    shp1.AnimationSettings.PlaySettings.PlayOnEntry = -1
+    shp1.AnimationSettings.PlaySettings.LoopUntilStopped = -1
+
+    eff1 = MagicMock()
+    eff1.Shape.Id = 101
+    eff1.Timing.TriggerType = 2  # WithPrevious (Autoplay)
+    eff1.Timing.RepeatCount = 999
+
+    tl1 = MagicMock()
+    tl1.MainSequence.Count = 1
+    tl1.MainSequence.return_value = eff1
+
+    s1.Shapes = [shp1]
+    s1.TimeLine = tl1
+
+    # Slide 2: Plain shape
+    s2 = MagicMock()
+    s2.Shapes = []
+
+    mock_pres.Slides.side_effect = lambda idx: s1 if idx == 1 else s2
+    controller.presentation = mock_pres
+
+    controller.sanitize_media_playback()
+
+    # Assertions
+    assert shp1.AnimationSettings.PlaySettings.PlayOnEntry == 0
+    assert shp1.AnimationSettings.PlaySettings.LoopUntilStopped == 0
+    assert eff1.Timing.TriggerType == 1  # Converted to OnClick
+    assert eff1.Timing.RepeatCount == 1
+
+

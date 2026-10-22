@@ -55,9 +55,15 @@ class TimelineExecutor:
                             # Authoritatively trigger embedded video on cur_slide if not already started
                             if start_slide_media:
                                 if asyncio.iscoroutinefunction(start_slide_media):
-                                    await start_slide_media(cur_slide)
+                                    try:
+                                        await start_slide_media(cur_slide, trigger_source="timeline_narration_complete")
+                                    except TypeError:
+                                        await start_slide_media(cur_slide)
                                 else:
-                                    start_slide_media(cur_slide)
+                                    try:
+                                        start_slide_media(cur_slide, trigger_source="timeline_narration_complete")
+                                    except TypeError:
+                                        start_slide_media(cur_slide)
 
                             while is_slide_busy(cur_slide):
                                 await asyncio.sleep(0.3)
@@ -90,9 +96,15 @@ class TimelineExecutor:
                 logger.info(f"TimelineExecutor | Waiting for final slide {cur_slide} video to complete...")
                 if start_slide_media:
                     if asyncio.iscoroutinefunction(start_slide_media):
-                        await start_slide_media(cur_slide)
+                        try:
+                            await start_slide_media(cur_slide, trigger_source="final_slide_post_loop")
+                        except TypeError:
+                            await start_slide_media(cur_slide)
                     else:
-                        start_slide_media(cur_slide)
+                        try:
+                            start_slide_media(cur_slide, trigger_source="final_slide_post_loop")
+                        except TypeError:
+                            start_slide_media(cur_slide)
                 while is_slide_busy(cur_slide):
                     await asyncio.sleep(0.3)
 

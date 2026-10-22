@@ -171,6 +171,8 @@ class PresentationRuntimeController:
         slide_video_started = set()
         slide_video_finished = set()
 
+        slide_video_play_count = {}
+
         def is_slide_media_busy(slide_num: int) -> bool:
             """
             Checks if slide_num has an embedded video that is currently playing or has not
@@ -213,7 +215,10 @@ class PresentationRuntimeController:
                             return True
 
                 slide_video_finished.add(slide_num)
-                logger.info(f"PresentationRuntimeController | Video playback on slide {slide_num} finished. Releasing slide.")
+                logger.info(
+                    f"PresentationRuntimeController | [MEDIA_STATE] Session: {self.session_id} | "
+                    f"Slide: {slide_num} | State: COMPLETED | Total Starts: {slide_video_play_count.get(slide_num, 0)}"
+                )
                 return False
 
             # Video hasn't started yet: slide is busy waiting for video to play
@@ -224,19 +229,30 @@ class PresentationRuntimeController:
                 return self.ppt_controller.get_current_slide_index()
             return current_visible_slide
 
-        async def play_slide_video_now(slide_num: int):
+        async def play_slide_video_now(slide_num: int, trigger_source: str = "orchestrator"):
             """
             Starts the embedded video on slide_num.
-            Guaranteed to run only once per slide.
+            Strictly idempotent: guaranteed to trigger exactly once per slide visit.
             """
             if slide_num not in slide_videos or slide_num in slide_video_started:
+                logger.debug(
+                    f"PresentationRuntimeController | Ignoring duplicate video start request on slide {slide_num} "
+                    f"from {trigger_source}. Already started={slide_num in slide_video_started}"
+                )
                 return
 
             slide_video_started.add(slide_num)
+            slide_video_play_count[slide_num] = slide_video_play_count.get(slide_num, 0) + 1
             slide_start_monotonic[f"{slide_num}_video"] = asyncio.get_running_loop().time()
-            logger.info(f"PresentationRuntimeController | Starting embedded video playback on slide {slide_num}.")
 
             v_list = slide_videos.get(slide_num, [])
+            shape_ids = [v.get("shape_id") for v in v_list]
+            logger.info(
+                f"PresentationRuntimeController | [MEDIA_TRIGGER] Session: {self.session_id} | "
+                f"Slide: {slide_num} | Trigger: {trigger_source} | Shapes: {shape_ids} | "
+                f"Start Count: {slide_video_play_count[slide_num]}"
+            )
+
             for v in v_list:
                 if not v.get("supported", True):
                     logger.warning(
@@ -266,7 +282,7 @@ class PresentationRuntimeController:
                         has_narration = True
 
                 if not has_narration:
-                    await play_slide_video_now(current_visible_slide)
+                    await play_slide_video_now(current_visible_slide, trigger_source="slide_entry_silent")
 
         try:
             await asyncio.sleep(1)

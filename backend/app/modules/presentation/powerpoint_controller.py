@@ -45,6 +45,7 @@ class PowerPointController:
             ReadOnly=True,
             WithWindow=True,
         )
+        self.sanitize_media_playback()
         self.presentation.SlideShowSettings.ShowType = 2  # ppShowTypeWindow
         if start_immediately:
             self.presentation.SlideShowSettings.Run()
@@ -54,6 +55,45 @@ class PowerPointController:
             logger.info("PowerPointController | [PPT] Presentation loaded and waiting for slideshow start")
 
         await asyncio.sleep(1)
+
+    def sanitize_media_playback(self) -> None:
+        """
+        Scans all presentation slides and disables automatic slide-entry playback and looping
+        for all media shapes.
+        Ensures videos never autoplay when entering a slide (TriggerType set to OnClick)
+        and never loop infinitely (LoopUntilStopped = False).
+        """
+        if not self.presentation:
+            return
+        try:
+            total_slides = self.presentation.Slides.Count
+            for s_idx in range(1, total_slides + 1):
+                slide = self.presentation.Slides(s_idx)
+                for shp in slide.Shapes:
+                    if getattr(shp, "Type", None) == 16:  # msoMedia
+                        # 1. Disable PlayOnEntry and LoopUntilStopped in PlaySettings
+                        try:
+                            if hasattr(shp, "AnimationSettings") and hasattr(shp.AnimationSettings, "PlaySettings"):
+                                ps = shp.AnimationSettings.PlaySettings
+                                ps.PlayOnEntry = 0  # False
+                                ps.LoopUntilStopped = 0  # False
+                        except Exception as ps_err:
+                            logger.debug(f"PowerPointController | PlaySettings sanitize error on slide {s_idx}: {ps_err}")
+
+                        # 2. In MainSequence animation timeline, convert WithPrevious (2) to OnClick (1)
+                        try:
+                            tl = getattr(slide, "TimeLine", None)
+                            if tl and hasattr(tl, "MainSequence"):
+                                for i in range(1, tl.MainSequence.Count + 1):
+                                    eff = tl.MainSequence(i)
+                                    if getattr(eff, "Shape", None) and getattr(eff.Shape, "Id", None) == shp.Id:
+                                        eff.Timing.TriggerType = 1  # msoAnimTriggerOnClick
+                                        eff.Timing.RepeatCount = 1
+                        except Exception as tl_err:
+                            logger.debug(f"PowerPointController | TimeLine sanitize error on slide {s_idx}: {tl_err}")
+            logger.info("PowerPointController | Successfully sanitized all media shapes (disabled autoplay on slide entry and looping).")
+        except Exception as e:
+            logger.warning(f"PowerPointController | Failed to sanitize media playback: {e}")
 
     async def start_slideshow(self) -> None:
         if not self.presentation:
@@ -182,6 +222,25 @@ class PowerPointController:
             logger.warning(f"PowerPointController | Failed to trigger media play on slide {slide_index}: {e}")
         return False
 
+    def stop_media_on_slide(self, slide_index: int) -> None:
+        """Stops any media currently playing on the given slide."""
+        if not self.slide_show:
+            return
+        try:
+            shapes = self.get_slide_media_shapes(slide_index)
+            view = getattr(self.slide_show, "View", self.slide_show)
+            get_player = getattr(view, "Player", None) or getattr(self.slide_show, "Player", None)
+            if get_player:
+                for s in shapes:
+                    try:
+                        player = get_player(s.Id)
+                        if hasattr(player, "Stop"):
+                            player.Stop()
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.debug(f"PowerPointController | Stop media error on slide {slide_index}: {e}")
+
     def is_media_playing_on_slide(self, slide_index: int) -> bool:
         """Queries if any media shape on the current slide is actively playing."""
         if not self.slide_show:
@@ -218,6 +277,11 @@ class PowerPointController:
         """
         if self.slide_show:
             try:
+                # Stop any lingering media on current slide before navigating
+                cur_idx = self.get_current_slide_index()
+                if cur_idx != slide_index:
+                    self.stop_media_on_slide(cur_idx)
+
                 view = getattr(self.slide_show, "View", self.slide_show)
                 if hasattr(view, "GotoSlide"):
                     view.GotoSlide(slide_index)
