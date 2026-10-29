@@ -18,13 +18,19 @@ elif "postgres" in DATABASE_URL:
     connect_args["keepalives_interval"] = 10
     connect_args["keepalives_count"] = 5
 
+# Pool sizing for Supabase PgBouncer session mode (pool limit 15 clients).
+# Keep pool_size + max_overflow <= 10 to ensure a single backend process never exhausts
+# the pooler, leaving room for background tasks, CLI/migrations, and failover checks.
+pool_size = 5
+max_overflow = 5
+
 engine = create_engine(
     DATABASE_URL, 
     connect_args=connect_args, 
     echo=False,
     pool_pre_ping=True,
-    pool_size=15,
-    max_overflow=25,
+    pool_size=pool_size,
+    max_overflow=max_overflow,
     pool_timeout=30.0,
     pool_recycle=300
 )
