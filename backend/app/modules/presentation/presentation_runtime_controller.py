@@ -10,6 +10,12 @@ from app.modules.meeting_bot.media.audio_controller import get_audio_controller
 from app.modules.meeting_bot.teams.teams_controller import teams_controller
 from app.services.storage_service import storage_service
 
+# Active controller registry for runtime pause/resume control
+_active_presentation_controllers: Dict[str, "PresentationRuntimeController"] = {}
+
+def get_active_presentation_controller(session_id: str) -> Optional["PresentationRuntimeController"]:
+    return _active_presentation_controllers.get(session_id)
+
 
 class PresentationRuntimeController:
     """
@@ -24,10 +30,48 @@ class PresentationRuntimeController:
         self.ppt_controller = None
         self.presentation_state = "READY"
         self.share_successful = False  # tracks if Teams sharing succeeded
+        self._is_paused = False
+        self._pause_event = asyncio.Event()
+        self._pause_event.set()  # Initially unpaused (running)
+        self.audio_controller = None
+
     def _transition_state(self, state: str) -> None:
         if self.presentation_state != state:
             logger.info(f"PresentationRuntimeController | [STATE] {self.presentation_state} -> {state}")
             self.presentation_state = state
+
+    async def pause(self) -> bool:
+        """
+        Pauses presentation playback, stopping narration audio at exact ms offset.
+        Teams screen share and PowerPoint slideshow remain intact.
+        """
+        if self._is_paused:
+            logger.warning(f"PresentationRuntimeController | Session {self.session_id} is already paused.")
+            return True
+
+        self._is_paused = True
+        self._pause_event.clear()
+        if self.audio_controller:
+            self.audio_controller.pause_audio()
+        self._transition_state("PAUSED")
+        logger.info(f"PresentationRuntimeController | Session {self.session_id} paused at narration pos {self.audio_controller.position() if self.audio_controller else 0:.0f}ms")
+        return True
+
+    async def resume(self) -> bool:
+        """
+        Resumes presentation playback from the exact narration ms offset.
+        """
+        if not self._is_paused:
+            logger.warning(f"PresentationRuntimeController | Session {self.session_id} is not paused.")
+            return True
+
+        self._is_paused = False
+        self._pause_event.set()
+        if self.audio_controller:
+            self.audio_controller.resume_audio()
+        self._transition_state("SLIDESHOW_RUNNING")
+        logger.info(f"PresentationRuntimeController | Session {self.session_id} resumed.")
+        return True
 
     async def run(self) -> None:
         if not self.teams_page:
@@ -88,6 +132,8 @@ class PresentationRuntimeController:
 
         logger.info("PresentationRuntimeController | [PRESENTATION] Starting narration")
         audio = get_audio_controller(self.session_id)
+        self.audio_controller = audio
+        _active_presentation_controllers[self.session_id] = self
         if not audio.validate_audio_route():
             raise RuntimeError("Audio route validation failed before narration playback")
         
@@ -292,16 +338,21 @@ class PresentationRuntimeController:
                 is_slide_busy=is_slide_media_busy,
                 get_current_slide=get_current_slide,
                 start_slide_media=play_slide_video_now,
+                is_paused=lambda: self._is_paused,
+                pause_event=self._pause_event,
             )
             
             # Wait for narration audio playback to fully complete before exiting
             logger.info("PresentationRuntimeController | Timeline finished. Waiting for remaining narration audio playback to complete...")
-            while audio.playing:
+            while audio.playing or self._is_paused:
+                if self._is_paused:
+                    await self._pause_event.wait()
                 await asyncio.sleep(0.2)
                 
             logger.info("PresentationRuntimeController | Timeline and narration audio execution completed successfully.")
             self._transition_state("FINISHED")
         finally:
+            _active_presentation_controllers.pop(self.session_id, None)
             try:
                 await teams_controller.stop_sharing(self.teams_page)
             except Exception:

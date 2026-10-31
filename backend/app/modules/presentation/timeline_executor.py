@@ -20,15 +20,30 @@ class TimelineExecutor:
         is_slide_busy: Optional[Callable[[int], bool]] = None,
         get_current_slide: Optional[Callable[[], int]] = None,
         start_slide_media: Optional[Callable[[int], Any]] = None,
+        is_paused: Optional[Callable[[], bool]] = None,
+        pause_event: Optional[asyncio.Event] = None,
     ) -> None:
         """
         Executes events matching the active audio playback time offset.
         If a slide has active media playing (is_slide_busy returns True), pauses
         narration audio and delays the next slide event until the media completes.
+        Supports external pause/resume via is_paused check and pause_event.
         """
         logger.info("TimelineExecutor | Starting timeline execution loop.")
         
-        while audio_controller.playing or (is_slide_busy and get_current_slide and is_slide_busy(get_current_slide())):
+        while (
+            audio_controller.playing
+            or (is_paused and is_paused())
+            or (is_slide_busy and get_current_slide and is_slide_busy(get_current_slide()))
+        ):
+            # Check external pause state
+            if is_paused and is_paused():
+                if pause_event:
+                    await pause_event.wait()
+                else:
+                    await asyncio.sleep(0.2)
+                continue
+
             current_pos = audio_controller.position()
 
             # Find and execute all due events

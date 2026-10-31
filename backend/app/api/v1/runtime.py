@@ -251,6 +251,12 @@ def get_runtime_summary(session_id: str, db: DBSession = Depends(get_db)):
         readiness = runtime_validation_service.validate_runtime_readiness(db, session_id)
         db_runtime = meeting_runtime_service.get_runtime(db, session_id)
         status_val = db_runtime.state if db_runtime else "NOT_CREATED"
+
+        # Check if active presentation is paused
+        from app.modules.presentation.presentation_runtime_controller import get_active_presentation_controller
+        active_pres = get_active_presentation_controller(session_id)
+        if active_pres and active_pres._is_paused:
+            status_val = "PAUSED"
         
         # Audio & Script count from presentation assets
         slides_info = runtime_service.get_slide_controller(db, session_id)
@@ -449,6 +455,48 @@ def get_runtime_status(session_id: str, db: DBSession = Depends(get_db)):
     }
 
 # Legacy launch/join/leave endpoints removed since they are unused
+
+@router.post("/{session_id}/presentation/pause")
+@router.post("/{session_id}/pause")
+async def pause_runtime_presentation(session_id: str):
+    """
+    Pauses active presentation and narration playback.
+    Keeps Teams bot in meeting and PowerPoint slideshow running.
+    """
+    from app.modules.presentation.presentation_runtime_controller import get_active_presentation_controller
+    controller = get_active_presentation_controller(session_id)
+    if not controller:
+        # Fallback to session interpreter if running in legacy mode
+        try:
+            from app.modules.session.session_interpreter import get_session_interpreter
+            interpreter = get_session_interpreter(session_id)
+            interpreter.pause_session()
+            return {"status": "success", "message": f"Session interpreter paused for {session_id}"}
+        except Exception:
+            raise HTTPException(status_code=404, detail="No active presentation controller found for session")
+
+    await controller.pause()
+    return {"status": "success", "message": f"Presentation and narration paused for session {session_id}"}
+
+@router.post("/{session_id}/presentation/resume")
+@router.post("/{session_id}/resume")
+async def resume_runtime_presentation(session_id: str):
+    """
+    Resumes paused presentation and narration playback from exact ms position.
+    """
+    from app.modules.presentation.presentation_runtime_controller import get_active_presentation_controller
+    controller = get_active_presentation_controller(session_id)
+    if not controller:
+        try:
+            from app.modules.session.session_interpreter import get_session_interpreter
+            interpreter = get_session_interpreter(session_id)
+            interpreter.resume_session()
+            return {"status": "success", "message": f"Session interpreter resumed for {session_id}"}
+        except Exception:
+            raise HTTPException(status_code=404, detail="No active presentation controller found for session")
+
+    await controller.resume()
+    return {"status": "success", "message": f"Presentation and narration resumed for session {session_id}"}
 
 @router.post("/{session_id}/speak")
 async def start_runtime_speaking(session_id: str, req: SpeakRequest):
