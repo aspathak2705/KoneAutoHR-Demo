@@ -12,7 +12,9 @@ if DATABASE_URL.startswith("sqlite"):
 elif "postgres" in DATABASE_URL:
     # Disable prepared statement caching for Supabase transaction pooler (pgbouncer port 6543)
     connect_args["prepare_threshold"] = None
-    # TCP keepalives to prevent AWS/Supabase ELB dropping idle connections
+    # Fail fast on frozen TCP handshake / blocked SYN packets (seconds)
+    connect_args["connect_timeout"] = 5
+    # TCP keepalives to prevent corporate firewalls / AWS ELB dropping idle connections
     connect_args["keepalives"] = 1
     connect_args["keepalives_idle"] = 30
     connect_args["keepalives_interval"] = 10
@@ -32,7 +34,7 @@ engine = create_engine(
     pool_size=pool_size,
     max_overflow=max_overflow,
     pool_timeout=30.0,
-    pool_recycle=300
+    pool_recycle=60
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
