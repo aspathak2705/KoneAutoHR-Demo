@@ -36,23 +36,34 @@ PUBLIC_TABLES = [
 ]
 
 def upgrade() -> None:
-    # 1. Revoke public PostgREST access (anon, authenticated) on all public tables
-    # Preserves backend service_role and postgres roles (which have BYPASSRLS)
+    # Safe on both Supabase and standard local PostgreSQL:
+    # Revoke public PostgREST roles (anon, authenticated) ONLY IF they exist in pg_roles.
     for table in PUBLIC_TABLES:
-        op.execute(f"REVOKE ALL ON TABLE public.{table} FROM anon, authenticated;")
-        op.execute(f"ALTER TABLE public.{table} ENABLE ROW LEVEL SECURITY;")
-        # Optional explicit service_role bypass/full policy for safety if service_role role is ever evaluated
         op.execute(f"""
             DO $$
             BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_policies 
-                    WHERE schemaname = 'public' 
-                      AND tablename = '{table}' 
-                      AND policyname = 'service_role_all_{table}'
-                ) THEN
-                    CREATE POLICY service_role_all_{table} ON public.{table} 
-                    FOR ALL TO service_role USING (true) WITH CHECK (true);
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+                    EXECUTE 'REVOKE ALL ON TABLE public.{table} FROM anon';
+                END IF;
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+                    EXECUTE 'REVOKE ALL ON TABLE public.{table} FROM authenticated';
+                END IF;
+            END $$;
+        """)
+        op.execute(f"ALTER TABLE public.{table} ENABLE ROW LEVEL SECURITY;")
+        # Optional explicit service_role bypass/full policy for safety if service_role role exists
+        op.execute(f"""
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_policies 
+                        WHERE schemaname = 'public' 
+                          AND tablename = '{table}' 
+                          AND policyname = 'service_role_all_{table}'
+                    ) THEN
+                        EXECUTE 'CREATE POLICY service_role_all_{table} ON public.{table} FOR ALL TO service_role USING (true) WITH CHECK (true)';
+                    END IF;
                 END IF;
             END $$;
         """)
@@ -61,4 +72,14 @@ def downgrade() -> None:
     for table in PUBLIC_TABLES:
         op.execute(f"DROP POLICY IF EXISTS service_role_all_{table} ON public.{table};")
         op.execute(f"ALTER TABLE public.{table} DISABLE ROW LEVEL SECURITY;")
-        op.execute(f"GRANT ALL ON TABLE public.{table} TO anon, authenticated;")
+        op.execute(f"""
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+                    EXECUTE 'GRANT ALL ON TABLE public.{table} TO anon';
+                END IF;
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+                    EXECUTE 'GRANT ALL ON TABLE public.{table} TO authenticated';
+                END IF;
+            END $$;
+        """)

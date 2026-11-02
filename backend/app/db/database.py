@@ -10,19 +10,19 @@ connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
     connect_args["check_same_thread"] = False
 elif "postgres" in DATABASE_URL:
-    # Disable prepared statement caching for Supabase transaction pooler (pgbouncer port 6543)
-    connect_args["prepare_threshold"] = None
-    # Fail fast on frozen TCP handshake / blocked SYN packets (seconds)
+    # Fail fast on frozen TCP handshake (seconds)
     connect_args["connect_timeout"] = 5
-    # TCP keepalives to prevent corporate firewalls / AWS ELB dropping idle connections
+    # TCP keepalives
     connect_args["keepalives"] = 1
     connect_args["keepalives_idle"] = 30
     connect_args["keepalives_interval"] = 10
     connect_args["keepalives_count"] = 5
 
-# Pool sizing for Supabase PgBouncer session mode (pool limit 15 clients).
-# Keep pool_size + max_overflow <= 10 to ensure a single backend process never exhausts
-# the pooler, leaving room for background tasks, CLI/migrations, and failover checks.
+    # If connected through a transaction pooler (e.g. PgBouncer port 6543), disable prepared statement caching
+    if ":6543" in DATABASE_URL:
+        connect_args["prepare_threshold"] = None
+
+# Connection pool sizing for local/office PostgreSQL deployment
 pool_size = 5
 max_overflow = 5
 
