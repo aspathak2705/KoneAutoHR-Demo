@@ -44,7 +44,6 @@ reset_database.py
 backend/storage
 
 scratch
-scripts
 docs
 data
 
