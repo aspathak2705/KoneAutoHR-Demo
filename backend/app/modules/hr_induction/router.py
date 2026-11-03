@@ -400,22 +400,9 @@ def validate_hr_induction(
     if slide_count <= 0:
         raise HTTPException(status_code=400, detail="Presentation slide count is zero or not processed yet")
 
-    # If presentation has complete cached HR assets, validate succeeds directly
-    from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
-    assets_status = presentation_asset_manager.check_assets(db, session.presentation_id, "HR")
-    paths = presentation_asset_manager.get_asset_paths(session.presentation_id, "HR")
-    if assets_status.get("narration_exists") and assets_status.get("manifest_exists") and paths["manifest"].exists():
-        try:
-            with open(paths["manifest"], "r", encoding="utf-8") as mf:
-                m_data = json.load(mf)
-            dur = m_data.get("duration_ms", 0)
-            return {
-                "valid": True,
-                "slide_count": slide_count,
-                "total_duration_ms": dur
-            }
-        except Exception:
-            pass
+    # Validate session against its own explicit slide metadata.
+    # We do NOT short-circuit to presentation_id asset cache because each session
+    # may upload customized audio or reorder audio per slide.
 
     metadata_path = get_metadata_path(session_id)
     if not metadata_path.exists():

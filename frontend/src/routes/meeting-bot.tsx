@@ -369,10 +369,7 @@ function MeetingBotDashboard() {
                     disabled={
                       loading || 
                       !sessionId.trim() || 
-                      !meetingStatus?.presentation_detected || 
-                      meetingStatus?.narration_state === "idle" ||
-                      meetingStatus?.narration_state === "finished_closing" ||
-                      sessionSummary?.runtime_status !== "PAUSED"
+                      (sessionSummary?.runtime_status !== "PAUSED" && meetingStatus?.narration_state !== "paused")
                     }
                     variant="outline"
                     className="text-emerald-600 hover:text-white border-emerald-600/30 hover:bg-emerald-600 gap-1.5"
@@ -384,10 +381,10 @@ function MeetingBotDashboard() {
                     disabled={
                       loading || 
                       !sessionId.trim() || 
-                      !meetingStatus?.presentation_detected || 
-                      meetingStatus?.narration_state === "idle" ||
+                      sessionSummary?.runtime_status === "PAUSED" ||
+                      meetingStatus?.narration_state === "paused" ||
                       meetingStatus?.narration_state === "finished_closing" ||
-                      sessionSummary?.runtime_status === "PAUSED"
+                      (!meetingStatus?.presentation_detected && sessionSummary?.runtime_status !== "PRESENTING")
                     }
                     variant="outline"
                     className="text-amber-600 hover:text-white border-amber-600/30 hover:bg-amber-600 gap-1.5"

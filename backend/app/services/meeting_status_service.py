@@ -84,10 +84,23 @@ class MeetingStatusService:
         elif not audio_ready:
             reason = "Audio narration assets not fully prepared or loaded"
 
-        # 6. Retrieve active narration state if coordinator active
+        # 6. Retrieve active narration state from PresentationRuntimeController or coordinator
         from app.services.runtime_service import runtime_service
+        from app.modules.presentation.presentation_runtime_controller import get_active_presentation_controller
+        active_pres = get_active_presentation_controller(session_id)
+
         narration_state = "idle"
-        if session_id in runtime_service._coordinators:
+        if active_pres:
+            presentation_detected = True
+            audio_ready = True
+            bot_ready = meeting_connected
+            if active_pres._is_paused:
+                narration_state = "paused"
+            elif active_pres.presentation_state in ["SLIDESHOW_RUNNING", "READY", "EDITOR_OPEN"]:
+                narration_state = "presenting"
+            elif active_pres.presentation_state == "FINISHED":
+                narration_state = "finished_closing"
+        elif session_id in runtime_service._coordinators:
             narration_state = runtime_service._coordinators[session_id].narration_state
 
         # 7. Retrieve slide index and confidence from PresentationObserver

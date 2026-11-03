@@ -9,7 +9,6 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as MeetingBotRouteImport } from './routes/meeting-bot'
 import { Route as IndexRouteImport } from './routes/index'
@@ -17,11 +16,6 @@ import { Route as SessionsIndexRouteImport } from './routes/sessions.index'
 import { Route as SessionsNewRouteImport } from './routes/sessions.new'
 import { Route as SessionsIdRouteImport } from './routes/sessions.$id'
 
-const ReportsRoute = ReportsRouteImport.update({
-  id: '/reports',
-  path: '/reports',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ProfileRoute = ProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
@@ -57,7 +51,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/meeting-bot': typeof MeetingBotRoute
   '/profile': typeof ProfileRoute
-  '/reports': typeof ReportsRoute
   '/sessions/$id': typeof SessionsIdRoute
   '/sessions/new': typeof SessionsNewRoute
   '/sessions/': typeof SessionsIndexRoute
@@ -66,7 +59,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/meeting-bot': typeof MeetingBotRoute
   '/profile': typeof ProfileRoute
-  '/reports': typeof ReportsRoute
   '/sessions/$id': typeof SessionsIdRoute
   '/sessions/new': typeof SessionsNewRoute
   '/sessions': typeof SessionsIndexRoute
@@ -76,7 +68,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/meeting-bot': typeof MeetingBotRoute
   '/profile': typeof ProfileRoute
-  '/reports': typeof ReportsRoute
   '/sessions/$id': typeof SessionsIdRoute
   '/sessions/new': typeof SessionsNewRoute
   '/sessions/': typeof SessionsIndexRoute
@@ -87,7 +78,6 @@ export interface FileRouteTypes {
     | '/'
     | '/meeting-bot'
     | '/profile'
-    | '/reports'
     | '/sessions/$id'
     | '/sessions/new'
     | '/sessions/'
@@ -96,7 +86,6 @@ export interface FileRouteTypes {
     | '/'
     | '/meeting-bot'
     | '/profile'
-    | '/reports'
     | '/sessions/$id'
     | '/sessions/new'
     | '/sessions'
@@ -105,7 +94,6 @@ export interface FileRouteTypes {
     | '/'
     | '/meeting-bot'
     | '/profile'
-    | '/reports'
     | '/sessions/$id'
     | '/sessions/new'
     | '/sessions/'
@@ -123,13 +111,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/reports': {
-      id: '/reports'
-      path: '/reports'
-      fullPath: '/reports'
-      preLoaderRoute: typeof ReportsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/profile': {
       id: '/profile'
       path: '/profile'
@@ -179,7 +160,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   MeetingBotRoute: MeetingBotRoute,
   ProfileRoute: ProfileRoute,
-  ReportsRoute: ReportsRoute,
   SessionsIdRoute: SessionsIdRoute,
   SessionsNewRoute: SessionsNewRoute,
   SessionsIndexRoute: SessionsIndexRoute,

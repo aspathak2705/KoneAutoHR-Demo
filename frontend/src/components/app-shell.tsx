@@ -8,7 +8,6 @@ const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { to: "/sessions", label: "Inductions", icon: CalendarDays, exact: false },
   { to: "/sessions/new", label: "Create induction", icon: Plus, exact: true },
-  { to: "/reports", label: "Reports", icon: BarChart3, exact: true },
   { to: "/meeting-bot", label: "Meeting Bot", icon: Bot, exact: true },
 ];
 
