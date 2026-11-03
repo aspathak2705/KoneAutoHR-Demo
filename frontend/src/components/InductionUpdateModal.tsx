@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { apiFetch } from "@/lib/sessions-store";
 import { 
   FileText, 
   Volume2, 
@@ -85,17 +86,11 @@ export function InductionUpdateModal({
     formData.append("file", singleSlideFile);
 
     try {
-      const response = await fetch(`/api/v1/induction-update/${sessionId}/single-slide`, {
+      const res = await apiFetch(`/induction-update/${sessionId}/single-slide`, {
         method: "POST",
         body: formData,
       });
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || "Failed to update single slide");
-      }
-
-      const res = await response.json();
       toast.success(res.message || `Slide ${targetSlide} updated successfully!`);
       setSingleSlideFile(null);
       if (onUpdateSuccess) onUpdateSuccess();
@@ -118,17 +113,11 @@ export function InductionUpdateModal({
     formData.append("file", pptFile);
 
     try {
-      const response = await fetch(`/api/v1/induction-update/${sessionId}/analyze-ppt`, {
+      const data = await apiFetch(`/induction-update/${sessionId}/analyze-ppt`, {
         method: "POST",
         body: formData,
       });
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || "Failed to analyze presentation");
-      }
-
-      const data = await response.json();
       setDiffSummary(data.summary);
       setDiffChanges(data.changes || []);
       toast.success("Presentation compared successfully. Review detected changes.");
@@ -147,17 +136,11 @@ export function InductionUpdateModal({
     formData.append("file", pptFile);
 
     try {
-      const response = await fetch(`/api/v1/induction-update/${sessionId}/apply-ppt`, {
+      const data = await apiFetch(`/induction-update/${sessionId}/apply-ppt`, {
         method: "POST",
         body: formData,
       });
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || "Failed to apply presentation changes");
-      }
-
-      const data = await response.json();
       toast.success(data.message || "Updated presentation successfully applied!");
       setPptFile(null);
       setDiffSummary(null);
@@ -184,17 +167,11 @@ export function InductionUpdateModal({
     formData.append("file", audioFile);
 
     try {
-      const response = await fetch(`/api/v1/induction-update/${sessionId}/slide-audio`, {
+      const data = await apiFetch(`/induction-update/${sessionId}/slide-audio`, {
         method: "POST",
         body: formData,
       });
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || "Failed to update slide audio");
-      }
-
-      const data = await response.json();
       toast.success(data.message || `Audio for slide ${targetAudioSlide} updated!`);
       setAudioFile(null);
       if (onUpdateSuccess) onUpdateSuccess();

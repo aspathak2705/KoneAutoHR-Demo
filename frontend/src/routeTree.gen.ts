@@ -103,7 +103,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   MeetingBotRoute: typeof MeetingBotRoute
   ProfileRoute: typeof ProfileRoute
-  ReportsRoute: typeof ReportsRoute
   SessionsIdRoute: typeof SessionsIdRoute
   SessionsNewRoute: typeof SessionsNewRoute
   SessionsIndexRoute: typeof SessionsIndexRoute
