@@ -101,6 +101,8 @@ class BrowserManager:
                 "--disable-blink-features=AutomationControlled",
                 "--enable-gpu",
                 "--ignore-gpu-blocklist",
+                "--enable-gpu-rasterization",
+                "--enable-zero-copy",
                 "--autoplay-policy=no-user-gesture-required",
                 "--enable-usermedia-screen-capturing",
                 "--auto-select-desktop-capture-source=PowerPoint Slide Show",
