@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { apiFetch } from "@/lib/sessions-store";
+import { apiFetch, getMeetingForSession } from "@/lib/sessions-store";
 import { 
   FileText, 
   Volume2, 
@@ -19,7 +19,10 @@ import {
   FileDiff,
   PlusCircle,
   MinusCircle,
-  Edit3
+  Edit3,
+  Video,
+  Link2,
+  ExternalLink
 } from "lucide-react";
 
 interface InductionUpdateModalProps {
@@ -55,6 +58,13 @@ export function InductionUpdateModal({
 }: InductionUpdateModalProps) {
   const [activeTab, setActiveTab] = useState<string>("single");
 
+  // Teams Meeting Link State
+  const [currentMeetingUrl, setCurrentMeetingUrl] = useState<string>("");
+  const [inputMeetingUrl, setInputMeetingUrl] = useState<string>("");
+  const [isLoadingMeeting, setIsLoadingMeeting] = useState<boolean>(false);
+  const [isSavingMeeting, setIsSavingMeeting] = useState<boolean>(false);
+  const [meetingUrlError, setMeetingUrlError] = useState<string | null>(null);
+
   // Single Slide State
   const [targetSlide, setTargetSlide] = useState<string>("1");
   const [singleSlideFile, setSingleSlideFile] = useState<File | null>(null);
@@ -72,6 +82,96 @@ export function InductionUpdateModal({
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [isSubmittingAudio, setIsSubmittingAudio] = useState(false);
 
+  // Fetch current meeting URL when modal opens
+  useEffect(() => {
+    if (isOpen && sessionId) {
+      setIsLoadingMeeting(true);
+      setMeetingUrlError(null);
+      getMeetingForSession(sessionId)
+        .then((m) => {
+          if (m?.teams_meeting_url) {
+            setCurrentMeetingUrl(m.teams_meeting_url);
+            setInputMeetingUrl(m.teams_meeting_url);
+          } else {
+            setCurrentMeetingUrl("");
+            setInputMeetingUrl("");
+          }
+        })
+        .catch(() => {
+          setCurrentMeetingUrl("");
+          setInputMeetingUrl("");
+        })
+        .finally(() => setIsLoadingMeeting(false));
+    }
+  }, [isOpen, sessionId]);
+
+  // Client-side Teams URL validator
+  const validateUrl = (url: string): string | null => {
+    const trimmed = url.trim();
+    if (!trimmed) {
+      return "Meeting link cannot be empty.";
+    }
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
+        return "Meeting link must start with https://";
+      }
+      const host = parsed.hostname.toLowerCase();
+      const validHost = host === "teams.microsoft.com" || 
+                        host.endsWith(".teams.microsoft.com") || 
+                        host === "teams.live.com" || 
+                        host.endsWith(".teams.live.com") || 
+                        host === "localhost" || 
+                        host === "127.0.0.1";
+      if (!validHost) {
+        return "URL must be an official Microsoft Teams meeting link (e.g., https://teams.microsoft.com/l/meetup-join/...)";
+      }
+      return null;
+    } catch {
+      return "Malformed URL format. Please paste a valid web address.";
+    }
+  };
+
+  const handleUrlInputChange = (val: string) => {
+    setInputMeetingUrl(val);
+    if (!val.trim()) {
+      setMeetingUrlError(null);
+    } else {
+      setMeetingUrlError(validateUrl(val));
+    }
+  };
+
+  const isLinkModified = inputMeetingUrl.trim() !== currentMeetingUrl.trim();
+
+  // Standalone Teams meeting link update
+  const handleUpdateMeetingOnly = async () => {
+    const err = validateUrl(inputMeetingUrl);
+    if (err) {
+      setMeetingUrlError(err);
+      toast.error(err);
+      return;
+    }
+
+    setIsSavingMeeting(true);
+    try {
+      const res = await apiFetch(`/induction-update/${sessionId}/teams-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teams_meeting_url: inputMeetingUrl.trim() }),
+      });
+
+      toast.success(res.message || "Teams meeting link updated successfully!");
+      setCurrentMeetingUrl(res.teams_meeting_url || inputMeetingUrl.trim());
+      setInputMeetingUrl(res.teams_meeting_url || inputMeetingUrl.trim());
+      if (onUpdateSuccess) onUpdateSuccess();
+      onClose();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update Teams link");
+    } finally {
+      setIsSavingMeeting(false);
+    }
+  };
+
   // Handlers
   const handleSingleSlideSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,10 +180,22 @@ export function InductionUpdateModal({
       return;
     }
 
+    if (isLinkModified) {
+      const linkErr = validateUrl(inputMeetingUrl);
+      if (linkErr) {
+        setMeetingUrlError(linkErr);
+        toast.error(linkErr);
+        return;
+      }
+    }
+
     setIsSubmittingSingle(true);
     const formData = new FormData();
     formData.append("target_slide_number", targetSlide);
     formData.append("file", singleSlideFile);
+    if (isLinkModified && inputMeetingUrl.trim()) {
+      formData.append("teams_meeting_url", inputMeetingUrl.trim());
+    }
 
     try {
       const res = await apiFetch(`/induction-update/${sessionId}/single-slide`, {
@@ -131,9 +243,21 @@ export function InductionUpdateModal({
   const handleApplyPpt = async () => {
     if (!pptFile) return;
 
+    if (isLinkModified) {
+      const linkErr = validateUrl(inputMeetingUrl);
+      if (linkErr) {
+        setMeetingUrlError(linkErr);
+        toast.error(linkErr);
+        return;
+      }
+    }
+
     setIsApplyingPpt(true);
     const formData = new FormData();
     formData.append("file", pptFile);
+    if (isLinkModified && inputMeetingUrl.trim()) {
+      formData.append("teams_meeting_url", inputMeetingUrl.trim());
+    }
 
     try {
       const data = await apiFetch(`/induction-update/${sessionId}/apply-ppt`, {
@@ -161,10 +285,22 @@ export function InductionUpdateModal({
       return;
     }
 
+    if (isLinkModified) {
+      const linkErr = validateUrl(inputMeetingUrl);
+      if (linkErr) {
+        setMeetingUrlError(linkErr);
+        toast.error(linkErr);
+        return;
+      }
+    }
+
     setIsSubmittingAudio(true);
     const formData = new FormData();
     formData.append("target_slide_number", targetAudioSlide);
     formData.append("file", audioFile);
+    if (isLinkModified && inputMeetingUrl.trim()) {
+      formData.append("teams_meeting_url", inputMeetingUrl.trim());
+    }
 
     try {
       const data = await apiFetch(`/induction-update/${sessionId}/slide-audio`, {
@@ -191,9 +327,94 @@ export function InductionUpdateModal({
             <RefreshCw className="h-5 w-5 text-primary" /> Update Existing Induction
           </DialogTitle>
           <DialogDescription className="text-xs">
-            Incrementally update slides or audio without regenerating the entire induction package.
+            Incrementally update slides, narration audio, or Teams meeting connection without regenerating the entire induction package.
           </DialogDescription>
         </DialogHeader>
+
+        {/* SECTION: Microsoft Teams Meeting Configuration */}
+        <div className="p-3.5 bg-muted/30 border border-border/60 rounded-xl space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-7 w-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-600">
+                <Video className="h-4 w-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  Microsoft Teams Meeting Configuration
+                  {isLinkModified && (
+                    <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-700 border-amber-300 px-1.5 py-0 h-4">
+                      Modified
+                    </Badge>
+                  )}
+                </h4>
+                <p className="text-[11px] text-muted-foreground">
+                  Update the meeting link used by AutoHR bot. Changes can be saved alone or along with slide/audio updates.
+                </p>
+              </div>
+            </div>
+            {currentMeetingUrl && (
+              <a
+                href={currentMeetingUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium whitespace-nowrap"
+              >
+                <ExternalLink className="h-3 w-3" /> Test Link
+              </a>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex justify-between items-center text-[11px]">
+              <Label htmlFor="teams-url-input" className="text-[11px] font-medium text-foreground flex items-center gap-1">
+                <Link2 className="h-3 w-3 text-muted-foreground" /> Teams Meeting Link
+              </Label>
+              {isLinkModified && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputMeetingUrl(currentMeetingUrl);
+                    setMeetingUrlError(null);
+                  }}
+                  className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                >
+                  Revert to saved
+                </button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Input
+                id="teams-url-input"
+                placeholder="https://teams.microsoft.com/l/meetup-join/..."
+                value={inputMeetingUrl}
+                onChange={(e) => handleUrlInputChange(e.target.value)}
+                disabled={isLoadingMeeting || isSavingMeeting}
+                className="text-xs font-mono h-9 flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleUpdateMeetingOnly}
+                disabled={!isLinkModified || !!meetingUrlError || isSavingMeeting || isLoadingMeeting}
+                className="h-9 px-3 text-xs whitespace-nowrap"
+              >
+                {isSavingMeeting ? (
+                  <>
+                    <RefreshCw className="h-3 w-3 animate-spin mr-1" /> Saving...
+                  </>
+                ) : (
+                  "Update Link Only"
+                )}
+              </Button>
+            </div>
+            {meetingUrlError && (
+              <p className="text-[11px] text-rose-600 flex items-center gap-1 mt-1 font-medium">
+                <AlertCircle className="h-3 w-3 inline shrink-0" /> {meetingUrlError}
+              </p>
+            )}
+          </div>
+        </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mt-2">
           <TabsList className="grid grid-cols-3 w-full">
