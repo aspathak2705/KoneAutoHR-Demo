@@ -9,8 +9,12 @@ from loguru import logger
 
 from app.db.database import get_db
 from app.repositories.session_repository import session_repository
+from app.repositories.presentation_metadata_repository import presentation_metadata_repository
 from app.services.storage_service import storage_service
+from app.services.meeting_runtime_service import meeting_runtime_service
 from app.modules.induction.update_service import induction_update_service
+from app.modules.presentation.presentation_asset_manager import presentation_asset_manager
+from app.modules.meeting_runtime.runtime_coordinator import get_active_presentation_controller
 
 router = APIRouter(prefix="/induction-update", tags=["Incremental Induction Update"])
 
@@ -19,6 +23,21 @@ def _validate_session_ready(session_id: str, db: DBSession):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
+    # Active runtime guard: cannot update while induction is actively presenting or in meeting
+    db_runtime = meeting_runtime_service.get_runtime(db, session_id)
+    if db_runtime and db_runtime.status in ["PRESENTING", "CONNECTED", "STARTING", "JOINING", "WAITING"]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot update induction while session is active ({db_runtime.status}). Stop or pause session first."
+        )
+
+    active_controller = get_active_presentation_controller(session_id)
+    if active_controller and getattr(active_controller, "is_presenting", False):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot update induction while presentation is currently running. Stop presentation first."
+        )
+
     session_dir = storage_service.get_session_dir(session_id)
     manifest = session_dir / "manifest.json"
     if not manifest.exists():
@@ -117,6 +136,22 @@ async def apply_updated_ppt(
                 revised_pptx_path=tmp_path,
                 diff_result=diff
             )
+
+            # Sync slide count to DB presentation metadata if session has associated presentation
+            session = session_repository.get(db, session_id)
+            if session and session.presentation_id:
+                new_slide_count = result.get("slides")
+                if new_slide_count:
+                    meta = presentation_metadata_repository.get_by_presentation(db, session.presentation_id)
+                    if meta:
+                        presentation_metadata_repository.update(db, meta, slide_count=new_slide_count)
+                # Invalidate cached script/narration assets
+                try:
+                    presentation_asset_manager.invalidate_asset(session.presentation_id, "script")
+                    presentation_asset_manager.invalidate_asset(session.presentation_id, "narration")
+                except Exception as inv_err:
+                    logger.warning(f"Failed to invalidate asset cache for {session.presentation_id}: {inv_err}")
+
             return result
         except Exception as e:
             logger.error(f"InductionUpdateAPI | Apply updated PPT failed: {e}")
@@ -155,6 +190,16 @@ async def update_single_slide(
                 target_slide_number=target_slide_number,
                 single_slide_pptx_path=tmp_path
             )
+
+            # Invalidate cached script/narration assets
+            session = session_repository.get(db, session_id)
+            if session and session.presentation_id:
+                try:
+                    presentation_asset_manager.invalidate_asset(session.presentation_id, "script")
+                    presentation_asset_manager.invalidate_asset(session.presentation_id, "narration")
+                except Exception as inv_err:
+                    logger.warning(f"Failed to invalidate asset cache for {session.presentation_id}: {inv_err}")
+
             return result
         except Exception as e:
             logger.error(f"InductionUpdateAPI | Single slide update failed: {e}")
@@ -195,6 +240,16 @@ async def update_slide_audio(
                 target_slide_number=target_slide_number,
                 uploaded_audio_path=tmp_path
             )
+
+            # Invalidate cached script/narration assets
+            session = session_repository.get(db, session_id)
+            if session and session.presentation_id:
+                try:
+                    presentation_asset_manager.invalidate_asset(session.presentation_id, "script")
+                    presentation_asset_manager.invalidate_asset(session.presentation_id, "narration")
+                except Exception as inv_err:
+                    logger.warning(f"Failed to invalidate asset cache for {session.presentation_id}: {inv_err}")
+
             return result
         except Exception as e:
             logger.error(f"InductionUpdateAPI | Slide audio update failed: {e}")
