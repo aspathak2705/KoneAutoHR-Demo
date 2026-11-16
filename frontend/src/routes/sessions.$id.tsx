@@ -1872,17 +1872,27 @@ function SessionDetailPage() {
                   )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2">
+                    <Button variant="outline" size="sm" asChild className="text-xs h-8 gap-1.5 font-semibold border-primary/40 text-primary hover:bg-primary/5">
+                      <a href={`${BACKEND_BASE}/runtime/${id}/report.pdf`} target="_blank" rel="noopener noreferrer">
+                        <Download className="h-3.5 w-3.5" /> Report (.pdf)
+                      </a>
+                    </Button>
+                    <Button variant="outline" size="sm" asChild className="text-xs h-8 gap-1.5 font-semibold border-primary/40 text-primary hover:bg-primary/5">
+                      <a href={`${BACKEND_BASE}/runtime/${id}/report.docx`} target="_blank" rel="noopener noreferrer">
+                        <Download className="h-3.5 w-3.5" /> Report (.docx)
+                      </a>
+                    </Button>
                     <Button variant="outline" size="sm" asChild className="text-xs h-8 gap-1.5">
                       <a href={`${BACKEND_BASE}/runtime/${id}/presentation-file`} target="_blank" rel="noopener noreferrer">
                         <Download className="h-3.5 w-3.5" /> Deck (.pptx)
                       </a>
                     </Button>
-                    <Button variant="outline" size="sm" asChild className="text-xs h-8 gap-1.5">
+                    <Button variant="outline" size="sm" asChild className="text-xs h-8 gap-1.5 text-muted-foreground">
                       <a href={`${BACKEND_BASE}/runtime/${id}/report`} target="_blank" rel="noopener noreferrer">
-                        <Download className="h-3.5 w-3.5" /> Report (.md)
+                        <Download className="h-3.5 w-3.5" /> Raw (.md)
                       </a>
                     </Button>
-                    <Button variant="outline" size="sm" asChild className="text-xs h-8 gap-1.5">
+                    <Button variant="outline" size="sm" asChild className="text-xs h-8 gap-1.5 text-muted-foreground">
                       <a href={`${BACKEND_BASE}/runtime/${id}/transcript`} target="_blank" rel="noopener noreferrer">
                         <Download className="h-3.5 w-3.5" /> Transcript (.md)
                       </a>
@@ -2084,6 +2094,43 @@ function SessionDetailPage() {
                         </div>
                       </div>
                     </details>
+
+                    {/* QA-010: Virtual Audio Cable Setup Card */}
+                    <div className="border border-border/70 rounded-xl p-3 bg-muted/20 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Volume2 className="h-4 w-4 text-primary" />
+                          <span className="text-xs font-semibold text-foreground">Teams Virtual Audio Bridge</span>
+                        </div>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded border font-medium bg-muted text-muted-foreground border-border">
+                          VB-CABLE
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        To route slide audio into Teams: Set AutoHR output to <strong>CABLE Input</strong>, and set Microsoft Teams Microphone to <strong>CABLE Output</strong>.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            const res = await fetch(`${BACKEND_BASE}/runtime/audio/test-playback`, { method: "POST" });
+                            const d = await res.json();
+                            if (d.status === "success") {
+                              toast.success(d.message);
+                            } else {
+                              toast.error(d.message || "Audio test failed");
+                            }
+                          } catch {
+                            toast.error("Could not reach backend audio service.");
+                          }
+                        }}
+                        className="w-full text-xs h-7 gap-1.5 border-border hover:bg-background"
+                      >
+                        <Volume2 className="h-3 w-3 text-primary" /> Test Audio Bridge Chime
+                      </Button>
+                    </div>
                   </div>
                 )}
 
@@ -2282,6 +2329,42 @@ function SessionDetailPage() {
                           )}
                         </div>
 
+                        {/* AI Speech Audio (TTS) Readiness Item */}
+                        <div className="p-2.5 rounded-lg border border-border/60 bg-muted/20 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className={cn(
+                                "h-2.5 w-2.5 rounded-full shrink-0",
+                                readiness?.has_audio ? "bg-green-500 ring-2 ring-green-100" : "bg-amber-500 ring-2 ring-amber-100"
+                              )} />
+                              <span className="font-semibold text-foreground">AI Speech Audio (TTS)</span>
+                            </div>
+                            <span className={cn(
+                              "text-[10px] px-1.5 py-0.5 rounded border font-medium",
+                              readiness?.has_audio ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200"
+                            )}>
+                              {readiness?.has_audio ? "Generated" : "Pending Audio"}
+                            </span>
+                          </div>
+                          {!readiness?.has_audio && (
+                            <div className="pl-4 pt-1 space-y-2">
+                              <p className="text-[11px] text-amber-700 leading-snug">
+                                {readiness?.audio?.reason || "AI speech narration audio package has not been compiled."}
+                              </p>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={handleGenerateAudio}
+                                disabled={generatingAudio || !readiness?.has_script}
+                                className="h-7 text-xs gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
+                              >
+                                <Sparkles className="h-3 w-3" /> {generatingAudio ? "Compiling..." : "Generate AI Audio"}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+
                         {/* Expected FAQs Item */}
                         <div className="p-2.5 rounded-lg border border-border/60 bg-muted/20 space-y-1.5">
                           <div className="flex items-center justify-between">
@@ -2458,7 +2541,7 @@ function SessionDetailPage() {
                       </div>
                     </div>
 
-                    {/* Step 4: AI Connected */}
+                    {/* Step 4: AI / Presentation Bot Connected */}
                     <div className="relative space-y-1">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
@@ -2479,10 +2562,10 @@ function SessionDetailPage() {
                             runtimeStatus?.state === "JOINING" ? "text-amber-700" :
                             "text-muted-foreground"
                           )}>
-                            {runtimeStatus?.state === "CONNECTED" || runtimeStatus?.state === "PRESENTING" ? "AI Connected" :
-                             runtimeStatus?.state === "FAILED" ? "AI Connection Failed" :
+                            {runtimeStatus?.state === "CONNECTED" || runtimeStatus?.state === "PRESENTING" ? (session?.creation_mode === "HR" ? "Presenter Connected" : "AI Connected") :
+                             runtimeStatus?.state === "FAILED" ? (session?.creation_mode === "HR" ? "Presenter Connection Failed" : "AI Connection Failed") :
                              runtimeStatus?.state === "JOINING" ? "Connecting to Teams..." :
-                             "AI Connected"}
+                             (session?.creation_mode === "HR" ? "Presenter Connected" : "AI Connected")}
                           </span>
                         </div>
                         {runtimeStatus?.state === "FAILED" && (

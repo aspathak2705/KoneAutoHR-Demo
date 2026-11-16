@@ -580,6 +580,36 @@ def download_session_report(session_id: str, db: DBSession = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.get("/{session_id}/report.pdf")
+def download_session_report_pdf(session_id: str, db: DBSession = Depends(get_db)):
+    try:
+        pdf_path = report_service.get_or_generate_pdf(db, session_id)
+        if not pdf_path.exists():
+            raise HTTPException(status_code=404, detail="PDF report not found")
+        return FileResponse(
+            path=pdf_path,
+            filename=f"kone_induction_report_{session_id}.pdf",
+            media_type="application/pdf"
+        )
+    except Exception as e:
+        logger.error(f"Runtime | Failed to generate/serve PDF report: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/{session_id}/report.docx")
+def download_session_report_docx(session_id: str, db: DBSession = Depends(get_db)):
+    try:
+        docx_path = report_service.get_or_generate_docx(db, session_id)
+        if not docx_path.exists():
+            raise HTTPException(status_code=404, detail="Word report not found")
+        return FileResponse(
+            path=docx_path,
+            filename=f"kone_induction_report_{session_id}.docx",
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+    except Exception as e:
+        logger.error(f"Runtime | Failed to generate/serve DOCX report: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.get("/{session_id}/transcript")
 def download_session_transcript(session_id: str, db: DBSession = Depends(get_db)):
     try:
@@ -635,4 +665,103 @@ async def trigger_reconnect_simulation(session_id: str):
     from app.services.teams_runtime_service import teams_runtime_service
     await teams_runtime_service.simulate_reconnect(session_id)
     return {"message": "Reconnection sequence triggered."}
+
+@router.get("/audio/devices")
+def get_audio_devices():
+    """
+    QA-010: Detect host audio devices and verify VB-Audio Virtual Cable availability.
+    """
+    try:
+        import sounddevice as sd
+        devices = sd.query_devices()
+        cable_inputs = []
+        cable_outputs = []
+        all_devs = []
+
+        for idx, dev in enumerate(devices):
+            name = dev.get("name", "")
+            max_in = dev.get("max_input_channels", 0)
+            max_out = dev.get("max_output_channels", 0)
+            dev_info = {
+                "id": idx,
+                "name": name,
+                "input_channels": max_in,
+                "output_channels": max_out,
+                "is_cable": "cable" in name.lower() or "vb-audio" in name.lower()
+            }
+            all_devs.append(dev_info)
+
+            if "cable" in name.lower() or "vb-audio" in name.lower():
+                if max_out > 0:
+                    cable_inputs.append(dev_info)  # "CABLE Input" receives output audio from AutoHR
+                if max_in > 0:
+                    cable_outputs.append(dev_info) # "CABLE Output" feeds into Teams microphone
+
+        has_cable = len(cable_inputs) > 0 or len(cable_outputs) > 0
+        return {
+            "status": "ready" if has_cable else "missing_cable",
+            "has_cable": has_cable,
+            "cable_inputs_found": len(cable_inputs),
+            "cable_outputs_found": len(cable_outputs),
+            "summary": "VB-Audio Virtual Cable detected. Ready for meeting audio routing." if has_cable else "VB-Audio Virtual Cable not detected. Please install VB-CABLE Driver to bridge audio to Teams.",
+            "instructions": {
+                "step_1": "Install VB-Audio Virtual Cable from vb-audio.com/Cable (free).",
+                "step_2": "In AutoHR audio configuration, select 'CABLE Input' as the playback target.",
+                "step_3": "In Microsoft Teams Device Settings, select 'CABLE Output' as the Microphone device."
+            },
+            "devices": all_devs
+        }
+    except Exception as e:
+        logger.warning(f"Failed to query sound devices: {e}")
+        return {
+            "status": "unavailable",
+            "has_cable": False,
+            "error": str(e),
+            "summary": "Audio device querying unavailable on host.",
+            "devices": []
+        }
+
+@router.post("/audio/test-playback")
+def test_audio_playback():
+    """
+    QA-010: Plays a short 440Hz test chime through VB-Audio Cable Input or default device to verify pipeline.
+    """
+    try:
+        import sounddevice as sd
+        import numpy as np
+
+        sample_rate = 44100
+        duration = 0.5  # 500ms
+        t = np.linspace(0, duration, int(sample_rate * duration), False)
+        # 440Hz tone with smooth decay
+        tone = np.sin(440 * t * 2 * np.pi) * np.exp(-3 * t) * 0.25
+
+        # Find CABLE Input device index if present
+        devices = sd.query_devices()
+        target_device = None
+        for idx, dev in enumerate(devices):
+            if ("cable input" in dev.get("name", "").lower() or "cable in" in dev.get("name", "").lower()) and dev.get("max_output_channels", 0) > 0:
+                target_device = idx
+                break
+
+        if target_device is not None:
+            sd.play(tone, sample_rate, device=target_device)
+            target_name = devices[target_device].get("name", "CABLE Input")
+        else:
+            sd.play(tone, sample_rate)
+            target_name = "Default System Audio"
+
+        return {
+            "status": "success",
+            "device_used": target_name,
+            "message": f"Test chime played successfully through '{target_name}'."
+        }
+    except Exception as e:
+        logger.warning(f"Audio test playback failed: {e}")
+        return {
+            "status": "failed",
+            "error": str(e),
+            "message": f"Playback failed: {e}"
+        }
+
 

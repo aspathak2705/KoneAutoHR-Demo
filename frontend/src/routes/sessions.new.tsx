@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, ChevronRight, ChevronLeft, Upload, FileText, CheckCircle, Trash2, Edit2, Sparkles, Check, Play, User, Calendar, BookOpen, HelpCircle, Volume2, VolumeX, Link2, Unlink } from "lucide-react";
+import { ArrowLeft, ChevronRight, ChevronLeft, Upload, FileText, CheckCircle, Trash2, Edit2, Sparkles, Check, Play, User, Calendar, BookOpen, HelpCircle, Volume2, VolumeX, Link2, Unlink, AlertTriangle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
@@ -1685,17 +1685,57 @@ function NewSessionPage() {
 
             {/* AI mode footer navigation */}
             {creationMode === "AI" && (
-              <div className="flex justify-between pt-4 border-t border-border">
-                <Button variant="outline" onClick={() => setStep(2)} className="gap-2">
-                  <ChevronLeft className="h-4 w-4" /> Back
-                </Button>
-                <Button
-                  onClick={() => setStep(4)}
-                  disabled={!script || packJobStatus !== "COMPLETED"}
-                  className="gap-2"
-                >
-                  Next Step <ChevronRight className="h-4 w-4" />
-                </Button>
+              <div className="flex flex-col gap-3 pt-4 border-t border-border">
+                {(!script || packJobStatus !== "COMPLETED") && (
+                  <div className="p-3 rounded-lg border border-amber-200/60 bg-amber-50/20 text-xs flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-amber-800">
+                      {packJobStatus === "PROCESSING" || packJobStatus === "PENDING" || audioJobStatus === "PROCESSING" || audioJobStatus === "PENDING" ? (
+                        <>
+                          <div className="h-3.5 w-3.5 border-2 border-amber-600 border-t-transparent rounded-full animate-spin shrink-0" />
+                          <span>
+                            <strong>Audio & Deployment Packaging in progress:</strong> Next step will unlock automatically once compilation completes.
+                          </span>
+                        </>
+                      ) : packJobStatus === "FAILED" || audioJobStatus === "FAILED" ? (
+                        <>
+                          <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+                          <span className="text-red-700">
+                            <strong>Audio compilation failed:</strong> Please retry generating TTS audio or packaging above.
+                          </span>
+                        </>
+                      ) : !script ? (
+                        <span>
+                          <strong>AI Script required:</strong> Please generate or review the presentation script before proceeding.
+                        </span>
+                      ) : (
+                        <span>
+                          <strong>Speech Audio required:</strong> Please generate speech audio and compile deployment package to proceed.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <div className="flex justify-between items-center">
+                  <Button variant="outline" onClick={() => setStep(2)} className="gap-2">
+                    <ChevronLeft className="h-4 w-4" /> Back
+                  </Button>
+                  <Button
+                    onClick={() => setStep(4)}
+                    disabled={!script || packJobStatus !== "COMPLETED"}
+                    className="gap-2"
+                  >
+                    {packJobStatus === "PROCESSING" || packJobStatus === "PENDING" ? (
+                      <>
+                        <div className="h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full animate-spin mr-1" />
+                        Compiling Audio ({packJobProgress ?? 0}%)...
+                      </>
+                    ) : (
+                      <>
+                        Next Step <ChevronRight className="h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             )}
           </CardContent>
