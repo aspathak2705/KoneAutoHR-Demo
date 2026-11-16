@@ -25,6 +25,8 @@ import {
   Mail,
   Copy,
   RefreshCw,
+  Upload,
+  ChevronDown,
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
@@ -76,6 +78,9 @@ import {
   updatePresentationQuestions,
   regeneratePresentationQuestions,
   getMeetingForSession,
+  uploadPresentation,
+  uploadEmployeeList,
+  linkAssetsToSession,
   saveMeeting,
   generateInvitationDrafts,
   getInvitationDrafts,
@@ -181,6 +186,8 @@ function SessionDetailPage() {
   const session = useSession(id);
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
 
   // Meeting states
   const [meeting, setMeeting] = useState<MeetingDetails | null>(null);
@@ -230,6 +237,49 @@ function SessionDetailPage() {
 
   // Runtime states
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [assetUploadModalOpen, setAssetUploadModalOpen] = useState(false);
+  const [assetUploadType, setAssetUploadType] = useState<"presentation" | "employees">("presentation");
+  const [assetUploadName, setAssetUploadName] = useState("");
+  const [assetUploadFile, setAssetUploadFile] = useState<File | null>(null);
+  const [isUploadingAsset, setIsUploadingAsset] = useState(false);
+  const [expandedDiagnostics, setExpandedDiagnostics] = useState<Record<string, boolean>>({});
+
+  const toggleDiagnostic = (key: string) => {
+    setExpandedDiagnostics((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleAssetUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!assetUploadFile || !session) return;
+    setIsUploadingAsset(true);
+    try {
+      if (assetUploadType === "presentation") {
+        const pres = await uploadPresentation(
+          assetUploadName.trim() || assetUploadFile.name.replace(/\.[^/.]+$/, ""),
+          assetUploadFile
+        );
+        await linkAssetsToSession(session.id, { presentation_id: pres.id });
+        toast.success("Presentation deck uploaded and linked!");
+      } else {
+        const emp = await uploadEmployeeList(
+          assetUploadName.trim() || assetUploadFile.name.replace(/\.[^/.]+$/, ""),
+          assetUploadFile
+        );
+        await linkAssetsToSession(session.id, { employee_list_id: emp.id });
+        toast.success("Employees list uploaded and linked!");
+      }
+      setAssetUploadModalOpen(false);
+      setAssetUploadFile(null);
+      setAssetUploadName("");
+      await syncFromBackend();
+      const r = await validateSessionReadiness(session.id);
+      setReadiness(r);
+    } catch (err: any) {
+      toast.error(err.message || "Asset upload failed");
+    } finally {
+      setIsUploadingAsset(false);
+    }
+  };
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const [slidesConfig, setSlidesConfig] = useState<any | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -674,14 +724,18 @@ function SessionDetailPage() {
   };
 
   const handleStopRuntime = async () => {
-    if (!session) return;
+    if (!session || isDisconnecting) return;
+    setIsDisconnecting(true);
     try {
       await stopMeetingRuntime(session.id);
       toast.success("AI presentation session stopped.");
       const status = await getMeetingRuntimeStatus(session.id);
       setRuntimeStatus(status);
+      setConfirmDisconnect(false);
     } catch (err: any) {
       toast.error(err.message || "Failed to stop presentation session");
+    } finally {
+      setIsDisconnecting(false);
     }
   };
 
@@ -1431,14 +1485,6 @@ function SessionDetailPage() {
                     >
                       <PlayCircle className="h-4.5 w-4.5" /> Prepare Runtime
                     </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setIsUpdateModalOpen(true)}
-                      className="w-full border-primary/40 text-primary hover:bg-primary/10 gap-2 font-semibold text-xs h-9"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" /> Update Existing Induction
-                    </Button>
                   </div>
                   {!readiness?.is_ready && (
                     <p className="text-[10px] text-amber-600 text-center font-medium">
@@ -1679,7 +1725,7 @@ function SessionDetailPage() {
                       <Button
                         variant="destructive"
                         size="sm"
-                        onClick={handleStopRuntime}
+                        onClick={() => setConfirmDisconnect(true)}
                         className="h-8 px-3 text-xs"
                       >
                         Disconnect Call
@@ -1912,18 +1958,36 @@ function SessionDetailPage() {
           <SectionShell title="Teams Orchestration" icon={Video}>
             <Card className="border-border/60">
               <CardContent className="p-4 space-y-4">
+                {/* 1. Header Status & Prominent Update Button */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-muted-foreground uppercase">Status</span>
+                  <span className={cn(
+                    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium border",
+                    !meeting ? "bg-muted text-muted-foreground border-border" :
+                    readiness?.is_ready ? "bg-green-50 text-green-700 border-green-200" :
+                    "bg-amber-50 text-amber-700 border-amber-200"
+                  )}>
+                    {!meeting ? "Not Created" : readiness?.is_ready ? "Meeting Ready" : "Attention Required"}
+                  </span>
+                </div>
+
+                {/* Prominently placed Update Existing Induction button - always enabled */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsUpdateModalOpen(true)}
+                  className="w-full border-primary/40 text-primary hover:bg-primary/10 gap-2 font-semibold text-xs h-9 shadow-sm"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" /> Update Existing Induction
+                </Button>
+
+                {/* 2. Meeting Configuration Section */}
                 {loadingMeeting ? (
                   <p className="text-xs text-muted-foreground animate-pulse">Loading meeting orchestration status...</p>
                 ) : !meeting ? (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-muted-foreground uppercase">Status</span>
-                      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground border border-border">
-                        Not Created
-                      </span>
-                    </div>
-
-                    <div className="space-y-3 pt-2">
+                  <div className="space-y-4 border-t border-border/40 pt-3">
+                    <Label className="text-[10px] font-bold text-muted-foreground uppercase">Meeting Configuration</Label>
+                    <div className="space-y-3">
                       <div className="space-y-1">
                         <Label className="text-xs">Teams Meeting URL</Label>
                         <Input
@@ -1978,14 +2042,7 @@ function SessionDetailPage() {
                     </Button>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-muted-foreground uppercase">Status</span>
-                      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-green-50 text-green-700 border border-green-200">
-                        Meeting Ready
-                      </span>
-                    </div>
-
+                  <div className="space-y-3">
                     {/* Collapsible Edit/Details area */}
                     <details className="group border border-border/60 rounded-xl overflow-hidden bg-muted/10">
                       <summary className="text-xs font-semibold text-muted-foreground hover:text-foreground cursor-pointer flex items-center justify-between px-3 py-2.5 select-none bg-muted/20">
@@ -2027,106 +2084,464 @@ function SessionDetailPage() {
                         </div>
                       </div>
                     </details>
+                  </div>
+                )}
 
-                    {/* Sprint 2: Readiness Summary Checkboxes */}
-                    <div className="space-y-2 border-t border-border/40 pt-3">
-                      <Label className="text-[10px] font-bold text-muted-foreground uppercase">Runtime Assets Readiness</Label>
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="flex items-center gap-1.5 p-1.5 rounded-lg border border-border/60 bg-muted/20">
+                {/* 3. Actionable Runtime Assets Readiness */}
+                <div className="space-y-2 border-t border-border/40 pt-3">
+                  <Label className="text-[10px] font-bold text-muted-foreground uppercase">Runtime Assets Readiness</Label>
+                  <div className="space-y-2 text-xs">
+                    {/* Presentation Deck item */}
+                    <div className="p-2.5 rounded-lg border border-border/60 bg-muted/20 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
                           <span className={cn(
-                            "h-2 w-2 rounded-full",
-                            readiness?.has_presentation ? "bg-green-500" : "bg-red-500"
+                            "h-2.5 w-2.5 rounded-full shrink-0",
+                            readiness?.has_presentation ? "bg-green-500 ring-2 ring-green-100" : "bg-red-500 ring-2 ring-red-100"
                           )} />
-                          <span>Presentation Deck</span>
+                          <span className="font-semibold text-foreground">Presentation Deck</span>
                         </div>
-                        <div className="flex items-center gap-1.5 p-1.5 rounded-lg border border-border/60 bg-muted/20">
-                          <span className={cn(
-                            "h-2 w-2 rounded-full",
-                            readiness?.has_employees ? "bg-green-500" : "bg-red-500"
-                          )} />
-                          <span>Employees List</span>
-                        </div>
-                        {session?.creation_mode !== "HR" && (
-                          <>
-                            <div className="flex items-center gap-1.5 p-1.5 rounded-lg border border-border/60 bg-muted/20">
-                              <span className={cn(
-                                "h-2 w-2 rounded-full",
-                                readiness?.has_script ? "bg-green-500" : "bg-red-500"
-                              )} />
-                              <span>AI Script</span>
-                            </div>
-                            <div className="flex items-center gap-1.5 p-1.5 rounded-lg border border-border/60 bg-muted/20">
-                              <span className={cn(
-                                "h-2 w-2 rounded-full",
-                                readiness?.has_faq ? "bg-green-500" : "bg-red-500"
-                              )} />
-                              <span>Expected FAQs</span>
-                            </div>
-                          </>
-                        )}
-                        {session?.creation_mode === "HR" && (
-                          <div className="flex items-center gap-1.5 p-1.5 rounded-lg border border-violet-500/30 bg-violet-500/5 col-span-2">
-                            <span className={cn(
-                              "h-2 w-2 rounded-full",
-                              readiness?.has_audio ? "bg-green-500" : "bg-amber-500"
-                            )} />
-                            <span className="text-violet-700">HR Narration Package</span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-1.5 p-1.5 rounded-lg border border-border/60 bg-muted/20 col-span-2 justify-center">
-                          <span className={cn(
-                            "h-2 w-2 rounded-full",
-                            readiness?.has_meeting ? "bg-green-500" : "bg-red-500"
-                          )} />
-                          <span>Teams URL & Date/Time Configured</span>
-                        </div>
+                        <span className={cn(
+                          "text-[10px] px-1.5 py-0.5 rounded border font-medium",
+                          readiness?.has_presentation ? "bg-green-50 text-green-700 border-green-200" : "bg-red-50 text-red-700 border-red-200"
+                        )}>
+                          {readiness?.has_presentation ? "Ready" : "Missing"}
+                        </span>
                       </div>
+                      {!readiness?.has_presentation && (
+                        <div className="pl-4 pt-1 space-y-2">
+                          <p className="text-[11px] text-red-600 leading-snug">
+                            {readiness?.presentation?.reason || "Presentation deck has not been linked or uploaded."}
+                          </p>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setAssetUploadType("presentation");
+                              setAssetUploadName(session?.name || "Induction Deck");
+                              setAssetUploadFile(null);
+                              setAssetUploadModalOpen(true);
+                            }}
+                            className="h-7 text-xs gap-1.5 border-red-300 text-red-700 hover:bg-red-50"
+                          >
+                            <Upload className="h-3 w-3" /> Upload Presentation Deck
+                          </Button>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Progress Timeline */}
-                    <div className="space-y-2 border-t border-b border-border/40 py-3">
-                      <Label className="text-[10px] font-bold text-muted-foreground uppercase">Orchestration Progress</Label>
-                      <div className="relative pl-4 border-l border-border/80 space-y-3.5 text-xs mt-1">
-                        <div className="relative">
+                    {/* Employees List item */}
+                    <div className="p-2.5 rounded-lg border border-border/60 bg-muted/20 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={cn(
+                            "h-2.5 w-2.5 rounded-full shrink-0",
+                            readiness?.has_employees
+                              ? (content.employees.length > 0 && content.employees.some(e => !e.email) ? "bg-amber-500 ring-2 ring-amber-100" : "bg-green-500 ring-2 ring-green-100")
+                              : "bg-red-500 ring-2 ring-red-100"
+                          )} />
+                          <span className="font-semibold text-foreground">Employees List</span>
+                        </div>
+                        <span className={cn(
+                          "text-[10px] px-1.5 py-0.5 rounded border font-medium",
+                          !readiness?.has_employees ? "bg-red-50 text-red-700 border-red-200" :
+                          (content.employees.length > 0 && content.employees.some(e => !e.email)) ? "bg-amber-50 text-amber-700 border-amber-200" :
+                          "bg-green-50 text-green-700 border-green-200"
+                        )}>
+                          {!readiness?.has_employees ? "Missing" :
+                          (content.employees.length > 0 && content.employees.some(e => !e.email)) ? "Incomplete" :
+                          "Ready"}
+                        </span>
+                      </div>
+                      {!readiness?.has_employees ? (
+                        <div className="pl-4 pt-1 space-y-2">
+                          <p className="text-[11px] text-red-600 leading-snug">
+                            {readiness?.employees?.reason || "Attendee Excel list has not been uploaded or linked."}
+                          </p>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setAssetUploadType("employees");
+                              setAssetUploadName(session?.name || "Employee Attendees");
+                              setAssetUploadFile(null);
+                              setAssetUploadModalOpen(true);
+                            }}
+                            className="h-7 text-xs gap-1.5 border-red-300 text-red-700 hover:bg-red-50"
+                          >
+                            <Upload className="h-3 w-3" /> Upload Employees List
+                          </Button>
+                        </div>
+                      ) : content.employees.length > 0 && content.employees.some(e => !e.email) ? (
+                        <div className="pl-4 pt-1 space-y-1.5">
+                          <p className="text-[11px] text-amber-700 leading-snug">
+                            Some employees are missing an email address ({content.employees.filter(e => !e.email).length} incomplete).
+                          </p>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setAssetUploadType("employees");
+                              setAssetUploadName(session?.name || "Employee Attendees");
+                              setAssetUploadFile(null);
+                              setAssetUploadModalOpen(true);
+                            }}
+                            className="h-7 text-xs gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
+                          >
+                            <Upload className="h-3 w-3" /> Replace / Re-upload List
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {/* AI Script / Expected FAQs or HR Narration Package */}
+                    {session?.creation_mode === "HR" ? (
+                      <div className="p-2.5 rounded-lg border border-violet-500/30 bg-violet-500/5 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className={cn(
+                              "h-2.5 w-2.5 rounded-full shrink-0",
+                              readiness?.has_audio ? "bg-green-500 ring-2 ring-green-100" : "bg-amber-500 ring-2 ring-amber-100"
+                            )} />
+                            <span className="font-semibold text-violet-900">HR Narration Package</span>
+                          </div>
+                          <span className={cn(
+                            "text-[10px] px-1.5 py-0.5 rounded border font-medium",
+                            readiness?.has_audio ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200"
+                          )}>
+                            {readiness?.has_audio ? "Ready" : "Pending Audio"}
+                          </span>
+                        </div>
+                        {!readiness?.has_audio && (
+                          <div className="pl-4 pt-1 space-y-2">
+                            <p className="text-[11px] text-amber-700 leading-snug">
+                              {readiness?.audio?.reason || "Slide narration audio tracks are not yet compiled."}
+                            </p>
+                            <div className="flex gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setIsUpdateModalOpen(true)}
+                                className="h-7 text-xs gap-1 border-violet-300 text-violet-700 hover:bg-violet-50"
+                              >
+                                <Upload className="h-3 w-3" /> Upload Slide Audio
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={handleGenerateAudio}
+                                disabled={generatingAudio}
+                                className="h-7 text-xs gap-1 border-violet-300 text-violet-700 hover:bg-violet-50"
+                              >
+                                <Sparkles className="h-3 w-3" /> {generatingAudio ? "Compiling..." : "Compile Package"}
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {/* AI Script Item */}
+                        <div className="p-2.5 rounded-lg border border-border/60 bg-muted/20 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className={cn(
+                                "h-2.5 w-2.5 rounded-full shrink-0",
+                                readiness?.has_script ? "bg-green-500 ring-2 ring-green-100" : "bg-amber-500 ring-2 ring-amber-100"
+                              )} />
+                              <span className="font-semibold text-foreground">AI Script</span>
+                            </div>
+                            <span className={cn(
+                              "text-[10px] px-1.5 py-0.5 rounded border font-medium",
+                              readiness?.has_script ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200"
+                            )}>
+                              {readiness?.has_script ? "Generated" : "Pending"}
+                            </span>
+                          </div>
+                          {!readiness?.has_script && (
+                            <div className="pl-4 pt-1 space-y-2">
+                              <p className="text-[11px] text-amber-700 leading-snug">
+                                {readiness?.script?.reason || "AI Welcome and Slide narration scripts have not been generated."}
+                              </p>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={handleGenerateScript}
+                                disabled={generatingScript || !session?.presentation_id || !session?.employee_list_id}
+                                className="h-7 text-xs gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
+                              >
+                                <Sparkles className="h-3 w-3" /> {generatingScript ? "Generating..." : "Generate AI Script"}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Expected FAQs Item */}
+                        <div className="p-2.5 rounded-lg border border-border/60 bg-muted/20 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className={cn(
+                                "h-2.5 w-2.5 rounded-full shrink-0",
+                                readiness?.has_faq ? "bg-green-500 ring-2 ring-green-100" : "bg-amber-500 ring-2 ring-amber-100"
+                              )} />
+                              <span className="font-semibold text-foreground">Expected FAQs</span>
+                            </div>
+                            <span className={cn(
+                              "text-[10px] px-1.5 py-0.5 rounded border font-medium",
+                              readiness?.has_faq ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200"
+                            )}>
+                              {readiness?.has_faq ? "Generated" : "Pending"}
+                            </span>
+                          </div>
+                          {!readiness?.has_faq && (
+                            <div className="pl-4 pt-1 space-y-2">
+                              <p className="text-[11px] text-amber-700 leading-snug">
+                                {readiness?.questions?.reason || "Expected attendee FAQs have not been predicted."}
+                              </p>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={handleGenerateQuestions}
+                                disabled={generatingQuestions || !session?.presentation_id || !session?.employee_list_id}
+                                className="h-7 text-xs gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
+                              >
+                                <MessageCircleQuestion className="h-3 w-3" /> {generatingQuestions ? "Generating..." : "Generate FAQs"}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Teams URL & Date/Time Configured item */}
+                    <div className="p-2.5 rounded-lg border border-border/60 bg-muted/20 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={cn(
+                            "h-2.5 w-2.5 rounded-full shrink-0",
+                            readiness?.has_meeting ? "bg-green-500 ring-2 ring-green-100" : (!meeting ? "bg-red-500 ring-2 ring-red-100" : "bg-amber-500 ring-2 ring-amber-100")
+                          )} />
+                          <span className="font-semibold text-foreground">Teams URL & Date/Time Configured</span>
+                        </div>
+                        <span className={cn(
+                          "text-[10px] px-1.5 py-0.5 rounded border font-medium",
+                          readiness?.has_meeting ? "bg-green-50 text-green-700 border-green-200" : (!meeting ? "bg-red-50 text-red-700 border-red-200" : "bg-amber-50 text-amber-700 border-amber-200")
+                        )}>
+                          {readiness?.has_meeting ? "Ready" : (!meeting ? "Missing" : "Incomplete")}
+                        </span>
+                      </div>
+                      {!readiness?.has_meeting && (
+                        <div className="pl-4 pt-1 space-y-2">
+                          <p className="text-[11px] text-red-600 leading-snug">
+                            {readiness?.meeting?.reason || (!meeting ? "Teams meeting configuration has not been created." : "Teams meeting URL, date, or time is incomplete.")}
+                          </p>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const configSection = document.querySelector("details");
+                              if (configSection) {
+                                configSection.open = true;
+                                configSection.scrollIntoView({ behavior: "smooth" });
+                              }
+                            }}
+                            className="h-7 text-xs gap-1.5 border-red-300 text-red-700 hover:bg-red-50"
+                          >
+                            <Pencil className="h-3 w-3" /> {!meeting ? "Configure Meeting" : "Edit Meeting Details"}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Actionable Orchestration Progress */}
+                <div className="space-y-2 border-t border-b border-border/40 py-3">
+                  <Label className="text-[10px] font-bold text-muted-foreground uppercase">Orchestration Progress</Label>
+                  <div className="relative pl-4 border-l border-border/80 space-y-3.5 text-xs mt-1">
+                    {/* Step 1: Session Ready */}
+                    <div className="relative space-y-1">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
                           <span className={cn(
                             "absolute -left-[20.5px] top-0.5 flex h-3 w-3 items-center justify-center rounded-full text-white ring-4 ring-background",
                             readiness?.is_ready ? "bg-green-500" : "bg-amber-500"
                           )}>
-                            <Check className="h-2 w-2" />
+                            {readiness?.is_ready ? <Check className="h-2 w-2" /> : <span className="h-1 w-1 bg-white rounded-full" />}
                           </span>
-                          <span className="font-semibold text-foreground">
+                          <span className={cn("font-semibold", readiness?.is_ready ? "text-foreground" : "text-amber-800")}>
                             {readiness?.is_ready ? "Session Ready" : "Session Preparation Pending"}
                           </span>
                         </div>
-                        <div className="relative">
-                          <span className="absolute -left-[20.5px] top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-green-500 text-white ring-4 ring-background">
-                            <Check className="h-2 w-2" />
+                        {!readiness?.is_ready && (
+                          <button
+                            type="button"
+                            onClick={() => toggleDiagnostic("session_ready")}
+                            className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-0.5"
+                          >
+                            Details <ChevronDown className={cn("h-3 w-3 transition-transform", expandedDiagnostics["session_ready"] ? "rotate-180" : "")} />
+                          </button>
+                        )}
+                      </div>
+                      {!readiness?.is_ready && expandedDiagnostics["session_ready"] && (
+                        <p className="text-[11px] text-muted-foreground pl-1">
+                          Prerequisites remaining: {readiness?.missing_components?.join(", ") || "assets pending"}. Resolve items in Runtime Assets Readiness above.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Step 2: Meeting Created */}
+                    <div className="relative space-y-1">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn(
+                            "absolute -left-[20.5px] top-0.5 flex h-3 w-3 items-center justify-center rounded-full text-white ring-4 ring-background",
+                            meeting ? "bg-green-500" : "bg-muted border border-border"
+                          )}>
+                            {meeting ? <Check className="h-2 w-2" /> : <span className="h-1 w-1 bg-muted-foreground rounded-full" />}
                           </span>
-                          <span className="font-semibold text-foreground">Meeting Created</span>
+                          <span className={cn("font-semibold", meeting ? "text-foreground" : "text-muted-foreground")}>
+                            {meeting ? "Meeting Created" : "Meeting Not Created"}
+                          </span>
                         </div>
-                        <div className="relative">
+                        {!meeting && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              const input = document.querySelector("input[placeholder*='teams.microsoft.com']");
+                              if (input) (input as HTMLElement).focus();
+                            }}
+                            className="h-6 text-[11px] text-primary hover:bg-primary/5 p-1"
+                          >
+                            Configure
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Step 3: Invitations Sent */}
+                    <div className="relative space-y-1">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
                           <span className={cn(
                             "absolute -left-[20.5px] top-0.5 flex h-3 w-3 items-center justify-center rounded-full ring-4 ring-background",
                             drafts.length > 0 ? "bg-green-500 text-white" : "bg-muted border border-border"
                           )}>
-                            {drafts.length > 0 && <Check className="h-2 w-2" />}
+                            {drafts.length > 0 ? <Check className="h-2 w-2" /> : <span className="h-1 w-1 bg-muted-foreground rounded-full" />}
                           </span>
-                          <span className={cn(drafts.length > 0 ? "font-semibold text-foreground" : "text-muted-foreground")}>
-                            Invitations Sent
+                          <span className={cn("font-semibold", drafts.length > 0 ? "text-foreground" : "text-muted-foreground")}>
+                            {drafts.length > 0 ? `Invitations Ready (${drafts.length})` : "Invitations Not Generated"}
                           </span>
                         </div>
-                        <div className="relative">
-                          <span className="absolute -left-[20.5px] top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-muted border border-border ring-4 ring-background"></span>
-                          <span className="text-muted-foreground">AI Connected</span>
-                        </div>
-                        <div className="relative">
-                          <span className="absolute -left-[20.5px] top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-muted border border-border ring-4 ring-background"></span>
-                          <span className="text-muted-foreground">Waiting</span>
-                        </div>
+                        {drafts.length === 0 && meeting && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={handleGenerateDrafts}
+                            disabled={loadingDrafts}
+                            className="h-6 text-[11px] text-primary hover:bg-primary/5 p-1"
+                          >
+                            {loadingDrafts ? "Drafting..." : "Generate Drafts"}
+                          </Button>
+                        )}
                       </div>
                     </div>
+
+                    {/* Step 4: AI Connected */}
+                    <div className="relative space-y-1">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn(
+                            "absolute -left-[20.5px] top-0.5 flex h-3 w-3 items-center justify-center rounded-full ring-4 ring-background",
+                            runtimeStatus?.state === "CONNECTED" || runtimeStatus?.state === "PRESENTING" ? "bg-green-500 text-white" :
+                            runtimeStatus?.state === "FAILED" ? "bg-red-500 text-white" :
+                            runtimeStatus?.state === "JOINING" || runtimeStatus?.state === "PREPARING" ? "bg-amber-500 text-white" :
+                            "bg-muted border border-border"
+                          )}>
+                            {(runtimeStatus?.state === "CONNECTED" || runtimeStatus?.state === "PRESENTING") && <Check className="h-2 w-2" />}
+                            {runtimeStatus?.state === "FAILED" && <AlertTriangle className="h-2 w-2" />}
+                          </span>
+                          <span className={cn(
+                            "font-semibold",
+                            runtimeStatus?.state === "CONNECTED" || runtimeStatus?.state === "PRESENTING" ? "text-foreground" :
+                            runtimeStatus?.state === "FAILED" ? "text-red-600" :
+                            runtimeStatus?.state === "JOINING" ? "text-amber-700" :
+                            "text-muted-foreground"
+                          )}>
+                            {runtimeStatus?.state === "CONNECTED" || runtimeStatus?.state === "PRESENTING" ? "AI Connected" :
+                             runtimeStatus?.state === "FAILED" ? "AI Connection Failed" :
+                             runtimeStatus?.state === "JOINING" ? "Connecting to Teams..." :
+                             "AI Connected"}
+                          </span>
+                        </div>
+                        {runtimeStatus?.state === "FAILED" && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={handlePrepareRuntime}
+                            className="h-6 text-[11px] text-red-600 hover:bg-red-50 p-1"
+                          >
+                            Retry
+                          </Button>
+                        )}
+                      </div>
+                      {runtimeStatus?.state === "FAILED" && runtimeStatus?.last_error && (
+                        <p className="text-[11px] text-red-600 leading-snug pl-1">
+                          {runtimeStatus.last_error}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Step 5: Waiting for Participants */}
+                    <div className="relative space-y-1">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn(
+                            "absolute -left-[20.5px] top-0.5 flex h-3 w-3 items-center justify-center rounded-full ring-4 ring-background",
+                            runtimeStatus?.state === "PRESENTING" ? "bg-green-500 text-white" :
+                            runtimeStatus?.state === "WAITING" ? "bg-amber-500 text-white" :
+                            "bg-muted border border-border"
+                          )}>
+                            {runtimeStatus?.state === "PRESENTING" && <Check className="h-2 w-2" />}
+                            {runtimeStatus?.state === "WAITING" && <span className="h-1.5 w-1.5 bg-white rounded-full animate-ping" />}
+                          </span>
+                          <span className={cn(
+                            "font-semibold",
+                            runtimeStatus?.state === "PRESENTING" ? "text-foreground" :
+                            runtimeStatus?.state === "WAITING" ? "text-amber-800" :
+                            "text-muted-foreground"
+                          )}>
+                            {runtimeStatus?.state === "PRESENTING" ? "Presentation In Progress" :
+                             runtimeStatus?.state === "WAITING" ? "Waiting for Participants..." :
+                             "Waiting"}
+                          </span>
+                        </div>
+                        {runtimeStatus?.state === "WAITING" && (
+                          <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                            In Lobby
+                          </span>
+                        )}
+                      </div>
+                      {runtimeStatus?.state === "WAITING" && (
+                        <p className="text-[11px] text-muted-foreground pl-1">
+                          AutoHR is connected to Teams and waiting for attendees to join before starting narration.
+                        </p>
+                      )}
+                    </div>
                   </div>
-                )}
+                </div>
               </CardContent>
             </Card>
           </SectionShell>
@@ -2210,6 +2625,33 @@ function SessionDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Disconnect meeting confirmation dialog */}
+      <AlertDialog open={confirmDisconnect} onOpenChange={setConfirmDisconnect}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>End this induction?</AlertDialogTitle>
+            <AlertDialogDescription className="text-xs leading-relaxed">
+              Are you sure you want to disconnect AutoHR from this meeting?
+              <br /><br />
+              The narration will stop and the meeting automation will be disconnected. Participants may no longer hear the induction presentation.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDisconnecting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleStopRuntime();
+              }}
+              disabled={isDisconnecting}
+              className="bg-destructive hover:bg-destructive/90 text-white"
+            >
+              {isDisconnecting ? "Disconnecting..." : "End Induction"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <InductionUpdateModal
         isOpen={isUpdateModalOpen}
         onClose={() => setIsUpdateModalOpen(false)}
@@ -2220,6 +2662,73 @@ function SessionDetailPage() {
           toast.success("Induction assets refreshed!");
         }}
       />
+
+      {/* Actionable Asset Upload Modal */}
+      <Dialog open={assetUploadModalOpen} onOpenChange={setAssetUploadModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-4.5 w-4.5 text-primary" />
+              {assetUploadType === "presentation" ? "Upload Presentation Deck" : "Upload Employees List"}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {assetUploadType === "presentation"
+                ? "Upload a PowerPoint (.pptx) presentation. Slides and metadata will be parsed automatically."
+                : "Upload an attendee Excel (.xlsx) file containing employee names, emails, and departments."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleAssetUploadSubmit} className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Asset Name</Label>
+              <Input
+                placeholder={assetUploadType === "presentation" ? "e.g. KONE Induction 2026" : "e.g. Engineering Batch Jan"}
+                value={assetUploadName}
+                onChange={(e) => setAssetUploadName(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">
+                Select File ({assetUploadType === "presentation" ? ".pptx" : ".xlsx"})
+              </Label>
+              <Input
+                type="file"
+                accept={assetUploadType === "presentation" ? ".pptx" : ".xlsx"}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) {
+                    setAssetUploadFile(f);
+                    if (!assetUploadName) {
+                      setAssetUploadName(f.name.replace(/\.[^/.]+$/, ""));
+                    }
+                  }
+                }}
+                required
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setAssetUploadModalOpen(false)}
+                disabled={isUploadingAsset}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={isUploadingAsset || !assetUploadFile}
+                className="bg-primary hover:bg-primary/95 text-primary-foreground gap-1.5 font-semibold"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                {isUploadingAsset ? "Uploading & Linking..." : "Upload & Link Asset"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

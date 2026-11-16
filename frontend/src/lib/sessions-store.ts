@@ -920,6 +920,15 @@ export interface InvitationDraft {
   updated_at: string;
 }
 
+export interface ReadinessComponentDetail {
+  ready: boolean;
+  reason?: string | null;
+  asset_id?: string | null;
+  name?: string | null;
+  configured?: boolean;
+  teams_url?: string | null;
+}
+
 export interface ReadinessStatus {
   session_id: string;
   has_presentation: boolean;
@@ -929,6 +938,22 @@ export interface ReadinessStatus {
   has_meeting: boolean;
   has_audio?: boolean;
   is_ready: boolean;
+  overall_ready?: boolean;
+  presentation?: ReadinessComponentDetail;
+  employees?: ReadinessComponentDetail;
+  script?: ReadinessComponentDetail;
+  questions?: ReadinessComponentDetail;
+  audio?: ReadinessComponentDetail;
+  meeting?: ReadinessComponentDetail;
+  missing_components?: string[];
+}
+
+export async function linkAssetsToSession(sessionId: string, payload: { presentation_id?: string; employee_list_id?: string }) {
+  return (await apiFetch(`/assets/session/${sessionId}/link`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }));
 }
 
 export async function getMeetingForSession(sessionId: string): Promise<MeetingDetails | null> {

@@ -1,6 +1,7 @@
 import os
 import shutil
 import tempfile
+import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
 from urllib.parse import urlparse
@@ -64,7 +65,11 @@ def validate_teams_url(url: str) -> str:
     
     return clean_url
 
-def _validate_session_ready(session_id: str, db: DBSession):
+def _validate_session_not_active(session_id: str, db: DBSession):
+    """
+    Validates that the session exists and is not currently engaged in an active live meeting or presentation.
+    Used for safe configuration updates (e.g. Teams URL, metadata) that do not require prepared assets.
+    """
     session = session_repository.get(db, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -86,6 +91,14 @@ def _validate_session_ready(session_id: str, db: DBSession):
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot update induction while presentation is currently running or paused. Stop presentation first."
             )
+    return session
+
+def _validate_session_ready(session_id: str, db: DBSession):
+    """
+    Validates that session is not active AND has a compiled runtime package (manifest.json).
+    Used for slide/audio differential updates that operate directly on compiled presentation assets.
+    """
+    session = _validate_session_not_active(session_id, db)
 
     session_dir = storage_service.get_session_dir(session_id)
     manifest = session_dir / "manifest.json"
@@ -364,10 +377,24 @@ def _apply_meeting_link_update(session_id: str, teams_meeting_url: str, db: DBSe
 
     meeting = meeting_repository.get_by_session(db, session_id)
     if not meeting:
-        raise HTTPException(
-            status_code=400,
-            detail="No meeting configuration found for this induction. Create initial meeting schedule first."
+        # Create initial meeting record if none exists yet
+        meeting = meeting_repository.create_or_update(
+            db=db,
+            session_id=session_id,
+            teams_meeting_url=clean_url,
+            meeting_passcode=None,
+            organizer_name=getattr(session, "trainer", "HR Trainer") or "HR Trainer",
+            meeting_date=getattr(session, "date", None) or (session.scheduled_at.strftime("%Y-%m-%d") if getattr(session, "scheduled_at", None) else datetime.date.today().isoformat()),
+            meeting_time="09:00"
         )
+        return {
+            "status": "SUCCESS",
+            "message": "Microsoft Teams meeting link configured successfully.",
+            "session_id": session_id,
+            "meeting_id": meeting.id,
+            "teams_meeting_url": meeting.teams_meeting_url,
+            "reprepare_required": False
+        }
 
     old_url = meeting.teams_meeting_url
     if old_url == clean_url:
@@ -419,6 +446,7 @@ async def update_teams_meeting_link(
     Updates the Microsoft Teams meeting URL for an existing induction session.
     Preserves all presentation, script, audio and participant associations.
     Invalidates runtime coordinator and requires re-preparation if runtime was already prepared.
+    Does not require a pre-built manifest / runtime package for configuration updates.
     """
-    _validate_session_ready(session_id, db)
+    _validate_session_not_active(session_id, db)
     return _apply_meeting_link_update(session_id, payload.teams_meeting_url, db)

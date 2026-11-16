@@ -49,7 +49,13 @@ async def lifespan(app: FastAPI):
         import re
         sanitized_err = re.sub(r"://([^:@]+):([^@]+)@", r"://\1:***@", str(db_err))
         logger.critical(f"Startup Validation | Database connection FAILED: {sanitized_err}")
-        raise SystemExit("Startup Validation Failure: Database connection failed.")
+        db_target = settings.DATABASE_TARGET_INFO.get("host", "configured database")
+        db_port = settings.DATABASE_TARGET_INFO.get("port", "unknown")
+        db_name = settings.DATABASE_TARGET_INFO.get("database", "unknown")
+        raise SystemExit(
+            f"Startup Validation Failure: Unable to connect to the configured database '{db_name}' at {db_target}:{db_port}. "
+            f"Please verify that the database server is running and accessible, or check DATABASE_URL in backend/.env."
+        )
 
     # Security Initialization Validation
     try:
