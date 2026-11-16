@@ -3,8 +3,6 @@ import sys
 import asyncio
 if sys.platform == "win32":
     # Playwright requires ProactorEventLoop on Windows to handle subprocess pipes
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 print("=" * 60)
