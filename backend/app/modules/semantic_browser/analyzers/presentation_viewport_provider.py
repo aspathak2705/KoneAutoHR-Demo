@@ -20,6 +20,11 @@ class PresentationViewportProvider:
             "iframe[src*='powerpoint' i]",
             "[data-tid='stage-sharing-overlay']",
             "[data-tid='share-stage']",
+            "[data-tid='stream-player-container']",
+            "div[data-cid='stream-player']",
+            "[data-tid='screen-player-container']",
+            "[data-tid='presenting-screen']",
+            "[data-tid='dominant-speaker-stage']",
             "video[aria-label*='Screen' i]",
             "video[aria-label*='Shared' i]",
             "video[aria-label*='Share' i]",
@@ -33,7 +38,8 @@ class PresentationViewportProvider:
             "div[class*='screen-share' i]",
             "div[class*='share-stage' i]",
             "[data-tid*='sharing' i]",
-            "[data-tid*='stage' i]"
+            "[data-tid*='stage' i]",
+            "div[data-tid*='stream']"
         ]
         
         for sel in sharing_selectors:

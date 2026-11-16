@@ -15,7 +15,10 @@ import {
   UserCheck,
   ExternalLink,
   RefreshCw,
-  LogOut
+  LogOut,
+  CheckCircle2,
+  AlertCircle,
+  AlertTriangle
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -399,53 +402,199 @@ function MeetingBotDashboard() {
           {/* Meeting Readiness Panel */}
           {isSessionValidated && (
             <Card className="border-primary/40 bg-primary/5">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-bold flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-primary" /> Meeting Readiness
-                </CardTitle>
-                <CardDescription>HR authorization checkpoint before starting slide narration</CardDescription>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-bold flex items-center gap-2">
+                    <Activity className="h-4 w-4 text-primary" /> Meeting Readiness Checklist
+                  </CardTitle>
+                  <Badge
+                    variant={meetingStatus?.overall_ready || meetingStatus?.bot_ready ? "default" : "secondary"}
+                    className={
+                      meetingStatus?.overall_ready || meetingStatus?.bot_ready
+                        ? "bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                        : "bg-amber-100 text-amber-800 border-amber-300"
+                    }
+                  >
+                    {meetingStatus?.overall_ready || meetingStatus?.bot_ready ? "READY TO START" : "PREREQUISITES PENDING"}
+                  </Badge>
+                </div>
+                <CardDescription className="text-xs">
+                  HR authorization checkpoint before starting slide narration & audio playback
+                </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3.5 text-xs">
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Presentation Screen:</span>
-                    <Badge variant={meetingStatus?.presentation_detected ? "default" : "secondary"}>
-                      {meetingStatus?.presentation_detected ? "DETECTED" : "NOT DETECTED"}
+              <CardContent className="space-y-3 text-xs">
+                {/* Structured Checklist Table */}
+                <div className="rounded-lg border border-border/60 bg-background/80 overflow-hidden divide-y divide-border/40">
+                  {/* Row 1: Teams Connection */}
+                  <div className="p-2.5 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {meetingStatus?.meeting_connected ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-amber-500 shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <span className="font-semibold text-xs block text-foreground">1. Teams Meeting Connection</span>
+                        <span className="text-[11px] text-muted-foreground block truncate">
+                          {meetingStatus?.meeting_connected
+                            ? `Bot connected to call (${meetingStatus?.participants || 0} attendees detected)`
+                            : "Bot connecting to Microsoft Teams meeting..."}
+                        </span>
+                      </div>
+                    </div>
+                    <Badge
+                      variant={meetingStatus?.meeting_connected ? "default" : "secondary"}
+                      className={
+                        meetingStatus?.meeting_connected
+                          ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/30"
+                          : "bg-amber-500/15 text-amber-700 border-amber-500/30"
+                      }
+                    >
+                      {meetingStatus?.meeting_connected ? "CONNECTED" : "DISCONNECTED"}
                     </Badge>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Audio Resources:</span>
-                    <Badge variant={meetingStatus?.audio_ready ? "default" : "secondary"}>
-                      {meetingStatus?.audio_ready ? "LOADED" : "PENDING"}
+
+                  {/* Row 2: Presentation Screen */}
+                  <div className="p-2.5 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {meetingStatus?.presentation_detected ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-amber-500 shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <span className="font-semibold text-xs block text-foreground">2. Presentation Screen</span>
+                        <span className="text-[11px] text-muted-foreground block">
+                          {meetingStatus?.presentation_detected
+                            ? "PowerPoint / screen share active & synchronized"
+                            : "Please share PowerPoint presentation or screen in Teams"}
+                        </span>
+                      </div>
+                    </div>
+                    <Badge
+                      variant={meetingStatus?.presentation_detected ? "default" : "secondary"}
+                      className={
+                        meetingStatus?.presentation_detected
+                          ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/30"
+                          : "bg-amber-500/15 text-amber-700 border-amber-500/30"
+                      }
+                    >
+                      {meetingStatus?.presentation_detected ? "DETECTED" : "WAITING FOR SHARE"}
                     </Badge>
                   </div>
-                  {meetingStatus?.reason && meetingStatus.reason !== "Waiting for bot to connect to meeting" && (
-                    <p className="text-[10px] text-amber-600 font-medium italic mt-1 text-center">
-                      * {meetingStatus.reason}
-                    </p>
-                  )}
+
+                  {/* Row 3: Narration Audio */}
+                  <div className="p-2.5 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {meetingStatus?.audio_ready ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-amber-500 shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <span className="font-semibold text-xs block text-foreground">3. Narration Audio</span>
+                        <span className="text-[11px] text-muted-foreground block">
+                          {meetingStatus?.audio_ready
+                            ? "AI audio tracks verified & loaded for playback"
+                            : "Audio tracks missing or compiling. Verify Step 3 TTS."}
+                        </span>
+                      </div>
+                    </div>
+                    <Badge
+                      variant={meetingStatus?.audio_ready ? "default" : "secondary"}
+                      className={
+                        meetingStatus?.audio_ready
+                          ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/30"
+                          : "bg-amber-500/15 text-amber-700 border-amber-500/30"
+                      }
+                    >
+                      {meetingStatus?.audio_ready ? "READY" : "PENDING"}
+                    </Badge>
+                  </div>
+
+                  {/* Row 4: Runtime Assets */}
+                  <div className="p-2.5 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {meetingStatus?.runtime_assets_ready ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-amber-500 shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <span className="font-semibold text-xs block text-foreground">4. Runtime Assets</span>
+                        <span className="text-[11px] text-muted-foreground block">
+                          {meetingStatus?.runtime_assets_ready
+                            ? "Manifest, slide images & timeline verified"
+                            : "Runtime assets incomplete. Run Step 4 Runtime Preparation."}
+                        </span>
+                      </div>
+                    </div>
+                    <Badge
+                      variant={meetingStatus?.runtime_assets_ready ? "default" : "secondary"}
+                      className={
+                        meetingStatus?.runtime_assets_ready
+                          ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/30"
+                          : "bg-red-500/15 text-red-700 border-red-500/30"
+                      }
+                    >
+                      {meetingStatus?.runtime_assets_ready ? "VERIFIED" : "MISSING"}
+                    </Badge>
+                  </div>
                 </div>
 
+                {/* Blocked Instruction Card if not ready */}
+                {!meetingStatus?.overall_ready && !meetingStatus?.bot_ready && (
+                  <div className="p-3 bg-amber-50/50 border border-amber-300/60 rounded-lg text-amber-800 text-[11px] leading-relaxed">
+                    <div className="font-semibold flex items-center gap-1.5 mb-1 text-amber-900">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                      Action Required to Enable Start Induction:
+                    </div>
+                    <ul className="list-disc pl-4 space-y-0.5">
+                      {meetingStatus?.blocked_reasons && meetingStatus.blocked_reasons.length > 0 ? (
+                        meetingStatus.blocked_reasons.map((reason: string, idx: number) => (
+                          <li key={idx}>{reason}</li>
+                        ))
+                      ) : (
+                        <li>Waiting for meeting connection and presentation share...</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Start Induction Button */}
                 <Button
                   onClick={async () => {
+                    if (!meetingStatus?.overall_ready && !meetingStatus?.bot_ready) {
+                      const missing = meetingStatus?.blocked_reasons?.join("; ") || "Prerequisites not met";
+                      toast.warning(`Cannot start induction: ${missing}`);
+                      return;
+                    }
                     try {
                       toast.info("Initializing and starting induction presentation...");
                       await apiFetch(`/runtime/${sessionId.trim()}/start-induction`, { method: "POST" });
-                      toast.success("Presentation started successfully!");
+                      toast.success("Induction started! Bot is presenting slides and synchronizing audio.");
                       fetchBotStatus();
                     } catch (e: any) {
-                      toast.error(e.message || "Failed to start induction presentation.");
+                      const msg = e.detail?.message || e.message || "Failed to start induction presentation.";
+                      toast.error(msg);
                     }
                   }}
-                   disabled={
-                    !meetingStatus?.presentation_detected || 
-                    !meetingStatus?.audio_ready || 
-                    status?.state === "PRESENTING" || 
-                    (meetingStatus?.narration_state && meetingStatus?.narration_state !== "idle")
+                  disabled={
+                    loading ||
+                    (!meetingStatus?.overall_ready && !meetingStatus?.bot_ready) ||
+                    status?.state === "PRESENTING" ||
+                    (meetingStatus?.narration_state && !["idle", "finished_closing"].includes(meetingStatus.narration_state))
                   }
-                  className="w-full bg-primary hover:bg-primary/95 text-primary-foreground font-bold gap-2 mt-1"
+                  className={`w-full font-bold gap-2 text-sm h-10 shadow-sm transition-all mt-1 ${
+                    meetingStatus?.overall_ready || meetingStatus?.bot_ready
+                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                      : "bg-muted text-muted-foreground"
+                  }`}
                 >
-                  <Play className="h-4.5 w-4.5" /> Start Induction
+                  <Play className="h-4.5 w-4.5" />
+                  {meetingStatus?.overall_ready || meetingStatus?.bot_ready
+                    ? "Start Induction (All Systems Ready)"
+                    : "Start Induction (Prerequisites Pending)"}
                 </Button>
               </CardContent>
             </Card>

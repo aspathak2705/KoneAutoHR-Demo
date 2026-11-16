@@ -69,6 +69,8 @@ class RuntimeCoordinator:
         # Interruption tracking
         self._current_narration_text: Optional[str] = None
         self.narration_state = "idle"
+        self.presentation_detected: bool = False
+        self.induction_started: bool = False
         
         # Lifecycle tracking
         self._browser_manager = None
@@ -502,15 +504,20 @@ class RuntimeCoordinator:
         """
         logger.debug(f"RuntimeCoordinator | Polling cycle | Observation State: {observation.observation_state} | Active State: {self.session_manager.state.value}")
 
-        # Transition: CONNECTED → PRESENTING (presentation started)
-        presentation_active = observation.presentation_state in ["POWERPOINT_SHARED", "SCREEN_SHARING"]
-        if ObservationEvent.PRESENTATION_STARTED in observation.events or (self.session_manager.state == RuntimeState.CONNECTED and presentation_active):
-            if self.session_manager.state == RuntimeState.CONNECTED:
-                logger.info("RuntimeCoordinator | Presentation detected in CONNECTED state. Auto-starting induction greeting flow.")
-                if await self.session_manager.transition_to(RuntimeState.PRESENTING):
-                    self.induction_started = True
-                    asyncio.create_task(self._run_greeting_flow())
-                    return
+        # Update presentation detection status
+        from app.modules.semantic_browser.models.presentation_state import PresentationMode
+        presentation_active = (
+            str(observation.presentation_state) in ["POWERPOINT_SHARED", "SCREEN_SHARING", "PresentationMode.POWERPOINT_SHARED", "PresentationMode.SCREEN_SHARING"] or
+            getattr(observation, "presentation_state", None) in [PresentationMode.POWERPOINT_SHARED, PresentationMode.SCREEN_SHARING]
+        )
+        self.presentation_detected = presentation_active
+
+        # Transition: CONNECTED → PRESENTING only when induction has been started/authorized by HR
+        if self.induction_started and self.session_manager.state == RuntimeState.CONNECTED and presentation_active:
+            logger.info("RuntimeCoordinator | Presentation detected and induction authorized by HR. Launching greeting flow.")
+            if await self.session_manager.transition_to(RuntimeState.PRESENTING):
+                asyncio.create_task(self._run_greeting_flow())
+                return
 
         # Handle slide changes during PRESENTING
         if ObservationEvent.SLIDE_CHANGED in observation.events or (self.session_manager.state == RuntimeState.PRESENTING and observation.current_slide > 0 and observation.current_slide != self.memory.current_slide_number):

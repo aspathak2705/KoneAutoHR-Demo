@@ -556,24 +556,63 @@ class AudioController:
         from app.services.storage_service import storage_service
         session_dir = storage_service.get_session_dir(self.session_id)
         audio_dir = storage_service.get_generated_audio_dir(self.session_id)
-        
-        # Check narration.wav in audio_dir or session_dir
-        if (audio_dir / "narration.wav").exists() or (session_dir / "narration.wav").exists():
+        session_audio_dir = session_dir / "audio"
+        session_assets_dir = session_dir / "presentation_assets"
+
+        # 1. Check explicit narration.wav in audio, session, or asset directories
+        for p in [audio_dir / "narration.wav", session_dir / "narration.wav", session_audio_dir / "narration.wav", session_assets_dir / "narration.wav"]:
+            if p.exists():
+                return True
+
+        # 2. Check cached durations loaded by zero-latency preloader
+        if getattr(self, "_durations", None) and len(self._durations) > 0:
             return True
-        # Check any wav or mp3 in audio_dir or session_dir
-        if list(audio_dir.glob("*.wav")) or list(audio_dir.glob("*.mp3")):
-            return True
-        if list(session_dir.glob("*.wav")) or list(session_dir.glob("*.mp3")):
-            return True
+
+        # 3. Check for any audio media files in known directories
+        for d in [audio_dir, session_dir, session_audio_dir, session_assets_dir]:
+            if d.exists():
+                if (
+                    list(d.glob("*.wav")) or list(d.glob("*.mp3")) or
+                    list(d.glob("*.WAV")) or list(d.glob("*.MP3"))
+                ):
+                    return True
+
+        # 4. Check manifest references
         manifest_path = session_dir / "manifest.json"
         if manifest_path.exists():
             try:
                 with open(manifest_path, "r", encoding="utf-8") as f:
                     manifest = json.load(f)
                 audio_file = manifest.get("audio", "narration.wav")
-                return (session_dir / audio_file).exists() or (audio_dir / audio_file).exists()
+                if (
+                    (session_dir / audio_file).exists() or
+                    (audio_dir / audio_file).exists() or
+                    (session_audio_dir / audio_file).exists()
+                ):
+                    return True
             except Exception:
                 pass
+
+        audio_manifest = session_dir / "audio_manifest.json"
+        if audio_manifest.exists():
+            try:
+                with open(audio_manifest, "r", encoding="utf-8") as f:
+                    am = json.load(f)
+                if am.get("tracks") and len(am["tracks"]) > 0:
+                    return True
+            except Exception:
+                pass
+
+        timeline_path = session_dir / "presentation_timeline.json"
+        if timeline_path.exists():
+            try:
+                with open(timeline_path, "r", encoding="utf-8") as f:
+                    tl = json.load(f)
+                if tl.get("slides") and len(tl["slides"]) > 0:
+                    return True
+            except Exception:
+                pass
+
         return False
 
 

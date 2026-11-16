@@ -59,23 +59,52 @@ async def prepare_runtime(session_id: str, db: DBSession = Depends(get_db)):
         logger.error(f"API | FAILED POST /prepare: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
+class StartInductionRequest(BaseModel):
+    force: bool = False
+
 @router.post("/{session_id}/start-induction")
-async def start_induction(session_id: str, db: DBSession = Depends(get_db)):
+async def start_induction(
+    session_id: str,
+    req: Optional[StartInductionRequest] = None,
+    db: DBSession = Depends(get_db)
+):
     """
     Overloaded start-induction endpoint:
     - Phase 2: READY -> STARTING -> BROWSER_READY (Starts browser)
-    - Phase 4: CONNECTED -> PRESENTING (Starts presentation)
+    - Phase 4: CONNECTED -> PRESENTING (Starts presentation after independent readiness validation)
     """
     logger.info(f"API | POST /start-induction for session {session_id}")
     try:
+        from app.services.meeting_status_service import meeting_status_service
         coordinator = runtime_service.get_coordinator(db, session_id)
         
         if coordinator.session_manager.state == RuntimeState.PRESENTING:
             logger.warning("API | Presentation is already running. Skipping duplicate trigger.")
-            return {"status": "success", "message": "Presentation already running"}
+            return {
+                "status": "success",
+                "message": "Presentation already running",
+                "state": "PRESENTING",
+                "session_id": session_id
+            }
 
         # Check current state to determine action
         if coordinator.session_manager.state == RuntimeState.CONNECTED:
+            # Independent backend readiness evaluation
+            readiness = await meeting_status_service.evaluate_status(db, session_id)
+            force_start = req.force if req else False
+            
+            if not readiness["overall_ready"] and not force_start:
+                blocked_str = "; ".join(readiness["blocked_reasons"]) or "Required prerequisites not satisfied"
+                logger.warning(f"API | Start induction rejected (409 Conflict): {blocked_str}")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "message": f"Induction cannot start: {blocked_str}",
+                        "blocked_reasons": readiness["blocked_reasons"],
+                        "checklist": readiness["checklist"]
+                    }
+                )
+
             await coordinator.session_manager.transition_to(RuntimeState.PRESENTING)
             coordinator.induction_started = True
             asyncio.create_task(coordinator._run_greeting_flow())
@@ -84,9 +113,10 @@ async def start_induction(session_id: str, db: DBSession = Depends(get_db)):
                 "status": "success",
                 "message": "Induction presentation started. Bot is presenting and synchronizing with presentation.",
                 "state": "PRESENTING",
-                "session_id": session_id
+                "session_id": session_id,
+                "checklist": readiness.get("checklist")
             }
-        else:
+        elif coordinator.session_manager.state == RuntimeState.READY:
             if not await coordinator.start_induction():
                 raise HTTPException(
                     status_code=400,
@@ -97,6 +127,11 @@ async def start_induction(session_id: str, db: DBSession = Depends(get_db)):
                 "state": "BROWSER_READY",
                 "session_id": session_id
             }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot start induction from current state: {coordinator.session_manager.state.value}. Expected READY or CONNECTED."
+            )
     except HTTPException:
         raise
     except Exception as e:

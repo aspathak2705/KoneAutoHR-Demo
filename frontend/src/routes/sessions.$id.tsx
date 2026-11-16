@@ -18,6 +18,9 @@ import {
   FileText,
   Video,
   CheckCircle,
+  CheckCircle2,
+  AlertCircle,
+  Activity,
   Volume2,
   Download,
   AlertTriangle,
@@ -32,6 +35,7 @@ import { useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -282,6 +286,7 @@ function SessionDetailPage() {
     }
   };
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
+  const [liveMeetingStatus, setLiveMeetingStatus] = useState<any>(null);
   const [slidesConfig, setSlidesConfig] = useState<any | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [newQuestionText, setNewQuestionText] = useState("");
@@ -310,6 +315,7 @@ function SessionDetailPage() {
         getMeetingRuntimeStatus(id).then(setRuntimeStatus).catch(console.error);
         getConversationHistory(id).then(setMessages).catch(console.error);
         getAttendanceReport(id).then(setAttendanceSummary).catch(console.error);
+        apiFetch(`/runtime/${id}/meeting-status`).then(setLiveMeetingStatus).catch(console.error);
         apiFetch(`/runtime/${id}/slide-controller`).then(setSlidesConfig).catch(console.error);
         getRuntimeAudioList(id).then((tracks) => {
           setAudioPlayList(tracks);
@@ -331,6 +337,7 @@ function SessionDetailPage() {
           setRuntimeStatus(status);
           getConversationHistory(id).then(setMessages);
           getAttendanceReport(id).then(setAttendanceSummary).catch(console.error);
+        apiFetch(`/runtime/${id}/meeting-status`).then(setLiveMeetingStatus).catch(console.error);
           
           const currentNarrationState = status?.narration_state;
           if (currentNarrationState && currentNarrationState !== prevNarrationState.current) {
@@ -811,14 +818,22 @@ function SessionDetailPage() {
 
   const handleStartInduction = async () => {
     if (!session) return;
+    if (runtimeStatus?.state === "CONNECTED" && liveMeetingStatus && !liveMeetingStatus.overall_ready && !liveMeetingStatus.bot_ready) {
+      const missing = liveMeetingStatus.blocked_reasons?.join("; ") || "Prerequisites not met";
+      toast.warning(`Cannot start induction: ${missing}`);
+      return;
+    }
     try {
       toast.info("Initializing and starting induction presentation...");
       await startInductionRuntime(session.id);
-      toast.success("Induction started, browser ready.");
+      toast.success("Induction started successfully.");
       const status = await getMeetingRuntimeStatus(session.id);
       setRuntimeStatus(status);
+      const metStatus = await apiFetch(`/runtime/${session.id}/meeting-status`).catch(() => null);
+      if (metStatus) setLiveMeetingStatus(metStatus);
     } catch (err: any) {
-      toast.error(err.message || "Failed to start induction");
+      const msg = err.detail?.message || err.message || "Failed to start induction";
+      toast.error(msg);
     }
   };
 
@@ -1627,9 +1642,87 @@ function SessionDetailPage() {
                     </span>
                   </div>
 
+                  {/* Readiness Checklist Card */}
+                  <div className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between pb-1 border-b border-border/40">
+                      <span className="font-semibold text-foreground flex items-center gap-1.5">
+                        <Activity className="h-3.5 w-3.5 text-primary" /> Meeting Readiness
+                      </span>
+                      <Badge
+                        variant={liveMeetingStatus?.overall_ready || liveMeetingStatus?.bot_ready ? "default" : "secondary"}
+                        className={
+                          liveMeetingStatus?.overall_ready || liveMeetingStatus?.bot_ready
+                            ? "bg-emerald-600 text-white font-semibold"
+                            : "bg-amber-100 text-amber-800 border-amber-300"
+                        }
+                      >
+                        {liveMeetingStatus?.overall_ready || liveMeetingStatus?.bot_ready ? "READY" : "WAITING FOR PPT"}
+                      </Badge>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground flex items-center gap-1.5">
+                          {liveMeetingStatus?.meeting_connected ? (
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                          ) : (
+                            <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+                          )}
+                          Teams Call Connection
+                        </span>
+                        <Badge variant="outline" className={liveMeetingStatus?.meeting_connected ? "text-emerald-700 border-emerald-300" : "text-amber-700 border-amber-300"}>
+                          {liveMeetingStatus?.meeting_connected ? "CONNECTED" : "WAITING"}
+                        </Badge>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground flex items-center gap-1.5">
+                          {liveMeetingStatus?.presentation_detected ? (
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                          ) : (
+                            <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+                          )}
+                          Presentation Screen
+                        </span>
+                        <Badge variant="outline" className={liveMeetingStatus?.presentation_detected ? "text-emerald-700 border-emerald-300" : "text-amber-700 border-amber-300"}>
+                          {liveMeetingStatus?.presentation_detected ? "DETECTED" : "WAITING"}
+                        </Badge>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground flex items-center gap-1.5">
+                          {liveMeetingStatus?.audio_ready ? (
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                          ) : (
+                            <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+                          )}
+                          Narration Audio
+                        </span>
+                        <Badge variant="outline" className={liveMeetingStatus?.audio_ready ? "text-emerald-700 border-emerald-300" : "text-amber-700 border-amber-300"}>
+                          {liveMeetingStatus?.audio_ready ? "READY" : "PENDING"}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    {!liveMeetingStatus?.overall_ready && !liveMeetingStatus?.bot_ready && (
+                      <div className="p-2 bg-amber-500/10 border border-amber-500/30 rounded text-[11px] text-amber-800 leading-tight">
+                        {liveMeetingStatus?.reason || "Please share PowerPoint in Microsoft Teams to begin."}
+                      </div>
+                    )}
+                  </div>
+
                   <Button
                     onClick={handleStartInduction}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-2 text-xs h-9 shadow-sm"
+                    disabled={
+                      Boolean(liveMeetingStatus &&
+                      !liveMeetingStatus.overall_ready &&
+                      !liveMeetingStatus.bot_ready)
+                    }
+                    className={`w-full font-semibold gap-2 text-xs h-9 shadow-sm ${
+                      liveMeetingStatus?.overall_ready || liveMeetingStatus?.bot_ready
+                        ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                        : "bg-muted text-muted-foreground"
+                    }`}
                   >
                     <PlayCircle className="h-4 w-4" /> Start Induction Narration
                   </Button>
