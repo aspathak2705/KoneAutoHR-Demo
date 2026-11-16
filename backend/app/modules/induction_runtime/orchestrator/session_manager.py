@@ -23,9 +23,21 @@ class RuntimeSessionManager:
         self.db = db
         self.runtime_id = runtime_id
         self.last_error: Optional[str] = None
-        
-        # Runtime locking to prevent concurrent state changes
-        self._transition_lock = asyncio.Lock()
+        self._transition_lock: Optional[asyncio.Lock] = None
+
+    @property
+    def transition_lock(self) -> asyncio.Lock:
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        if (
+            not hasattr(self, "_transition_lock")
+            or self._transition_lock is None
+            or (current_loop and getattr(self._transition_lock, "_loop", None) != current_loop)
+        ):
+            self._transition_lock = asyncio.Lock()
+        return self._transition_lock
 
     def can_transition(self, target_state: RuntimeState) -> bool:
         """
@@ -62,7 +74,7 @@ class RuntimeSessionManager:
             RuntimeState.JOINING: [RuntimeState.WAITING, RuntimeState.FINISHED, RuntimeState.FAILED],
             RuntimeState.WAITING: [RuntimeState.CONNECTED, RuntimeState.FINISHED, RuntimeState.FAILED],
             RuntimeState.CONNECTED: [RuntimeState.PRESENTING, RuntimeState.FINISHED, RuntimeState.FAILED],
-            RuntimeState.PRESENTING: [RuntimeState.FINISHED, RuntimeState.FAILED],
+            RuntimeState.PRESENTING: [RuntimeState.CONNECTED, RuntimeState.FINISHED, RuntimeState.FAILED],
             RuntimeState.FINISHED: [RuntimeState.STOPPING, RuntimeState.FAILED],
             RuntimeState.STOPPING: [RuntimeState.STOPPED, RuntimeState.FAILED],
             RuntimeState.STOPPED: [],  # Terminal state
@@ -81,7 +93,7 @@ class RuntimeSessionManager:
         Persists to database if runtime_id provided.
         Logs START, SUCCESS, or FAILED for every transition.
         """
-        async with self._transition_lock:
+        async with self.transition_lock:
             logger.info(f"RuntimeSessionManager | START transition: {self.state.value} -> {target_state.value}")
             
             if not self.can_transition(target_state):

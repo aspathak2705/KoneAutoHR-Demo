@@ -1,4 +1,5 @@
 from playwright.async_api import Page
+from typing import Optional
 from app.modules.semantic_browser.models.presentation_state import PresentationMode
 from app.modules.semantic_browser.models.semantic_state import DOMSummary
 from loguru import logger
@@ -8,7 +9,7 @@ import io
 from app.services.storage_service import storage_service
 
 class PresentationAnalyzer:
-    async def analyze(self, page: Page, dom: DOMSummary = None) -> dict:
+    async def analyze(self, page: Page, dom: DOMSummary = None, session_id: Optional[str] = None) -> dict:
         """
         Determines presentation status and matches slides using PresentationViewportProvider.
         Works in background covered states.
@@ -34,10 +35,13 @@ class PresentationAnalyzer:
 
             try:
                 # Read session fingerprints from preprocessed assets
-                session_id = getattr(page, "_session_id", None)
-                if session_id:
-                    assets_dir = storage_service.get_session_dir(session_id) / "presentation_assets"
+                sess_id = session_id or getattr(page, "_session_id", None)
+                if sess_id:
+                    session_dir = storage_service.get_session_dir(sess_id)
+                    assets_dir = session_dir / "presentation_assets"
                     fingerprints_file = assets_dir / "fingerprints.json"
+                    if not fingerprints_file.exists():
+                        fingerprints_file = session_dir / "fingerprints.json"
                     
                     if fingerprints_file.exists():
                         with open(fingerprints_file, "r", encoding="utf-8") as f:
@@ -60,16 +64,27 @@ class PresentationAnalyzer:
                                 best_dist = dist
                                 best_match = slide_name
                         
-                        if best_match:
+                        if best_match and best_dist <= 30:
                             import re
                             num_match = re.search(r'\d+', best_match)
                             if num_match:
                                 current_slide = int(num_match.group())
                                 confidence = (64.0 - best_dist) / 64.0
-                                # Robust slide index signature mapping
                                 signature = f"slide_{current_slide}"
                                 details["matched_slide_file"] = best_match
                                 details["hamming_distance"] = best_dist
+                                details["current_slide"] = current_slide
+                                mode = PresentationMode.POWERPOINT_SHARED
+                        elif best_match:
+                            import re
+                            num_match = re.search(r'\d+', best_match)
+                            if num_match:
+                                current_slide = int(num_match.group())
+                                confidence = max(0.1, (64.0 - best_dist) / 64.0)
+                                signature = f"slide_{current_slide}"
+                                details["matched_slide_file"] = best_match
+                                details["hamming_distance"] = best_dist
+                                details["current_slide"] = current_slide
             except Exception as e:
                 logger.error(f"PresentationAnalyzer | Failed slide matching: {e}")
         else:

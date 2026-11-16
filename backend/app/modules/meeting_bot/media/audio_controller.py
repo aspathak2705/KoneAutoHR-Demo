@@ -4,6 +4,7 @@ import time
 import json
 import asyncio
 from pathlib import Path
+from typing import Union, Optional
 from loguru import logger
 
 class MockAudioProcess:
@@ -371,6 +372,83 @@ class AudioController:
         self._playing = True
         self._pause_offset_ms = 0.0
 
+    def play_audio(self, audio_file: Union[str, Path]) -> bool:
+        """
+        Plays audio file for this session. Resolves relative filename across session directories
+        and supports timeline-sliced narration playback.
+        """
+        from app.services.storage_service import storage_service
+        session_dir = storage_service.get_session_dir(self.session_id)
+        audio_dir = storage_service.get_generated_audio_dir(self.session_id)
+        
+        target_path: Optional[Path] = None
+        if isinstance(audio_file, Path) and audio_file.exists():
+            target_path = audio_file
+        else:
+            filename = str(audio_file).replace("\\", "/").split("/")[-1]
+            candidates = [
+                audio_dir / filename,
+                session_dir / filename,
+                session_dir / "audio" / filename,
+                session_dir / "presentation_assets" / filename,
+            ]
+            for c in candidates:
+                if c.exists():
+                    target_path = c
+                    break
+            
+            # If specific slide audio (e.g. slide_2_narration.mp3) not found as standalone file,
+            # check if narration.wav and presentation_timeline.json exist to slice and play
+            if not target_path and (filename.startswith("slide_") or "greeting" in filename or "closing" in filename):
+                narration_wav = audio_dir / "narration.wav"
+                if not narration_wav.exists():
+                    narration_wav = session_dir / "narration.wav"
+                timeline_json = session_dir / "presentation_timeline.json"
+                
+                if narration_wav.exists() and timeline_json.exists():
+                    try:
+                        import re
+                        import soundfile as sf
+                        match = re.search(r'\d+', filename)
+                        slide_num = int(match.group()) if match else (1 if "greeting" in filename else None)
+                        
+                        with open(timeline_json, "r", encoding="utf-8") as f:
+                            tdata = json.load(f)
+                        events = tdata.get("events", [])
+                        total_dur = tdata.get("duration_ms", 0)
+                        
+                        start_ms = 0
+                        end_ms = total_dur
+                        if slide_num is not None:
+                            for idx, ev in enumerate(events):
+                                if ev.get("slide") == slide_num:
+                                    start_ms = ev.get("time_ms", 0)
+                                    if idx + 1 < len(events):
+                                        end_ms = events[idx + 1].get("time_ms", total_dur)
+                                    else:
+                                        end_ms = total_dur
+                                    break
+                        
+                        data, fs = sf.read(str(narration_wav), dtype="float32")
+                        start_idx = int((start_ms / 1000.0) * fs)
+                        end_idx = int((end_ms / 1000.0) * fs)
+                        sliced_data = data[start_idx:end_idx]
+                        
+                        slice_file = audio_dir / f"{filename}.wav"
+                        sf.write(str(slice_file), sliced_data, fs)
+                        target_path = slice_file
+                    except Exception as slice_err:
+                        logger.warning(f"AudioController | Failed to slice narration.wav for {filename}: {slice_err}")
+                        if narration_wav.exists():
+                            target_path = narration_wav
+
+        if target_path and target_path.exists():
+            self.play_narration(target_path)
+            return True
+        else:
+            logger.warning(f"AudioController | Could not locate audio file for {audio_file}")
+            return False
+
     @property
     def playing(self) -> bool:
         """
@@ -477,17 +555,26 @@ class AudioController:
     def audio_ready(self) -> bool:
         from app.services.storage_service import storage_service
         session_dir = storage_service.get_session_dir(self.session_id)
+        audio_dir = storage_service.get_generated_audio_dir(self.session_id)
+        
+        # Check narration.wav in audio_dir or session_dir
+        if (audio_dir / "narration.wav").exists() or (session_dir / "narration.wav").exists():
+            return True
+        # Check any wav or mp3 in audio_dir or session_dir
+        if list(audio_dir.glob("*.wav")) or list(audio_dir.glob("*.mp3")):
+            return True
+        if list(session_dir.glob("*.wav")) or list(session_dir.glob("*.mp3")):
+            return True
         manifest_path = session_dir / "manifest.json"
-        if not manifest_path.exists():
-            return False
-        try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                manifest = json.load(f)
-            audio_file = manifest.get("audio", "narration.wav")
-            audio_dir = storage_service.get_generated_audio_dir(self.session_id)
-            return (session_dir / audio_file).exists() or (session_dir / "audio" / audio_file).exists() or (audio_dir / audio_file).exists()
-        except Exception:
-            return False
+        if manifest_path.exists():
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+                audio_file = manifest.get("audio", "narration.wav")
+                return (session_dir / audio_file).exists() or (audio_dir / audio_file).exists()
+            except Exception:
+                pass
+        return False
 
 
 _audio_controllers = {}

@@ -1,4 +1,5 @@
 from playwright.async_api import Page
+from typing import Optional
 from app.modules.semantic_browser.browser.semantic_snapshot import SemanticSnapshot
 from app.modules.semantic_browser.browser.semantic_snapshot_builder import SemanticSnapshotBuilder
 from app.modules.semantic_browser.analyzers.dom_analyzer import dom_analyzer
@@ -10,7 +11,7 @@ from app.modules.semantic_browser.models.semantic_state import DOMSummary, Acces
 from app.modules.semantic_browser.models.presentation_state import PresentationMode
 
 class SemanticBrowser:
-    async def generate_snapshot(self, page: Page) -> SemanticSnapshot:
+    async def generate_snapshot(self, page: Page, session_id: Optional[str] = None) -> SemanticSnapshot:
         """
         Orchestrates page analyzers and passes results to the SemanticSnapshotBuilder.
         """
@@ -34,7 +35,7 @@ class SemanticBrowser:
         current_slide = 0
         confidence = 0.0
         if semantic_browser_config.enable_presentation:
-            p_res = await presentation_analyzer.analyze(page, dom)
+            p_res = await presentation_analyzer.analyze(page, dom, session_id=session_id)
             p_mode = p_res["mode"]
             p_sig = p_res.get("signature")
             p_details = p_res["details"]

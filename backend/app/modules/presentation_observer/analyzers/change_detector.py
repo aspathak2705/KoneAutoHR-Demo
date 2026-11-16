@@ -46,10 +46,16 @@ class ChangeDetector:
             flags["presentation_started"] = True
             context.presentation_start_time = time.time()
             context.last_event_timestamp = time.time()
-        elif prev_active and not curr_active:
-            events.append(ObservationEvent.PRESENTATION_ENDED)
-            flags["presentation_ended"] = True
-            context.last_event_timestamp = time.time()
+            context.consecutive_inactive_cycles = 0
+        elif curr_active:
+            context.consecutive_inactive_cycles = 0
+        else:
+            if prev_active or getattr(context, "consecutive_inactive_cycles", 0) > 0:
+                context.consecutive_inactive_cycles = getattr(context, "consecutive_inactive_cycles", 0) + 1
+                if context.consecutive_inactive_cycles == 4:
+                    events.append(ObservationEvent.PRESENTATION_ENDED)
+                    flags["presentation_ended"] = True
+                    context.last_event_timestamp = time.time()
 
         # 2. Detect Screen Share transitions
         prev_sharing = prev.presentation_state == PresentationMode.SCREEN_SHARING
@@ -88,18 +94,23 @@ class ChangeDetector:
             events.append(ObservationEvent.RECORDING_STOPPED)
             context.last_event_timestamp = time.time()
 
-        # 6. Detect Slide Change via presentation_content_signature checks (no DOM heuristics)
-        if curr.presentation_state == PresentationMode.POWERPOINT_SHARED:
+        # 6. Detect Slide Change via slide index or signature shifts
+        if curr_active:
             prev_sig = prev.presentation_content_signature if prev else None
             curr_sig = curr.presentation_content_signature
+            prev_slide = getattr(prev, "current_slide", 0) if prev else 0
+            curr_slide = getattr(curr, "current_slide", 0)
             
-            # Slide change resolves if transitioning within PowerPoint and the signature shifts
-            if prev and prev.presentation_state == PresentationMode.POWERPOINT_SHARED:
-                if prev_sig is not None and curr_sig != prev_sig:
-                    events.append(ObservationEvent.SLIDE_CHANGED)
-                    flags["slide_changed"] = True
-                    context.last_event_timestamp = time.time()
-                    logger.info(f"ChangeDetector | SLIDE_CHANGED | Previous Signature: {prev_sig} | Current Signature: {curr_sig}")
+            if curr_slide > 0 and curr_slide != prev_slide:
+                events.append(ObservationEvent.SLIDE_CHANGED)
+                flags["slide_changed"] = True
+                context.last_event_timestamp = time.time()
+                logger.info(f"ChangeDetector | SLIDE_CHANGED | Previous Slide: {prev_slide} | Current Slide: {curr_slide}")
+            elif prev_sig is not None and curr_sig != prev_sig and curr_sig is not None:
+                events.append(ObservationEvent.SLIDE_CHANGED)
+                flags["slide_changed"] = True
+                context.last_event_timestamp = time.time()
+                logger.info(f"ChangeDetector | SLIDE_CHANGED | Previous Signature: {prev_sig} | Current Signature: {curr_sig}")
 
         return events, flags
 

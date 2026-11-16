@@ -59,7 +59,7 @@ class PresentationViewportProvider:
                         box = await v.bounding_box()
                         if box:
                             area = box["width"] * box["height"]
-                            if area > largest_area and box["width"] > 400 and box["height"] > 300:
+                            if area > largest_area and box["width"] > 200 and box["height"] > 150:
                                 largest_area = area
                                 largest_video = v
                 except Exception:

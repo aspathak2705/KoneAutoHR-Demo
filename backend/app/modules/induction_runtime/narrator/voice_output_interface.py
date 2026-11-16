@@ -92,10 +92,10 @@ class DefaultVoiceOutput(VoiceOutputInterface):
                 from app.modules.meeting_bot.media.audio_controller import get_audio_controller
                 audio_ctrl = get_audio_controller(self.session_id)
                 try:
-                    audio_ctrl.play_audio(audio_file)
-                    if audio_ctrl.process:
+                    played_ok = audio_ctrl.play_audio(audio_file)
+                    if played_ok and audio_ctrl.playing:
                         played_real = True
-                        while audio_ctrl.process.poll() is None:
+                        while audio_ctrl.playing:
                             await asyncio.sleep(0.2)
                         logger.info(f"VoiceOutput | Finished playing real audio track: {audio_file}")
                 except Exception as e:

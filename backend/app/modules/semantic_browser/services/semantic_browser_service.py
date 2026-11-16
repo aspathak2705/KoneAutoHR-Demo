@@ -26,7 +26,8 @@ class SemanticBrowserService:
         if not page:
             raise ValueError(f"SemanticBrowserService | Active browser page session not found for Session: {session_id}")
             
-        snap = await semantic_browser.generate_snapshot(page)
+        page._session_id = session_id
+        snap = await semantic_browser.generate_snapshot(page, session_id=session_id)
         
         # Maintain in-memory history list per session
         history = self._get_history_list(session_id)

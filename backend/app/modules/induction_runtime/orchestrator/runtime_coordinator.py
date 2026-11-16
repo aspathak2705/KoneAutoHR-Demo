@@ -234,6 +234,7 @@ class RuntimeCoordinator:
                     bot.context.browser = self._browser_manager.session.browser
                     bot.context.browser_context = self._browser_manager.session.context
                     bot.context.page = self._browser_manager.session.page
+                    bot.context.page._session_id = self.session_id
                     bot.context.playwright = self._browser_manager.playwright_instance
 
             logger.info(f"Bot page after injection: {bot.context.page}")
@@ -505,28 +506,35 @@ class RuntimeCoordinator:
         presentation_active = observation.presentation_state in ["POWERPOINT_SHARED", "SCREEN_SHARING"]
         if ObservationEvent.PRESENTATION_STARTED in observation.events or (self.session_manager.state == RuntimeState.CONNECTED and presentation_active):
             if self.session_manager.state == RuntimeState.CONNECTED:
-                # Automatic presentation playback and greeting is managed via explicit Start Induction POST /start-induction.
-                # Do not trigger greeting flow from background observer polling.
-                pass
+                logger.info("RuntimeCoordinator | Presentation detected in CONNECTED state. Auto-starting induction greeting flow.")
+                if await self.session_manager.transition_to(RuntimeState.PRESENTING):
+                    self.induction_started = True
+                    asyncio.create_task(self._run_greeting_flow())
+                    return
 
         # Handle slide changes during PRESENTING
-        if ObservationEvent.SLIDE_CHANGED in observation.events:
+        if ObservationEvent.SLIDE_CHANGED in observation.events or (self.session_manager.state == RuntimeState.PRESENTING and observation.current_slide > 0 and observation.current_slide != self.memory.current_slide_number):
             if self.session_manager.state == RuntimeState.PRESENTING:
-                slide_num = observation.timeline_index
-                if slide_num != self.memory.current_slide_number:
+                slide_num = observation.current_slide if observation.current_slide > 0 else observation.timeline_index
+                if slide_num > 0 and slide_num != self.memory.current_slide_number:
                     logger.info(f"RuntimeCoordinator | Slide changed to {slide_num}")
                     self.memory.record_slide_reached(slide_num, f"Slide {slide_num}")
                     
-                    # Presentation audio and progression is authoritatively managed by PresentationRuntimeController.
-                    # Do not trigger redundant voice narration from background observer polling.
-                    logger.info("RuntimeCoordinator | Slide changed detected by observer: %s", slide_num)
+                    if self.config.voice_enabled:
+                        self.voice_output.interrupt()
+                    
+                    asyncio.create_task(self._speak_slide_narration(slide_num))
 
-        # Transition: PRESENTING → FINISHED (presentation ended)
+        # Transition: PRESENTING → CONNECTED (presentation paused/ended)
         if ObservationEvent.PRESENTATION_ENDED in observation.events:
             if self.session_manager.state == RuntimeState.PRESENTING:
-                logger.info(f"RuntimeCoordinator | Presentation ended, starting cleanup")
-                asyncio.create_task(self._run_closing_flow())
-                asyncio.create_task(self.finish_presentation())
+                logger.info("RuntimeCoordinator | Presentation share ended or paused. Pausing narration and remaining in meeting.")
+                if self.config.voice_enabled:
+                    self.voice_output.interrupt()
+                total_slides = len(self.flow_controller.slides_script)
+                if total_slides > 0 and self.memory.current_slide_number >= total_slides:
+                    asyncio.create_task(self._run_closing_flow())
+                await self.session_manager.transition_to(RuntimeState.CONNECTED)
 
     async def inject_question(self, speaker: str, question_text: str) -> str:
         """

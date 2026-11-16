@@ -76,41 +76,16 @@ async def start_induction(session_id: str, db: DBSession = Depends(get_db)):
 
         # Check current state to determine action
         if coordinator.session_manager.state == RuntimeState.CONNECTED:
-            from app.services.meeting_status_service import meeting_status_service
-            status = await meeting_status_service.evaluate_status(db, session_id)
-            if not status.get("bot_ready", False):
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Cannot start presentation. Reason: {status.get('reason')}"
-                )
-            
-            # Transition to PRESENTING state to prevent double execution
             await coordinator.session_manager.transition_to(RuntimeState.PRESENTING)
-            
-            from app.modules.presentation.presentation_runtime_controller import PresentationRuntimeController
-            runtime_context = runtime_service.get_runtime_context(db, session_id)
-            ppt_path = runtime_context.get("presentation", {}).get("storage_path")
-            bot = meeting_bot_service.get_bot(session_id)
-            controller = PresentationRuntimeController(session_id, ppt_path, bot.context.page)
-            try:
-                await controller.run()
-            except Exception as e:
-                logger.error(f"API | Error during presentation runtime: {e}")
-                try:
-                    await teams_controller.stop_sharing(bot.context.page)
-                except Exception:
-                    pass
-                raise e
-            finally:
-                try:
-                    await controller._close_powerpoint()
-                except Exception:
-                    pass
-            await meeting_bot_service.leave_meeting(session_id)
-            await coordinator.finish_presentation()
-            report_service.generate_and_save_packages(db, session_id)
-            logger.info(f"API | Presentation completed for session {session_id}")
-            return {"status": "success", "message": "Presentation completed"}
+            coordinator.induction_started = True
+            asyncio.create_task(coordinator._run_greeting_flow())
+            logger.info(f"API | Induction presentation flow triggered for session {session_id}")
+            return {
+                "status": "success",
+                "message": "Induction presentation started. Bot is presenting and synchronizing with presentation.",
+                "state": "PRESENTING",
+                "session_id": session_id
+            }
         else:
             if not await coordinator.start_induction():
                 raise HTTPException(

@@ -40,6 +40,7 @@ import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -1551,6 +1552,12 @@ function SessionDetailPage() {
                       </div>
                     </div>
                   </div>
+                  <Button
+                    onClick={handleStartInduction}
+                    className="w-full bg-primary hover:bg-primary/95 text-primary-foreground font-semibold gap-2 text-xs h-9 mt-2"
+                  >
+                    <PlayCircle className="h-4 w-4" /> Start Meeting Bot
+                  </Button>
                 </div>
               )}
 
@@ -1619,6 +1626,13 @@ function SessionDetailPage() {
                       Slide {runtimeStatus.current_slide} of {slidesConfig?.total_slides || 0}
                     </span>
                   </div>
+
+                  <Button
+                    onClick={handleStartInduction}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-2 text-xs h-9 shadow-sm"
+                  >
+                    <PlayCircle className="h-4 w-4" /> Start Induction Narration
+                  </Button>
 
                   {/* Narration box */}
                   <div className="p-3.5 bg-background border border-border/80 rounded-xl space-y-2">

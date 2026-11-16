@@ -14,3 +14,4 @@ class ObservationContext:
         self.last_event_timestamp: float = time.time()
         self.current_timeline_index: int = 0
         self.timeline = []
+        self.consecutive_inactive_cycles: int = 0
