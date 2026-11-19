@@ -41,7 +41,12 @@ class DefaultVoiceOutput(VoiceOutputInterface):
         """
         Plays actual audio file if available; otherwise runs simulated voice delay.
         """
-        self.stop()
+        if self._active_task and not self._active_task.done():
+            self._active_task.cancel()
+        from app.modules.meeting_bot.media.audio_controller import get_audio_controller
+        audio_ctrl = get_audio_controller(self.session_id)
+        audio_ctrl.stop_audio()
+
         self.is_speaking = True
         self._active_task = asyncio.create_task(
             self._run_speaking(text, callback, audio_file)
@@ -57,9 +62,9 @@ class DefaultVoiceOutput(VoiceOutputInterface):
             logger.info(f"VoiceOutput | Session: {self.session_id} | Voice playback interrupted.")
         self.is_speaking = False
         
-        # Stop actual audio playback if active
-        from app.modules.meeting_bot.media.audio_controller import cleanup_audio_controller
-        cleanup_audio_controller(self.session_id)
+        # Stop actual audio playback if active (do not destroy controller/process)
+        from app.modules.meeting_bot.media.audio_controller import get_audio_controller
+        get_audio_controller(self.session_id).stop_audio()
 
     def stop(self) -> None:
         """
@@ -71,9 +76,9 @@ class DefaultVoiceOutput(VoiceOutputInterface):
         self._paused_callback = None
         self.is_speaking = False
         
-        # Stop actual audio playback if active
-        from app.modules.meeting_bot.media.audio_controller import cleanup_audio_controller
-        cleanup_audio_controller(self.session_id)
+        # Stop actual audio playback if active (do not destroy controller/process)
+        from app.modules.meeting_bot.media.audio_controller import get_audio_controller
+        get_audio_controller(self.session_id).stop_audio()
 
     def resume(self) -> None:
         """
@@ -115,8 +120,8 @@ class DefaultVoiceOutput(VoiceOutputInterface):
                     callback()
         except asyncio.CancelledError:
             logger.info(f"VoiceOutput | Session: {self.session_id} | Speaking task was cancelled.")
-            from app.modules.meeting_bot.media.audio_controller import cleanup_audio_controller
-            cleanup_audio_controller(self.session_id)
+            from app.modules.meeting_bot.media.audio_controller import get_audio_controller
+            get_audio_controller(self.session_id).stop_audio()
             self.is_speaking = False
         except Exception as e:
             logger.error(f"VoiceOutput | Session: {self.session_id} | Speaking error: {e}")

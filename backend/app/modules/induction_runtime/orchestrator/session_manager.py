@@ -60,9 +60,9 @@ class RuntimeSessionManager:
         """
         current = self.state
         
-        # Identity transition is always allowed
+        # Identity transition is ignored (already in target state)
         if current == target_state:
-            return True
+            return False
         
         # Locked forward progression path
         valid_transitions = {
@@ -81,6 +81,9 @@ class RuntimeSessionManager:
             RuntimeState.FAILED: [RuntimeState.STOPPING],  # Recovery path
         }
         
+        if current in [RuntimeState.STOPPED, RuntimeState.FAILED] and target_state != RuntimeState.STOPPING:
+            return False
+
         if current not in valid_transitions:
             return False
             
@@ -123,13 +126,25 @@ class RuntimeSessionManager:
         """
         try:
             from app.models.runtime import Runtime
+            from app.models.session import Session
+            import datetime
+
             runtime = self.db.query(Runtime).filter(Runtime.id == self.runtime_id).first()
             if runtime:
                 runtime.state = new_state.value
                 if error_msg:
                     runtime.last_error = error_msg
-                self.db.commit()
-                logger.debug(f"RuntimeSessionManager | Persisted state transition to DB: {new_state.value}")
+                if new_state == RuntimeState.STOPPED:
+                    runtime.completed_at = datetime.datetime.utcnow()
+
+            # When reaching terminal stopped state, mark session COMPLETED
+            if new_state == RuntimeState.STOPPED and runtime and runtime.session_id:
+                sess_record = self.db.query(Session).filter(Session.id == runtime.session_id).first()
+                if sess_record:
+                    sess_record.status = "COMPLETED"
+
+            self.db.commit()
+            logger.debug(f"RuntimeSessionManager | Persisted state transition to DB: {new_state.value}")
         except Exception as e:
             logger.error(f"RuntimeSessionManager | Failed to persist state to DB: {e}")
 

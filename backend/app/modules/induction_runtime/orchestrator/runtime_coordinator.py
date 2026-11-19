@@ -21,6 +21,7 @@ from app.modules.induction_runtime.agents.qa_agent import qa_agent
 from app.modules.presentation_observer.models.observation import Observation
 from app.modules.presentation_observer.models.observation_state import ObservationState
 from app.modules.presentation_observer.models.observation_event import ObservationEvent
+from app.modules.meeting_bot.models.bot_state import BotState
 
 class RuntimeCoordinator:
     """
@@ -71,6 +72,12 @@ class RuntimeCoordinator:
         self.narration_state = "idle"
         self.presentation_detected: bool = False
         self.induction_started: bool = False
+        
+        # One-time narration tracking to prevent loops and duplicate triggers
+        self._greeting_dispatched: bool = False
+        self._narrated_slides: set = set()
+        self._closing_dispatched: bool = False
+        self._finishing_lock = asyncio.Lock()
         
         # Lifecycle tracking
         self._browser_manager = None
@@ -454,25 +461,40 @@ class RuntimeCoordinator:
     async def _cleanup_resources(self) -> None:
         """
         Cleanup in reverse order of creation:
-        1. Teams controller cleanup
-        2. Browser cleanup (via BrowserManager)
-        3. Clear references
+        1. Stop Teams screen sharing
+        2. Leave Teams meeting via MeetingBot
+        3. Close browser session
+        4. Terminate PowerPoint process
+        5. Cleanup Audio controller
+        6. Invalidate observer
         """
         logger.info(f"RuntimeCoordinator | START _cleanup_resources")
         
         try:
-            # Cleanup Teams controller
-            if self._teams_controller:
+            # 1. Stop Teams screen sharing if active
+            from app.modules.meeting_bot.services.meeting_bot_service import meeting_bot_service
+            bot = meeting_bot_service.get_bot(self.session_id)
+            if bot and bot.context.page and not bot.context.page.is_closed():
                 try:
-                    logger.info(f"RuntimeCoordinator | Cleaning up Teams controller")
-                    if self._browser_manager and self._browser_manager.page:
-                        logger.info("RuntimeCoordinator | Hanging up call dynamically...")
-                        await self._teams_controller.leave_meeting(self._browser_manager.page)
-                    self._teams_controller = None
-                except Exception as e:
-                    logger.error(f"RuntimeCoordinator | Failed to cleanup Teams controller: {e}")
+                    from app.modules.meeting_bot.teams.teams_controller import teams_controller
+                    logger.info("RuntimeCoordinator | Stopping Teams screen share...")
+                    await teams_controller.stop_sharing(bot.context.page)
+                except Exception as share_stop_err:
+                    logger.warning(f"RuntimeCoordinator | Stop sharing notice: {share_stop_err}")
+
+            # 2. Leave Teams meeting and disconnect call
+            if bot and getattr(bot.context, "state", None) == BotState.CONNECTED:
+                try:
+                    logger.info("RuntimeCoordinator | Leaving Teams meeting dynamically...")
+                    await bot.leave()
+                except Exception as leave_err:
+                    logger.warning(f"RuntimeCoordinator | Bot leave notice: {leave_err}")
+
+            # Cleanup Teams controller reference
+            if self._teams_controller:
+                self._teams_controller = None
             
-            # Cleanup browser
+            # 3. Cleanup browser
             if self._browser_manager:
                 try:
                     logger.info(f"RuntimeCoordinator | Cleaning up browser")
@@ -481,7 +503,7 @@ class RuntimeCoordinator:
                 except Exception as e:
                     logger.error(f"RuntimeCoordinator | Failed to cleanup browser: {e}")
 
-            # Force terminate PowerPoint slideshow instance
+            # 4. Force terminate PowerPoint slideshow instance
             try:
                 import subprocess
                 subprocess.run(["taskkill", "/f", "/im", "powerpnt.exe"], capture_output=True)
@@ -489,7 +511,7 @@ class RuntimeCoordinator:
             except Exception:
                 pass
 
-            # Terminate persistent PowerShell audio preloader process
+            # 5. Terminate persistent PowerShell audio preloader process
             try:
                 from app.modules.meeting_bot.media.audio_controller import cleanup_audio_controller
                 cleanup_audio_controller(self.session_id)
@@ -497,7 +519,7 @@ class RuntimeCoordinator:
             except Exception as e:
                 logger.warning(f"RuntimeCoordinator | Audio preloader cleanup failed: {e}")
 
-            # Invalidate live presentation detection flag and observer context
+            # 6. Invalidate live presentation detection flag and observer context
             self.presentation_detected = False
             try:
                 from app.modules.presentation_observer.services.presentation_observer_service import presentation_observer_service
@@ -514,6 +536,10 @@ class RuntimeCoordinator:
         Main execution loop step. Driven by updates from the Presentation Observer.
         Uses new locked state machine.
         """
+        # If already in terminal or finishing state, ignore observation cycles completely
+        if self.session_manager.state in [RuntimeState.FINISHED, RuntimeState.STOPPING, RuntimeState.STOPPED, RuntimeState.FAILED]:
+            return
+
         logger.debug(f"RuntimeCoordinator | Polling cycle | Observation State: {observation.observation_state} | Active State: {self.session_manager.state.value}")
 
         # Update presentation detection status
@@ -525,9 +551,11 @@ class RuntimeCoordinator:
         self.presentation_detected = presentation_active
 
         # Transition: CONNECTED → PRESENTING only when induction has been started/authorized by HR
-        if self.induction_started and self.session_manager.state == RuntimeState.CONNECTED and presentation_active:
+        # Enforce strict one-time greeting dispatch
+        if self.induction_started and self.session_manager.state == RuntimeState.CONNECTED and presentation_active and not self._greeting_dispatched:
             logger.info("RuntimeCoordinator | Presentation detected and induction authorized by HR. Launching greeting flow.")
             if await self.session_manager.transition_to(RuntimeState.PRESENTING):
+                self._greeting_dispatched = True
                 asyncio.create_task(self._run_greeting_flow())
                 return
 
@@ -535,7 +563,7 @@ class RuntimeCoordinator:
         if ObservationEvent.SLIDE_CHANGED in observation.events or (self.session_manager.state == RuntimeState.PRESENTING and observation.current_slide > 0 and observation.current_slide != self.memory.current_slide_number):
             if self.session_manager.state == RuntimeState.PRESENTING:
                 slide_num = observation.current_slide if observation.current_slide > 0 else observation.timeline_index
-                if slide_num > 0 and slide_num != self.memory.current_slide_number:
+                if slide_num > 0 and slide_num not in self._narrated_slides:
                     logger.info(f"RuntimeCoordinator | Slide changed to {slide_num}")
                     self.memory.record_slide_reached(slide_num, f"Slide {slide_num}")
                     
@@ -550,10 +578,11 @@ class RuntimeCoordinator:
                 logger.info("RuntimeCoordinator | Presentation share ended or paused. Pausing narration and remaining in meeting.")
                 if self.config.voice_enabled:
                     self.voice_output.interrupt()
-                total_slides = len(self.flow_controller.slides_script)
-                if total_slides > 0 and self.memory.current_slide_number >= total_slides:
+                total_slides = max(len(self.flow_controller.slides_script), len(self.script_slides), 1)
+                if len(self._narrated_slides) >= total_slides:
                     asyncio.create_task(self._run_closing_flow())
-                await self.session_manager.transition_to(RuntimeState.CONNECTED)
+                else:
+                    await self.session_manager.transition_to(RuntimeState.CONNECTED)
 
     async def inject_question(self, speaker: str, question_text: str) -> str:
         """
@@ -620,7 +649,14 @@ class RuntimeCoordinator:
         """
         Executes Greeting Agent welcome script narration.
         Transitions from PRESENTING prep to full PRESENTING state.
+        Ensures strict one-time execution per session.
         """
+        if self._greeting_dispatched and getattr(self, "_greeting_running", False):
+            logger.info("RuntimeCoordinator | Greeting flow already executing or dispatched. Skipping duplicate.")
+            return
+
+        self._greeting_running = True
+        self._greeting_dispatched = True
         logger.info(f"RuntimeCoordinator | START _run_greeting_flow")
         try:
             primary_emp = self.employee_context.get_primary_inductee() or {}
@@ -633,7 +669,6 @@ class RuntimeCoordinator:
             def on_welcome_complete():
                 logger.info("RuntimeCoordinator | Welcome greeting completed. Ready for slides.")
                 self.narration_state = "finished_greeting"
-                self.session_manager.state = RuntimeState.PRESENTING
                 self.memory.record_slide_reached(1, "Slide 1")
                 asyncio.create_task(self._speak_slide_narration(1))
 
@@ -646,16 +681,29 @@ class RuntimeCoordinator:
             logger.info(f"RuntimeCoordinator | SUCCESS _run_greeting_flow")
         except Exception as e:
             logger.error(f"RuntimeCoordinator | FAILED _run_greeting_flow: {e}")
+        finally:
+            self._greeting_running = False
 
     async def _speak_slide_narration(self, slide_num: int) -> None:
         """
         Formats slide narration using PresentationAgent and speaks via Flow Controller.
+        Idempotent: Each slide narrated at most once.
+        Automatically triggers closing and finish when all slides have finished narration.
         """
+        if slide_num in self._narrated_slides:
+            logger.info(f"RuntimeCoordinator | Slide {slide_num} already narrated or running. Skipping duplicate.")
+            return
+
+        self._narrated_slides.add(slide_num)
         logger.info(f"RuntimeCoordinator | START _speak_slide_narration for slide {slide_num}")
         try:
             slide = self.flow_controller.get_slide_by_number(slide_num)
             if not slide:
                 logger.warning(f"RuntimeCoordinator | Slide {slide_num} not found")
+                # If slide not found, check if deck is finished
+                total_slides = max(len(self.flow_controller.slides_script), len(self.script_slides), 1)
+                if len(self._narrated_slides) >= total_slides:
+                    asyncio.create_task(self._run_closing_flow())
                 return
                 
             raw_narration = slide.get("narration", "")
@@ -671,6 +719,12 @@ class RuntimeCoordinator:
             def on_complete():
                 logger.info(f"Finished slide {slide_num} narration.")
                 self.narration_state = f"finished_slide_{slide_num}"
+                
+                # Check if all slides in presentation script have finished narration
+                total_slides = max(len(self.flow_controller.slides_script), len(self.script_slides), 1)
+                if len(self._narrated_slides) >= total_slides:
+                    logger.info(f"RuntimeCoordinator | Final slide ({slide_num}/{total_slides}) completed narration. Proceeding to closing flow.")
+                    asyncio.create_task(self._run_closing_flow())
 
             self.narration_state = f"speaking_slide_{slide_num}"
             if self.config.voice_enabled:
@@ -686,18 +740,26 @@ class RuntimeCoordinator:
     async def _run_closing_flow(self) -> None:
         """
         Executes Closing Agent farewell.
+        Upon farewell audio completion, triggers graceful finish, Teams stop-share, and leave.
+        Idempotent: Triggers closing flow and termination exactly once.
         """
+        if self._closing_dispatched:
+            logger.info("RuntimeCoordinator | Closing flow already dispatched. Skipping duplicate.")
+            return
+
+        self._closing_dispatched = True
         logger.info(f"RuntimeCoordinator | START _run_closing_flow")
         try:
             farewell = (
                 f"{self.script_closing.get('summary', '')} "
                 f"{self.script_closing.get('next_steps', '')} "
                 f"{self.script_closing.get('farewell', '')}"
-            )
+            ).strip() or "Thank you for attending the KONE onboarding session. Welcome to the team!"
             
             def on_farewell_complete():
-                logger.info("RuntimeCoordinator | Farewell narration completed.")
+                logger.info("RuntimeCoordinator | Farewell narration completed. Triggering automatic session finalization and departure.")
                 self.narration_state = "finished_closing"
+                asyncio.create_task(self._finalize_and_leave())
 
             self.narration_state = "speaking_closing"
             if self.config.voice_enabled:
@@ -708,3 +770,18 @@ class RuntimeCoordinator:
             logger.info(f"RuntimeCoordinator | SUCCESS _run_closing_flow")
         except Exception as e:
             logger.error(f"RuntimeCoordinator | FAILED _run_closing_flow: {e}")
+            # If closing flow fails to speak, still finalize session cleanly
+            asyncio.create_task(self._finalize_and_leave())
+
+    async def _finalize_and_leave(self) -> None:
+        """
+        Concurrency-protected automatic termination and Teams meeting departure.
+        Transitions state: PRESENTING → FINISHED → STOPPING → STOPPED
+        Releases presentation, browser, audio, and leaves Teams call.
+        """
+        async with self._finishing_lock:
+            if self.session_manager.state in [RuntimeState.FINISHED, RuntimeState.STOPPING, RuntimeState.STOPPED]:
+                logger.info("RuntimeCoordinator | Finalize and leave already completed or in progress.")
+                return
+            logger.info(f"RuntimeCoordinator | Automatic meeting departure triggered for session: {self.session_id}")
+            await self.finish_presentation()

@@ -449,25 +449,33 @@ class AudioController:
             logger.warning(f"AudioController | Could not locate audio file for {audio_file}")
             return False
 
-    async def play_and_wait(self, audio_file: Union[str, Path], timeout: float = 60.0) -> bool:
+    async def play_and_wait(self, audio_file: Union[str, Path], timeout: Optional[float] = None) -> bool:
         """
         Starts playback of audio_file and waits asynchronously until playback completely finishes.
+        Computes dynamic timeout from track duration with generous safety margin so long audio is never truncated.
         """
         import asyncio
         ok = self.play_audio(audio_file)
         if not ok:
             return False
         
+        # Calculate dynamic timeout if not explicitly specified
+        if timeout is None:
+            track_dur_sec = (self._total_duration_ms / 1000.0) if self._total_duration_ms > 0 else 60.0
+            timeout = max(60.0, track_dur_sec + 30.0)
+
         start_wait = time.time()
         # Small initial yield to let sounddevice stream / timer initialize
         await asyncio.sleep(0.1)
+        timed_out = False
         while self.playing:
             if time.time() - start_wait > timeout:
                 logger.warning(f"AudioController | Playback timed out after {timeout}s for {audio_file}")
                 self.stop_audio()
+                timed_out = True
                 break
             await asyncio.sleep(0.1)
-        return True
+        return not timed_out
 
     @property
     def playing(self) -> bool:
