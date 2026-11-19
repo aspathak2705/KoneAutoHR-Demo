@@ -243,7 +243,14 @@ async def start_induction(
             if auto_share_success:
                 try:
                     from app.modules.presentation_observer.services.presentation_observer_service import presentation_observer_service
-                    obs = await presentation_observer_service.run_observation_cycle(session_id)
+                    # Allow Teams DOM and stream pipeline up to 3 seconds to reflect active sharing
+                    obs = None
+                    for _ in range(6):
+                        obs = await presentation_observer_service.run_observation_cycle(session_id)
+                        if obs and obs.presentation_state in ["POWERPOINT_SHARED", "SCREEN_SHARING"]:
+                            break
+                        await asyncio.sleep(0.5)
+
                     if obs and obs.presentation_state in ["POWERPOINT_SHARED", "SCREEN_SHARING"]:
                         try:
                             greeting_task = asyncio.create_task(coordinator._run_greeting_flow())

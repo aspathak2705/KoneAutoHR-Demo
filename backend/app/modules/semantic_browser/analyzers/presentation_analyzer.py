@@ -22,6 +22,36 @@ class PresentationAnalyzer:
         current_slide = 0
         confidence = 0.0
 
+        # 0. Check Direct Presenter / Active Window Share Indicators on Teams Page
+        # When bot shares window/screen, Teams toolbar shows 'Stop sharing' / 'Stop presenting'
+        is_actively_sharing = False
+        try:
+            presenter_share_selectors = [
+                "button[data-tid='stop-presenting-button']",
+                "button[data-tid='stop-sharing-button']",
+                "button[data-tid='share-stop-button']",
+                "button[aria-label*='Stop sharing' i]",
+                "button[aria-label*='Stop presenting' i]",
+                "button:has-text('Stop sharing')",
+                "button:has-text('Stop presenting')",
+                "text=You're presenting",
+                "text=You are presenting",
+                "div[aria-label*='Stop sharing' i]",
+                "[data-tid='presenting-screen']",
+                "[data-tid='stage-sharing-overlay']"
+            ]
+            for sel in presenter_share_selectors:
+                try:
+                    if await page.locator(sel).first.is_visible(timeout=150):
+                        is_actively_sharing = True
+                        details["presenter_indicator"] = sel
+                        logger.info(f"PresentationAnalyzer | Confirmed active Teams sharing via '{sel}'")
+                        break
+                except Exception:
+                    pass
+        except Exception as share_check_err:
+            logger.debug(f"PresentationAnalyzer | Presenter share check exception: {share_check_err}")
+
         # Query Playwright locator viewport screenshot
         screenshot_bytes, matched_sel = await presentation_viewport_provider.get_viewport_screenshot(page)
 
@@ -80,6 +110,8 @@ class PresentationAnalyzer:
                                 mode = PresentationMode.POWERPOINT_SHARED
                             elif matched_sel and matched_sel not in ["video"]:
                                 mode = PresentationMode.SCREEN_SHARING
+                            elif is_actively_sharing:
+                                mode = PresentationMode.SCREEN_SHARING
                             else:
                                 mode = PresentationMode.NONE
                                 details["unmatched_distance"] = best_dist
@@ -88,6 +120,11 @@ class PresentationAnalyzer:
                         mode = PresentationMode.SCREEN_SHARING
             except Exception as e:
                 logger.error(f"PresentationAnalyzer | Failed slide matching: {e}")
+        elif is_actively_sharing:
+            # Active Teams sharing confirmed by Teams presenter controls/overlay
+            mode = PresentationMode.SCREEN_SHARING
+            details["direct_share_active"] = True
+            logger.info("PresentationAnalyzer | Stage viewport absent but Teams active sharing controls confirmed.")
         else:
             # 3. Check Active Video Streams (Multiple video feeds = Video playback/grid active)
             video_count = 0
