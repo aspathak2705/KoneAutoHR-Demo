@@ -612,13 +612,6 @@ function MeetingBotDashboard() {
                           toast.warning("Cannot start induction: Bot must be connected to Microsoft Teams meeting first.");
                           return;
                         }
-                        if (meetingStatus && (!meetingStatus.audio_ready || !meetingStatus.runtime_assets_ready)) {
-                          const missing = [];
-                          if (!meetingStatus.runtime_assets_ready) missing.push("Runtime assets incomplete");
-                          if (!meetingStatus.audio_ready) missing.push("Audio narration assets missing");
-                          toast.warning(`Cannot start induction: ${missing.join("; ")}`);
-                          return;
-                        }
                         setLoading(true);
                         try {
                           toast.info("Opening PowerPoint slideshow and initializing induction presentation...");
@@ -652,9 +645,7 @@ function MeetingBotDashboard() {
                       {isPresenting
                         ? "Induction in Progress"
                         : isTeamsConnected
-                          ? (meetingStatus?.presentation_detected
-                              ? "Start Induction (Presentation Detected)"
-                              : "Start Induction (Launch Slideshow & Share)")
+                          ? "Start Induction"
                           : "Start Induction (Connect Bot to Teams First)"}
                     </Button>
                   );

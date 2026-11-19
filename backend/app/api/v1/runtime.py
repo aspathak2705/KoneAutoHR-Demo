@@ -103,25 +103,16 @@ async def start_induction(
 
         # Check current state to determine action
         if coordinator.session_manager.state == RuntimeState.CONNECTED:
-            # Independent backend readiness evaluation for hard prerequisites
+            # The only business prerequisite for enabling Start Induction is that the bot is genuinely joined to Teams
             readiness = await meeting_status_service.evaluate_status(db, session_id)
             
-            hard_blockers = []
             if not readiness.get("meeting_connected"):
-                hard_blockers.append("Waiting for bot to connect to Microsoft Teams meeting.")
-            if not readiness.get("runtime_assets_ready"):
-                hard_blockers.append("Runtime presentation assets incomplete. Please verify Step 4.")
-            if not readiness.get("audio_ready"):
-                hard_blockers.append("Audio narration assets not ready. Please verify audio generation in Step 3.")
-            
-            if hard_blockers:
-                blocked_str = "; ".join(hard_blockers)
-                logger.warning(f"API | Start induction rejected (409 Conflict): {blocked_str}")
+                logger.warning(f"API | Start induction rejected (409 Conflict): Waiting for bot to connect to Microsoft Teams meeting.")
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail={
-                        "message": f"Induction cannot start: {blocked_str}",
-                        "blocked_reasons": hard_blockers,
+                        "message": "Induction cannot start: Waiting for bot to connect to Microsoft Teams meeting.",
+                        "blocked_reasons": ["Waiting for bot to connect to Microsoft Teams meeting."],
                         "checklist": readiness.get("checklist")
                     }
                 )

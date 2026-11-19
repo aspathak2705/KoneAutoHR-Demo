@@ -214,13 +214,9 @@ class MeetingStatusService:
         # --------------------------------------------------------------------
         # 6. Authoritative Readiness Computation & Checklist Construction
         # --------------------------------------------------------------------
-        ready_to_initiate = bool(
-            meeting_connected and
-            audio_ready and
-            runtime_assets_ready
-        )
+        ready_to_initiate = bool(meeting_connected)
         overall_ready = bool(
-            ready_to_initiate and
+            meeting_connected and
             presentation_detected
         )
         bot_ready = ready_to_initiate
@@ -228,10 +224,6 @@ class MeetingStatusService:
         blocked_reasons: List[str] = []
         if not meeting_connected:
             blocked_reasons.append("Waiting for bot to connect to Microsoft Teams meeting.")
-        if not audio_ready:
-            blocked_reasons.append("Audio narration assets not ready. Please verify audio generation in Step 3.")
-        if not runtime_assets_ready:
-            blocked_reasons.append("Runtime assets incomplete. Please run Step 4 Runtime Preparation.")
         if not presentation_detected:
             blocked_reasons.append("PowerPoint presentation not yet shared in Teams (will attempt auto-open on Start).")
 
@@ -245,10 +237,10 @@ class MeetingStatusService:
                 "action": "Bot connected to call" if meeting_connected else "Connect bot to Microsoft Teams call"
             },
             "presentation": {
-                "status": "DETECTED" if presentation_detected else "WAITING",
+                "status": "DETECTED" if presentation_detected else "WAITING FOR SHARE",
                 "label": "Presentation Screen",
                 "ok": presentation_detected,
-                "action": "Presentation screen active and synchronized" if presentation_detected else "Share PowerPoint or click Start Induction to launch slideshow"
+                "action": "Presentation screen active and synchronized" if presentation_detected else "Click Start Induction to launch slideshow and share"
             },
             "audio": {
                 "status": "READY" if audio_ready else "PENDING",
@@ -263,12 +255,10 @@ class MeetingStatusService:
                 "action": "Manifest and slide assets verified" if runtime_assets_ready else "Prepare runtime package in Step 4"
             },
             "overall": {
-                "status": "READY" if overall_ready else ("CAN_INITIATE" if ready_to_initiate else "BLOCKED"),
+                "status": "READY TO START" if meeting_connected else "BLOCKED",
                 "label": "Overall Readiness",
-                "ok": ready_to_initiate,
-                "action": "All prerequisites met. Ready to begin induction." if overall_ready else (
-                    "Ready to launch PowerPoint slideshow." if ready_to_initiate else (blocked_reasons[0] if blocked_reasons else "Prerequisites incomplete")
-                )
+                "ok": meeting_connected,
+                "action": "Ready to launch PowerPoint slideshow and start induction." if meeting_connected else (blocked_reasons[0] if blocked_reasons else "Prerequisites incomplete")
             }
         }
 

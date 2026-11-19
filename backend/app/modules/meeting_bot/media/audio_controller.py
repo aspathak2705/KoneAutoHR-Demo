@@ -449,6 +449,26 @@ class AudioController:
             logger.warning(f"AudioController | Could not locate audio file for {audio_file}")
             return False
 
+    async def play_and_wait(self, audio_file: Union[str, Path], timeout: float = 60.0) -> bool:
+        """
+        Starts playback of audio_file and waits asynchronously until playback completely finishes.
+        """
+        import asyncio
+        ok = self.play_audio(audio_file)
+        if not ok:
+            return False
+        
+        start_wait = time.time()
+        # Small initial yield to let sounddevice stream / timer initialize
+        await asyncio.sleep(0.1)
+        while self.playing:
+            if time.time() - start_wait > timeout:
+                logger.warning(f"AudioController | Playback timed out after {timeout}s for {audio_file}")
+                self.stop_audio()
+                break
+            await asyncio.sleep(0.1)
+        return True
+
     @property
     def playing(self) -> bool:
         """
