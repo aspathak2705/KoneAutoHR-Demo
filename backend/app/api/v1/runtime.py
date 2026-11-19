@@ -122,9 +122,10 @@ async def start_induction(
                 try:
                     coordinator.induction_started = True
                     if coordinator.is_hr_mode:
-                        hr_task = asyncio.create_task(coordinator._run_hr_presentation_flow())
-                        coordinator._hr_presentation_task = hr_task
-                        coordinator._hr_presentation_dispatched = True
+                        if not getattr(coordinator, "_hr_flow_started", False):
+                            coordinator._hr_flow_started = True
+                            hr_task = asyncio.create_task(coordinator._run_hr_presentation_flow())
+                            coordinator._hr_presentation_task = hr_task
                     else:
                         greeting_task = asyncio.create_task(coordinator._run_greeting_flow())
                         coordinator._greeting_task = greeting_task
@@ -259,9 +260,10 @@ async def start_induction(
                     if obs and obs.presentation_state in ["POWERPOINT_SHARED", "SCREEN_SHARING"]:
                         try:
                             if coordinator.is_hr_mode:
-                                hr_task = asyncio.create_task(coordinator._run_hr_presentation_flow())
-                                coordinator._hr_presentation_task = hr_task
-                                coordinator._hr_presentation_dispatched = True
+                                if not getattr(coordinator, "_hr_flow_started", False):
+                                    coordinator._hr_flow_started = True
+                                    hr_task = asyncio.create_task(coordinator._run_hr_presentation_flow())
+                                    coordinator._hr_presentation_task = hr_task
                             else:
                                 greeting_task = asyncio.create_task(coordinator._run_greeting_flow())
                                 coordinator._greeting_task = greeting_task

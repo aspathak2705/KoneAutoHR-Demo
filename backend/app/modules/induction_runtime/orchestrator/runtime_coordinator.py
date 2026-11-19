@@ -79,6 +79,8 @@ class RuntimeCoordinator:
         self._narrated_slides: set = set()
         self._closing_dispatched: bool = False
         self._finishing_lock = asyncio.Lock()
+        self._hr_flow_lock = asyncio.Lock()
+        self._hr_flow_started: bool = False
         self._hr_presentation_task: Optional[asyncio.Task] = None
         
         # Lifecycle tracking
@@ -558,12 +560,14 @@ class RuntimeCoordinator:
         # Enforce strict one-time greeting dispatch for AI mode, or HR presentation flow for HR mode
         if self.induction_started and self.session_manager.state == RuntimeState.CONNECTED and presentation_active:
             if self.is_hr_mode:
-                if not getattr(self, "_hr_presentation_dispatched", False):
-                    self._hr_presentation_dispatched = True
+                if not self._hr_flow_started:
+                    self._hr_flow_started = True
                     logger.info("RuntimeCoordinator | HR Mode presentation active. Launching HR presentation flow.")
                     if await self.session_manager.transition_to(RuntimeState.PRESENTING):
                         self._hr_presentation_task = asyncio.create_task(self._run_hr_presentation_flow())
                         return
+                    else:
+                        logger.warning("RuntimeCoordinator | Transition to PRESENTING failed for HR Mode presentation.")
             else:
                 if not self._greeting_dispatched:
                     logger.info("RuntimeCoordinator | AI Mode presentation active. Launching greeting flow.")
@@ -760,7 +764,15 @@ class RuntimeCoordinator:
         Waits for natural completion of each slide's audio before advancing.
         Upon final slide audio completion, triggers stop sharing, leaves Teams, and marks COMPLETED.
         Strictly separated from AI Mode: does NOT run AI greeting, AI narration, or AI closing.
+        Guaranteed to execute exactly once per session via atomic lock & flags.
         """
+        async with self._hr_flow_lock:
+            if getattr(self, "_hr_flow_executing", False):
+                logger.info("RuntimeCoordinator | HR presentation flow already running. Skipping duplicate call.")
+                return
+            self._hr_flow_executing = True
+            self._hr_flow_started = True
+
         logger.info(f"RuntimeCoordinator | START _run_hr_presentation_flow for session {self.session_id}")
         try:
             from app.services.storage_service import storage_service
