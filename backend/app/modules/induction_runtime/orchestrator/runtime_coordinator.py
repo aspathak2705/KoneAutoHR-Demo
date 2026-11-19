@@ -290,8 +290,12 @@ class RuntimeCoordinator:
             
             return True
         except Exception as e:
-            logger.error(f"RuntimeCoordinator | FAILED join_meeting: {e}")
-            await self.session_manager.transition_to(RuntimeState.FAILED, str(e))
+            import traceback
+            tb = traceback.format_exc()
+            clean_err = str(e)
+            logger.error(f"RuntimeCoordinator | FAILED join_meeting: {clean_err}\nTraceback:\n{tb}")
+            self.session_manager.failure_reason = clean_err
+            await self.session_manager.transition_to(RuntimeState.FAILED, clean_err)
             await self._cleanup_resources()
             return False
 
@@ -492,6 +496,14 @@ class RuntimeCoordinator:
                 logger.info("RuntimeCoordinator | Preloader PowerShell engine terminated.")
             except Exception as e:
                 logger.warning(f"RuntimeCoordinator | Audio preloader cleanup failed: {e}")
+
+            # Invalidate live presentation detection flag and observer context
+            self.presentation_detected = False
+            try:
+                from app.modules.presentation_observer.services.presentation_observer_service import presentation_observer_service
+                presentation_observer_service.remove_observer(self.session_id)
+            except Exception as e:
+                logger.warning(f"RuntimeCoordinator | Observer cleanup notice: {e}")
             
             logger.info(f"RuntimeCoordinator | SUCCESS _cleanup_resources")
         except Exception as e:

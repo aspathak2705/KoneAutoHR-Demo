@@ -19,36 +19,26 @@ class PresentationViewportProvider:
             "div.ppt-stage",
             "iframe[src*='powerpoint' i]",
             "[data-tid='stage-sharing-overlay']",
-            "[data-tid='share-stage']",
-            "[data-tid='stream-player-container']",
-            "div[data-cid='stream-player']",
             "[data-tid='screen-player-container']",
+            "div[data-cid='stream-player']",
             "[data-tid='presenting-screen']",
-            "[data-tid='dominant-speaker-stage']",
             "video[aria-label*='Screen' i]",
-            "video[aria-label*='Shared' i]",
-            "video[aria-label*='Share' i]",
-            "video[aria-label*='Present' i]",
+            "video[aria-label*='Shared screen' i]",
             "video[aria-label*='Presentation' i]",
-            "div[aria-label*='Shared screen' i]",
-            "div[aria-label*='screen' i]",
-            "div[aria-label*='shared' i]",
-            "div[aria-label*='present' i]",
-            "div[aria-label*='presentation' i]",
-            "div[class*='screen-share' i]",
-            "div[class*='share-stage' i]",
-            "[data-tid*='sharing' i]",
-            "[data-tid*='stage' i]",
-            "div[data-tid*='stream']"
+            "div[data-tid='share-stage'] video"
         ]
         
         for sel in sharing_selectors:
             try:
                 locator = page.locator(sel).first
                 if await locator.is_visible(timeout=200):
+                    # Verify element has presentation stage dimensions (>320x240)
+                    box = await locator.bounding_box()
+                    if not box or box["width"] < 320 or box["height"] < 240:
+                        continue
                     # Capture locator screenshot directly
                     screenshot_bytes = await locator.screenshot(type="png", timeout=3000)
-                    logger.info(f"PresentationViewportProvider | Captured screenshot for selector: {sel}")
+                    logger.info(f"PresentationViewportProvider | Captured screenshot for selector: {sel} ({int(box['width'])}x{int(box['height'])})")
                     return screenshot_bytes, sel
             except Exception:
                 pass

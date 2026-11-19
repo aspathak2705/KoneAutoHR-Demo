@@ -1,3 +1,5 @@
+import asyncio
+import time
 from sqlalchemy.orm import Session as DBSession
 from app.modules.meeting_bot.services.meeting_bot_service import meeting_bot_service
 from app.modules.meeting_bot.teams.participant_monitor import participant_monitor
@@ -14,6 +16,15 @@ from loguru import logger
 from typing import Dict, Any, List
 
 class MeetingStatusService:
+    def __init__(self):
+        self._obs_locks: Dict[str, asyncio.Lock] = {}
+        self._last_obs_time: Dict[str, float] = {}
+
+    def _get_obs_lock(self, session_id: str) -> asyncio.Lock:
+        if session_id not in self._obs_locks:
+            self._obs_locks[session_id] = asyncio.Lock()
+        return self._obs_locks[session_id]
+
     async def evaluate_status(self, db: DBSession, session_id: str) -> Dict[str, Any]:
         """
         Authoritative meeting readiness evaluator.
@@ -96,9 +107,25 @@ class MeetingStatusService:
         # 2. Evaluate Presentation Screen Sharing in Teams
         # --------------------------------------------------------------------
         try:
-            obs = presentation_observer_service.get_latest_observation(session_id)
-            if not obs and bot and bot.context.page and not bot.context.page.is_closed():
-                obs = await presentation_observer_service.run_observation_cycle(session_id)
+            obs = None
+            if bot and bot.context.page and not bot.context.page.is_closed():
+                now = time.time()
+                last_time = self._last_obs_time.get(session_id, 0.0)
+                lock = self._get_obs_lock(session_id)
+
+                # Avoid concurrent or excessive observation work from repeated polling
+                if (now - last_time < 2.5) or lock.locked():
+                    obs = presentation_observer_service.get_latest_observation(session_id)
+                else:
+                    async with lock:
+                        now = time.time()
+                        if now - self._last_obs_time.get(session_id, 0.0) < 2.5:
+                            obs = presentation_observer_service.get_latest_observation(session_id)
+                        else:
+                            obs = await presentation_observer_service.run_observation_cycle(session_id)
+                            self._last_obs_time[session_id] = time.time()
+            else:
+                obs = presentation_observer_service.get_latest_observation(session_id)
 
             if obs:
                 presentation_detected = (
@@ -112,10 +139,10 @@ class MeetingStatusService:
             else:
                 presentation_detected = False
 
-            # Check coordinator cached flag
+            # Check coordinator cached flag ONLY if actively presenting
             if not presentation_detected and session_id in runtime_service._coordinators:
                 coord = runtime_service._coordinators[session_id]
-                if getattr(coord, "presentation_detected", False):
+                if getattr(coord, "presentation_detected", False) and getattr(coord.session_manager, "state", None) == RuntimeState.PRESENTING:
                     presentation_detected = True
         except Exception as e:
             logger.error(f"MeetingStatusService | Failed to read presentation observer: {e}")
@@ -161,7 +188,8 @@ class MeetingStatusService:
 
         narration_state = "idle"
         if active_pres:
-            presentation_detected = True
+            if getattr(active_pres, "presentation_state", "") == "SLIDESHOW_RUNNING" and getattr(active_pres, "share_successful", False):
+                presentation_detected = True
             audio_ready = True
             runtime_assets_ready = True
             meeting_connected = True

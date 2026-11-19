@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session as DBSession
@@ -79,13 +80,26 @@ async def start_induction(
         coordinator = runtime_service.get_coordinator(db, session_id)
         
         if coordinator.session_manager.state == RuntimeState.PRESENTING:
-            logger.warning("API | Presentation is already running. Skipping duplicate trigger.")
-            return {
-                "status": "success",
-                "message": "Presentation already running",
-                "state": "PRESENTING",
-                "session_id": session_id
-            }
+            # Check if presentation is genuinely running vs stuck in failed state
+            is_genuinely_running = (
+                getattr(coordinator, "induction_started", False) and
+                (
+                    getattr(coordinator, "narration_state", "idle") not in ["idle", "failed"] or
+                    (hasattr(coordinator, "_greeting_task") and coordinator._greeting_task is not None and not coordinator._greeting_task.done()) or
+                    getattr(getattr(coordinator, "memory", None), "current_slide_number", 0) > 0
+                )
+            )
+            if is_genuinely_running:
+                logger.warning("API | Presentation is already running. Skipping duplicate trigger.")
+                return {
+                    "status": "success",
+                    "message": "Presentation already running",
+                    "state": "PRESENTING",
+                    "session_id": session_id
+                }
+            else:
+                logger.warning(f"API | Session {session_id} in PRESENTING state without active narration. Resetting to CONNECTED for safe retry.")
+                await coordinator.session_manager.transition_to(RuntimeState.CONNECTED)
 
         # Check current state to determine action
         if coordinator.session_manager.state == RuntimeState.CONNECTED:
@@ -114,19 +128,25 @@ async def start_induction(
 
             # Case A: If presentation is ALREADY detected, proceed directly with existing flow
             if readiness.get("presentation_detected"):
-                await coordinator.session_manager.transition_to(RuntimeState.PRESENTING)
-                coordinator.induction_started = True
-                asyncio.create_task(coordinator._run_greeting_flow())
-                logger.info(f"API | Presentation already detected. Induction flow triggered for session {session_id}")
-                return {
-                    "status": "success",
-                    "auto_shared": False,
-                    "presentation_detected": True,
-                    "message": "Presentation active. Induction presentation started.",
-                    "state": "PRESENTING",
-                    "session_id": session_id,
-                    "checklist": readiness.get("checklist")
-                }
+                try:
+                    coordinator.induction_started = True
+                    greeting_task = asyncio.create_task(coordinator._run_greeting_flow())
+                    coordinator._greeting_task = greeting_task
+                    await coordinator.session_manager.transition_to(RuntimeState.PRESENTING)
+                    logger.info(f"API | Presentation already detected. Induction flow triggered for session {session_id}")
+                    return {
+                        "status": "success",
+                        "auto_shared": False,
+                        "presentation_detected": True,
+                        "message": "Presentation active. Induction presentation started.",
+                        "state": "PRESENTING",
+                        "session_id": session_id,
+                        "checklist": readiness.get("checklist")
+                    }
+                except Exception as start_err:
+                    logger.error(f"API | Failed to dispatch greeting flow: {start_err}")
+                    await coordinator.session_manager.transition_to(RuntimeState.CONNECTED)
+                    raise HTTPException(status_code=500, detail=f"Failed to start greeting flow: {start_err}")
 
             # Case B: Presentation not yet shared. Authorize induction and initiate PowerPoint launch & auto-share
             from app.services.storage_service import storage_service
@@ -226,16 +246,22 @@ async def start_induction(
                     from app.modules.presentation_observer.services.presentation_observer_service import presentation_observer_service
                     obs = await presentation_observer_service.run_observation_cycle(session_id)
                     if obs and obs.presentation_state in ["POWERPOINT_SHARED", "SCREEN_SHARING"]:
-                        await coordinator.session_manager.transition_to(RuntimeState.PRESENTING)
-                        asyncio.create_task(coordinator._run_greeting_flow())
-                        return {
-                            "status": "success",
-                            "auto_shared": True,
-                            "presentation_detected": True,
-                            "message": "PowerPoint launched and screen shared automatically. Induction started.",
-                            "state": "PRESENTING",
-                            "session_id": session_id
-                        }
+                        try:
+                            greeting_task = asyncio.create_task(coordinator._run_greeting_flow())
+                            coordinator._greeting_task = greeting_task
+                            await coordinator.session_manager.transition_to(RuntimeState.PRESENTING)
+                            return {
+                                "status": "success",
+                                "auto_shared": True,
+                                "presentation_detected": True,
+                                "message": "PowerPoint launched and screen shared automatically. Induction started.",
+                                "state": "PRESENTING",
+                                "session_id": session_id
+                            }
+                        except Exception as start_err:
+                            logger.error(f"API | Failed to dispatch greeting flow: {start_err}")
+                            await coordinator.session_manager.transition_to(RuntimeState.CONNECTED)
+                            raise HTTPException(status_code=500, detail=f"Failed to start greeting flow: {start_err}")
                 except Exception as obs_err:
                     logger.warning(f"API | Immediate observation cycle notice: {obs_err}")
 
@@ -314,8 +340,24 @@ async def join_meeting_endpoint(session_id: str, req: Optional[JoinMeetingReques
             display_name = context.get("persona", {}).get("ai_trainer_name") or "KONE AI Trainer"
 
         # Join meeting
-        if not await coordinator.join_meeting(meeting_url, display_name):
-            raise HTTPException(status_code=400, detail="Failed to join meeting")
+        try:
+            join_success = await coordinator.join_meeting(meeting_url, display_name)
+        except Exception as join_err:
+            import traceback
+            tb = traceback.format_exc()
+            logger.error(f"API | Exception in coordinator.join_meeting for session {session_id}: {join_err}\nTraceback:\n{tb}")
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to join Microsoft Teams meeting. Please verify meeting URL and ensure call is active."
+            )
+
+        if not join_success:
+            last_err = getattr(coordinator.session_manager, "failure_reason", None) or "Teams join timed out or prejoin controls not detected"
+            logger.error(f"API | join_meeting returned False for session {session_id}: {last_err}")
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to join Microsoft Teams meeting. Prejoin controls not detected or join timed out."
+            )
         
         logger.info(f"API | SUCCESS POST /join-meeting - CONNECTED")
         return {
@@ -323,8 +365,12 @@ async def join_meeting_endpoint(session_id: str, req: Optional[JoinMeetingReques
             "state": "CONNECTED",
             "session_id": session_id
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"API | FAILED POST /join-meeting: {e}")
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"API | FAILED POST /join-meeting: {e}\nTraceback:\n{tb}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/{session_id}/end")

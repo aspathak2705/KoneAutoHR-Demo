@@ -64,7 +64,7 @@ class PresentationAnalyzer:
                                 best_dist = dist
                                 best_match = slide_name
                         
-                        if best_match and best_dist <= 30:
+                        if best_match and best_dist <= 28:
                             import re
                             num_match = re.search(r'\d+', best_match)
                             if num_match:
@@ -75,16 +75,13 @@ class PresentationAnalyzer:
                                 details["hamming_distance"] = best_dist
                                 details["current_slide"] = current_slide
                                 mode = PresentationMode.POWERPOINT_SHARED
-                        elif best_match:
-                            import re
-                            num_match = re.search(r'\d+', best_match)
-                            if num_match:
-                                current_slide = int(num_match.group())
-                                confidence = max(0.1, (64.0 - best_dist) / 64.0)
-                                signature = f"slide_{current_slide}"
-                                details["matched_slide_file"] = best_match
-                                details["hamming_distance"] = best_dist
-                                details["current_slide"] = current_slide
+                        else:
+                            # Does not match any presentation slide from the session deck
+                            if matched_sel in ["[data-tid='powerpoint-live-view']", "[data-tid='ppt-presentation']", "div.ppt-stage", "iframe[src*='powerpoint' i]"]:
+                                mode = PresentationMode.POWERPOINT_SHARED
+                            else:
+                                mode = PresentationMode.NONE
+                                details["unmatched_distance"] = best_dist
             except Exception as e:
                 logger.error(f"PresentationAnalyzer | Failed slide matching: {e}")
         else:
