@@ -21,7 +21,7 @@ from app.modules.induction_runtime.agents.qa_agent import qa_agent
 from app.modules.presentation_observer.models.observation import Observation
 from app.modules.presentation_observer.models.observation_state import ObservationState
 from app.modules.presentation_observer.models.observation_event import ObservationEvent
-from app.modules.meeting_bot.models.bot_state import BotState
+from app.modules.meeting_bot.bot.bot_state import BotState
 
 class RuntimeCoordinator:
     """
