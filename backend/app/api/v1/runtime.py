@@ -89,32 +89,180 @@ async def start_induction(
 
         # Check current state to determine action
         if coordinator.session_manager.state == RuntimeState.CONNECTED:
-            # Independent backend readiness evaluation
+            # Independent backend readiness evaluation for hard prerequisites
             readiness = await meeting_status_service.evaluate_status(db, session_id)
-            force_start = req.force if req else False
             
-            if not readiness["overall_ready"] and not force_start:
-                blocked_str = "; ".join(readiness["blocked_reasons"]) or "Required prerequisites not satisfied"
+            hard_blockers = []
+            if not readiness.get("meeting_connected"):
+                hard_blockers.append("Waiting for bot to connect to Microsoft Teams meeting.")
+            if not readiness.get("runtime_assets_ready"):
+                hard_blockers.append("Runtime presentation assets incomplete. Please verify Step 4.")
+            if not readiness.get("audio_ready"):
+                hard_blockers.append("Audio narration assets not ready. Please verify audio generation in Step 3.")
+            
+            if hard_blockers:
+                blocked_str = "; ".join(hard_blockers)
                 logger.warning(f"API | Start induction rejected (409 Conflict): {blocked_str}")
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail={
                         "message": f"Induction cannot start: {blocked_str}",
-                        "blocked_reasons": readiness["blocked_reasons"],
-                        "checklist": readiness["checklist"]
+                        "blocked_reasons": hard_blockers,
+                        "checklist": readiness.get("checklist")
                     }
                 )
 
-            await coordinator.session_manager.transition_to(RuntimeState.PRESENTING)
+            # Case A: If presentation is ALREADY detected, proceed directly with existing flow
+            if readiness.get("presentation_detected"):
+                await coordinator.session_manager.transition_to(RuntimeState.PRESENTING)
+                coordinator.induction_started = True
+                asyncio.create_task(coordinator._run_greeting_flow())
+                logger.info(f"API | Presentation already detected. Induction flow triggered for session {session_id}")
+                return {
+                    "status": "success",
+                    "auto_shared": False,
+                    "presentation_detected": True,
+                    "message": "Presentation active. Induction presentation started.",
+                    "state": "PRESENTING",
+                    "session_id": session_id,
+                    "checklist": readiness.get("checklist")
+                }
+
+            # Case B: Presentation not yet shared. Authorize induction and initiate PowerPoint launch & auto-share
+            from app.services.storage_service import storage_service
+            import json
             coordinator.induction_started = True
-            asyncio.create_task(coordinator._run_greeting_flow())
-            logger.info(f"API | Induction presentation flow triggered for session {session_id}")
+
+            # 1. Identify PPTX path
+            session_dir = storage_service.get_session_dir(session_id)
+            manifest_path = session_dir / "manifest.json"
+            ppt_path = None
+            if manifest_path.exists():
+                try:
+                    with open(manifest_path, "r", encoding="utf-8") as f:
+                        m = json.load(f)
+                    pres_name = m.get("presentation", "presentation.pptx")
+                    for candidate in [
+                        session_dir / pres_name,
+                        session_dir / "presentation" / pres_name,
+                        session_dir / "presentation.pptx",
+                        session_dir / "presentation" / "presentation.pptx"
+                    ]:
+                        if candidate.exists():
+                            ppt_path = candidate
+                            break
+                except Exception as ex:
+                    logger.warning(f"API | Error reading manifest presentation path: {ex}")
+
+            if not ppt_path or not ppt_path.exists():
+                try:
+                    from app.models.session import Session as DBSessionModel
+                    from app.core.security.secure_storage import secure_storage
+                    import shutil
+                    sess = db.query(DBSessionModel).filter(DBSessionModel.id == session_id).first()
+                    if sess and sess.presentation:
+                        with secure_storage.open_decrypted_file(sess.presentation) as dec_p:
+                            fallback_path = session_dir / "presentation.pptx"
+                            shutil.copy2(dec_p, fallback_path)
+                            ppt_path = fallback_path
+                except Exception as ex:
+                    logger.warning(f"API | Fallback PPT retrieval error: {ex}")
+
+            if not ppt_path or not ppt_path.exists():
+                logger.error(f"API | PowerPoint file not found for session {session_id}")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"PowerPoint file for session {session_id} not found on disk."
+                )
+
+            # 2. Open PowerPoint in slideshow mode
+            ppt_opened = False
+            ppt_error = None
+            try:
+                from app.modules.presentation.powerpoint_controller import PowerPointController
+                ppt_ctrl = PowerPointController()
+                await ppt_ctrl.open(str(ppt_path), start_immediately=True)
+                ppt_opened = await ppt_ctrl.wait_for_slideshow_window(timeout=10.0)
+                logger.info(f"API | PowerPoint slideshow opened for session {session_id}")
+            except Exception as ppt_ex:
+                ppt_error = str(ppt_ex)
+                logger.warning(f"API | PowerPoint automation notice: {ppt_ex}")
+
+            # 3. Attempt automatic Teams screen sharing via bot browser page
+            auto_share_success = False
+            from app.modules.meeting_bot.services.meeting_bot_service import meeting_bot_service
+            bot = meeting_bot_service.get_bot(session_id)
+            page = bot.context.page if bot and bot.context else None
+
+            if ppt_opened and page and not page.is_closed():
+                try:
+                    from app.modules.meeting_bot.teams.teams_controller import teams_controller
+                    from app.modules.presentation.native_share_controller import NativeShareController
+                    from app.modules.presentation.share_verification_controller import ShareVerificationController
+
+                    t_ctrl = teams_controller
+                    native_share = NativeShareController()
+                    verification = ShareVerificationController()
+
+                    await t_ctrl.open_share_panel(page)
+                    await native_share.activate_picker()
+                    await native_share.click_window_tab()
+                    await native_share.select_window("PowerPoint Slide Show", presentation_name=ppt_path.name)
+                    await native_share.click_share()
+
+                    auto_share_success = await verification.wait_for_share_confirmation(page, timeout=8.0)
+                    logger.info(f"API | Automatic screen share result: {auto_share_success}")
+                except Exception as share_ex:
+                    logger.warning(f"API | Automatic Teams sharing attempt failed or timed out: {share_ex}")
+                    try:
+                        await page.keyboard.press("Escape")
+                    except Exception:
+                        pass
+                    auto_share_success = False
+
+            # 4. Check if auto sharing succeeded and presentation is now detected
+            if auto_share_success:
+                try:
+                    from app.modules.presentation_observer.services.presentation_observer_service import presentation_observer_service
+                    obs = await presentation_observer_service.run_observation_cycle(session_id)
+                    if obs and obs.presentation_state in ["POWERPOINT_SHARED", "SCREEN_SHARING"]:
+                        await coordinator.session_manager.transition_to(RuntimeState.PRESENTING)
+                        asyncio.create_task(coordinator._run_greeting_flow())
+                        return {
+                            "status": "success",
+                            "auto_shared": True,
+                            "presentation_detected": True,
+                            "message": "PowerPoint launched and screen shared automatically. Induction started.",
+                            "state": "PRESENTING",
+                            "session_id": session_id
+                        }
+                except Exception as obs_err:
+                    logger.warning(f"API | Immediate observation cycle notice: {obs_err}")
+
+                return {
+                    "status": "waiting_presentation",
+                    "auto_shared": True,
+                    "presentation_detected": False,
+                    "message": "PowerPoint slideshow opened and shared in Teams. Waiting for presentation screen detection...",
+                    "state": "CONNECTED",
+                    "session_id": session_id
+                }
+
+            # 5. Fallback: Auto share unavailable/failed, but PPT is open (or manual launch required)
+            msg = (
+                "PowerPoint is open in slideshow mode. Automatic Teams screen sharing was unavailable. "
+                "Please share the PowerPoint Slide Show window or your screen manually."
+            )
+            if not ppt_opened and ppt_error:
+                msg = f"Please open the PowerPoint presentation in slideshow mode and share it in Teams ({ppt_error})."
+
             return {
-                "status": "success",
-                "message": "Induction presentation started. Bot is presenting and synchronizing with presentation.",
-                "state": "PRESENTING",
-                "session_id": session_id,
-                "checklist": readiness.get("checklist")
+                "status": "manual_share_required",
+                "auto_shared": False,
+                "presentation_detected": False,
+                "message": msg,
+                "state": "CONNECTED",
+                "session_id": session_id
             }
         elif coordinator.session_manager.state == RuntimeState.READY:
             if not await coordinator.start_induction():

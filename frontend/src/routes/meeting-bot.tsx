@@ -18,7 +18,8 @@ import {
   LogOut,
   CheckCircle2,
   AlertCircle,
-  AlertTriangle
+  AlertTriangle,
+  Info
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -69,7 +70,14 @@ function MeetingBotDashboard() {
   const [isSessionValidated, setIsSessionValidated] = useState(false);
   const [sessionSummary, setSessionSummary] = useState<any>(null);
   const [meetingStatus, setMeetingStatus] = useState<any>(null);
+  const [manualShareNotice, setManualShareNotice] = useState<string | null>(null);
   const prevNarrationState = useRef("idle");
+
+  useEffect(() => {
+    if (meetingStatus?.presentation_detected || status?.state === "PRESENTING") {
+      setManualShareNotice(null);
+    }
+  }, [meetingStatus?.presentation_detected, status?.state]);
 
   const fetchBotStatus = async () => {
     try {
@@ -542,60 +550,115 @@ function MeetingBotDashboard() {
                   </div>
                 </div>
 
-                {/* Blocked Instruction Card if not ready */}
-                {!meetingStatus?.overall_ready && !meetingStatus?.bot_ready && (
+                {/* Manual Share Required Guidance Card */}
+                {manualShareNotice && (
+                  <div className="p-3 bg-blue-50/80 border border-blue-300 rounded-lg text-blue-900 text-[11px] leading-relaxed">
+                    <div className="font-semibold flex items-center gap-1.5 mb-1 text-blue-950">
+                      <Info className="h-3.5 w-3.5 text-blue-600" />
+                      PowerPoint Opened — Action Required in Teams:
+                    </div>
+                    <p>{manualShareNotice}</p>
+                    <p className="mt-1 text-[10px] text-blue-700 font-medium">
+                      AutoHR is actively monitoring Teams. As soon as you share the PowerPoint window, induction narration will start automatically.
+                    </p>
+                  </div>
+                )}
+
+                {/* Blocked Instruction Card if not connected */}
+                {!(meetingStatus?.meeting_connected || status?.health?.meeting_active || status?.state === "CONNECTED") && (
                   <div className="p-3 bg-amber-50/50 border border-amber-300/60 rounded-lg text-amber-800 text-[11px] leading-relaxed">
                     <div className="font-semibold flex items-center gap-1.5 mb-1 text-amber-900">
                       <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
                       Action Required to Enable Start Induction:
                     </div>
                     <ul className="list-disc pl-4 space-y-0.5">
-                      {meetingStatus?.blocked_reasons && meetingStatus.blocked_reasons.length > 0 ? (
-                        meetingStatus.blocked_reasons.map((reason: string, idx: number) => (
-                          <li key={idx}>{reason}</li>
-                        ))
-                      ) : (
-                        <li>Waiting for meeting connection and presentation share...</li>
-                      )}
+                      <li>Waiting for bot to connect to Microsoft Teams meeting...</li>
                     </ul>
                   </div>
                 )}
 
+                {/* Missing Assets Instruction Card */}
+                {(meetingStatus?.meeting_connected || status?.health?.meeting_active || status?.state === "CONNECTED") &&
+                  meetingStatus &&
+                  (!meetingStatus.audio_ready || !meetingStatus.runtime_assets_ready) && (
+                    <div className="p-3 bg-amber-50/50 border border-amber-300/60 rounded-lg text-amber-800 text-[11px] leading-relaxed">
+                      <div className="font-semibold flex items-center gap-1.5 mb-1 text-amber-900">
+                        <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                        Action Required Before Start:
+                      </div>
+                      <ul className="list-disc pl-4 space-y-0.5">
+                        {!meetingStatus.audio_ready && <li>Audio narration assets not ready. Please verify audio generation in Step 3.</li>}
+                        {!meetingStatus.runtime_assets_ready && <li>Runtime assets incomplete. Please run Step 4 Runtime Preparation.</li>}
+                      </ul>
+                    </div>
+                  )}
+
                 {/* Start Induction Button */}
-                <Button
-                  onClick={async () => {
-                    if (!meetingStatus?.overall_ready && !meetingStatus?.bot_ready) {
-                      const missing = meetingStatus?.blocked_reasons?.join("; ") || "Prerequisites not met";
-                      toast.warning(`Cannot start induction: ${missing}`);
-                      return;
-                    }
-                    try {
-                      toast.info("Initializing and starting induction presentation...");
-                      await apiFetch(`/runtime/${sessionId.trim()}/start-induction`, { method: "POST" });
-                      toast.success("Induction started! Bot is presenting slides and synchronizing audio.");
-                      fetchBotStatus();
-                    } catch (e: any) {
-                      const msg = e.detail?.message || e.message || "Failed to start induction presentation.";
-                      toast.error(msg);
-                    }
-                  }}
-                  disabled={
-                    loading ||
-                    (!meetingStatus?.overall_ready && !meetingStatus?.bot_ready) ||
+                {(() => {
+                  const isTeamsConnected = Boolean(
+                    meetingStatus?.meeting_connected ||
+                    status?.health?.meeting_active ||
+                    status?.state === "CONNECTED"
+                  );
+                  const isPresenting =
                     status?.state === "PRESENTING" ||
-                    (meetingStatus?.narration_state && !["idle", "finished_closing"].includes(meetingStatus.narration_state))
-                  }
-                  className={`w-full font-bold gap-2 text-sm h-10 shadow-sm transition-all mt-1 ${
-                    meetingStatus?.overall_ready || meetingStatus?.bot_ready
-                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                      : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  <Play className="h-4.5 w-4.5" />
-                  {meetingStatus?.overall_ready || meetingStatus?.bot_ready
-                    ? "Start Induction (All Systems Ready)"
-                    : "Start Induction (Prerequisites Pending)"}
-                </Button>
+                    Boolean(meetingStatus?.narration_state && !["idle", "finished_closing"].includes(meetingStatus.narration_state));
+                  const isStartDisabled = loading || !isTeamsConnected || isPresenting;
+
+                  return (
+                    <Button
+                      onClick={async () => {
+                        if (!isTeamsConnected) {
+                          toast.warning("Cannot start induction: Bot must be connected to Microsoft Teams meeting first.");
+                          return;
+                        }
+                        if (meetingStatus && (!meetingStatus.audio_ready || !meetingStatus.runtime_assets_ready)) {
+                          const missing = [];
+                          if (!meetingStatus.runtime_assets_ready) missing.push("Runtime assets incomplete");
+                          if (!meetingStatus.audio_ready) missing.push("Audio narration assets missing");
+                          toast.warning(`Cannot start induction: ${missing.join("; ")}`);
+                          return;
+                        }
+                        setLoading(true);
+                        try {
+                          toast.info("Opening PowerPoint slideshow and initializing induction presentation...");
+                          const res = await apiFetch(`/runtime/${sessionId.trim()}/start-induction`, { method: "POST" });
+                          if (res?.status === "manual_share_required") {
+                            setManualShareNotice(res.message);
+                            toast.info(res.message, { duration: 10000 });
+                          } else if (res?.status === "waiting_presentation") {
+                            setManualShareNotice(res.message);
+                            toast.info(res.message, { duration: 7000 });
+                          } else {
+                            setManualShareNotice(null);
+                            toast.success(res?.message || "Induction started! Bot is presenting slides and synchronizing audio.");
+                          }
+                          fetchBotStatus();
+                        } catch (e: any) {
+                          const msg = e.detail?.message || e.message || "Failed to start induction presentation.";
+                          toast.error(msg);
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                      disabled={isStartDisabled}
+                      className={`w-full font-bold gap-2 text-sm h-10 shadow-sm transition-all mt-1 ${
+                        !isStartDisabled
+                          ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      <Play className="h-4.5 w-4.5" />
+                      {isPresenting
+                        ? "Induction in Progress"
+                        : isTeamsConnected
+                          ? (meetingStatus?.presentation_detected
+                              ? "Start Induction (Presentation Detected)"
+                              : "Start Induction (Launch Slideshow & Share)")
+                          : "Start Induction (Connect Bot to Teams First)"}
+                    </Button>
+                  );
+                })()}
               </CardContent>
             </Card>
           )}
