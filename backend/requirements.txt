@@ -27,6 +27,7 @@ psycopg[binary]
 
 # Browser / automation
 playwright>=1.49,<2.0
+pywin32>=306; sys_platform == 'win32'
 
 # Audio Libraries
 sounddevice>=0.4.6

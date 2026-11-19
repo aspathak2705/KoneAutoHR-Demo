@@ -197,7 +197,15 @@ async def start_induction(
                 logger.info(f"API | PowerPoint slideshow opened for session {session_id}")
             except Exception as ppt_ex:
                 ppt_error = str(ppt_ex)
-                logger.warning(f"API | PowerPoint automation notice: {ppt_ex}")
+                logger.error(f"API | PowerPoint automation error: {ppt_ex}")
+
+            if not ppt_opened:
+                err_detail = ppt_error or "PowerPoint slideshow window could not be opened."
+                logger.error(f"API | PowerPoint automation failed: {err_detail}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"PowerPoint automation failed: {err_detail}"
+                )
 
             # 3. Attempt automatic Teams screen sharing via bot browser page
             auto_share_success = False
@@ -265,13 +273,11 @@ async def start_induction(
                     "session_id": session_id
                 }
 
-            # 5. Fallback: Auto share unavailable/failed, but PPT is open (or manual launch required)
+            # 5. Fallback: PPT is open, but auto Teams sharing was unavailable or timed out
             msg = (
                 "PowerPoint is open in slideshow mode. Automatic Teams screen sharing was unavailable. "
                 "Please share the PowerPoint Slide Show window or your screen manually."
             )
-            if not ppt_opened and ppt_error:
-                msg = f"Please open the PowerPoint presentation in slideshow mode and share it in Teams ({ppt_error})."
 
             return {
                 "status": "manual_share_required",

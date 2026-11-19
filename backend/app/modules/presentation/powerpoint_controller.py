@@ -20,7 +20,25 @@ class PowerPointController:
         """
         logger.info("PowerPointController | [PPT] Opening presentation")
 
-        import pythoncom
+        try:
+            import pythoncom
+        except ImportError:
+            # Ensure pywin32 directories and DLLs are loaded if sys.path missing them
+            import sys, os, site
+            site_dirs = site.getsitepackages() if hasattr(site, "getsitepackages") else []
+            for sp in site_dirs:
+                p32_sys = os.path.join(sp, "pywin32_system32")
+                if os.path.exists(p32_sys):
+                    if hasattr(os, "add_dll_directory"):
+                        os.add_dll_directory(p32_sys)
+                    if p32_sys not in os.environ.get("PATH", ""):
+                        os.environ["PATH"] = p32_sys + os.pathsep + os.environ.get("PATH", "")
+                for sub in ["win32", "win32\\lib", "pythonwin"]:
+                    sub_p = os.path.join(sp, sub)
+                    if os.path.exists(sub_p) and sub_p not in sys.path:
+                        sys.path.append(sub_p)
+            import pythoncom
+
         pythoncom.CoInitialize()
 
         import subprocess
