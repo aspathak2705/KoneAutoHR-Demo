@@ -72,12 +72,14 @@ class RuntimeCoordinator:
         self.narration_state = "idle"
         self.presentation_detected: bool = False
         self.induction_started: bool = False
+        self.is_hr_mode: bool = False
         
         # One-time narration tracking to prevent loops and duplicate triggers
         self._greeting_dispatched: bool = False
         self._narrated_slides: set = set()
         self._closing_dispatched: bool = False
         self._finishing_lock = asyncio.Lock()
+        self._hr_presentation_task: Optional[asyncio.Task] = None
         
         # Lifecycle tracking
         self._browser_manager = None
@@ -362,7 +364,9 @@ class RuntimeCoordinator:
             with SessionLocal() as db:
                 ctx = runtime_service.get_runtime_context(db, self.session_id)
             
-            # 1. Load employee register files
+            # Mode detection: HR vs AI mode
+            self.is_hr_mode = (ctx.get("creation_mode") == "HR")
+            logger.info(f"RuntimeCoordinator | Session {self.session_id} execution mode: {'HR' if self.is_hr_mode else 'AI'}")
             self.employee_context.employees_list = ctx.get("employees", [])
             logger.info(f"RuntimeCoordinator | Standardized {len(self.employee_context.employees_list)} employee context records.")
 
@@ -551,16 +555,25 @@ class RuntimeCoordinator:
         self.presentation_detected = presentation_active
 
         # Transition: CONNECTED → PRESENTING only when induction has been started/authorized by HR
-        # Enforce strict one-time greeting dispatch
-        if self.induction_started and self.session_manager.state == RuntimeState.CONNECTED and presentation_active and not self._greeting_dispatched:
-            logger.info("RuntimeCoordinator | Presentation detected and induction authorized by HR. Launching greeting flow.")
-            if await self.session_manager.transition_to(RuntimeState.PRESENTING):
-                self._greeting_dispatched = True
-                asyncio.create_task(self._run_greeting_flow())
-                return
+        # Enforce strict one-time greeting dispatch for AI mode, or HR presentation flow for HR mode
+        if self.induction_started and self.session_manager.state == RuntimeState.CONNECTED and presentation_active:
+            if self.is_hr_mode:
+                if not getattr(self, "_hr_presentation_dispatched", False):
+                    self._hr_presentation_dispatched = True
+                    logger.info("RuntimeCoordinator | HR Mode presentation active. Launching HR presentation flow.")
+                    if await self.session_manager.transition_to(RuntimeState.PRESENTING):
+                        self._hr_presentation_task = asyncio.create_task(self._run_hr_presentation_flow())
+                        return
+            else:
+                if not self._greeting_dispatched:
+                    logger.info("RuntimeCoordinator | AI Mode presentation active. Launching greeting flow.")
+                    if await self.session_manager.transition_to(RuntimeState.PRESENTING):
+                        self._greeting_dispatched = True
+                        asyncio.create_task(self._run_greeting_flow())
+                        return
 
-        # Handle slide changes during PRESENTING
-        if ObservationEvent.SLIDE_CHANGED in observation.events or (self.session_manager.state == RuntimeState.PRESENTING and observation.current_slide > 0 and observation.current_slide != self.memory.current_slide_number):
+        # Handle slide changes during PRESENTING (AI Mode only)
+        if not self.is_hr_mode and (ObservationEvent.SLIDE_CHANGED in observation.events or (self.session_manager.state == RuntimeState.PRESENTING and observation.current_slide > 0 and observation.current_slide != self.memory.current_slide_number)):
             if self.session_manager.state == RuntimeState.PRESENTING:
                 slide_num = observation.current_slide if observation.current_slide > 0 else observation.timeline_index
                 if slide_num > 0 and slide_num not in self._narrated_slides:
@@ -578,9 +591,12 @@ class RuntimeCoordinator:
                 logger.info("RuntimeCoordinator | Presentation share ended or paused. Pausing narration and remaining in meeting.")
                 if self.config.voice_enabled:
                     self.voice_output.interrupt()
-                total_slides = max(len(self.flow_controller.slides_script), len(self.script_slides), 1)
-                if len(self._narrated_slides) >= total_slides:
-                    asyncio.create_task(self._run_closing_flow())
+                if not self.is_hr_mode:
+                    total_slides = max(len(self.flow_controller.slides_script), len(self.script_slides), 1)
+                    if len(self._narrated_slides) >= total_slides:
+                        asyncio.create_task(self._run_closing_flow())
+                    else:
+                        await self.session_manager.transition_to(RuntimeState.CONNECTED)
                 else:
                     await self.session_manager.transition_to(RuntimeState.CONNECTED)
 
@@ -736,6 +752,91 @@ class RuntimeCoordinator:
             logger.info(f"RuntimeCoordinator | SUCCESS _speak_slide_narration")
         except Exception as e:
             logger.error(f"RuntimeCoordinator | FAILED _speak_slide_narration: {e}")
+
+    async def _run_hr_presentation_flow(self) -> None:
+        """
+        Executes HR Mode induction presentation flow.
+        Uses uploaded audio per slide in slide sequence (via presentation timeline & manifest).
+        Waits for natural completion of each slide's audio before advancing.
+        Upon final slide audio completion, triggers stop sharing, leaves Teams, and marks COMPLETED.
+        Strictly separated from AI Mode: does NOT run AI greeting, AI narration, or AI closing.
+        """
+        logger.info(f"RuntimeCoordinator | START _run_hr_presentation_flow for session {self.session_id}")
+        try:
+            from app.services.storage_service import storage_service
+            from app.modules.meeting_bot.media.audio_controller import get_audio_controller
+            from app.modules.presentation.powerpoint_controller import PowerPointController
+            from app.modules.presentation.timeline_executor import TimelineExecutor
+            import json
+
+            session_dir = storage_service.get_session_dir(self.session_id)
+            manifest_path = session_dir / "manifest.json"
+            if not manifest_path.exists():
+                raise FileNotFoundError(f"Manifest not found for HR presentation: {manifest_path}")
+
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+
+            timeline_file = manifest.get("timeline", "presentation_timeline.json")
+            timeline_path = session_dir / timeline_file
+            if not timeline_path.exists():
+                raise FileNotFoundError(f"Timeline not found for HR presentation: {timeline_path}")
+
+            audio_file = manifest.get("audio", "narration.wav")
+            audio_path = session_dir / audio_file
+            if not audio_path.exists():
+                audio_path = session_dir / "audio" / audio_file
+            if not audio_path.exists():
+                audio_path = storage_service.get_generated_audio_dir(self.session_id) / audio_file
+
+            if not audio_path.exists():
+                raise FileNotFoundError(f"HR narration audio not found: {audio_path}")
+
+            audio = get_audio_controller(self.session_id)
+            if not audio.validate_audio_route():
+                raise RuntimeError("Audio route validation failed before HR narration playback")
+
+            ppt_ctrl = PowerPointController()
+            current_visible_slide = 1
+            current_visible_slide = ppt_ctrl.get_current_slide_index()
+
+            executor = TimelineExecutor(str(timeline_path))
+
+            async def handle_goto_slide(slide_num: int):
+                nonlocal current_visible_slide
+                logger.info(f"RuntimeCoordinator | HR Mode goto_slide {slide_num} (current: {current_visible_slide})")
+                if current_visible_slide != slide_num:
+                    await ppt_ctrl.goto_slide(slide_num)
+                    current_visible_slide = slide_num
+                self.memory.record_slide_reached(slide_num, f"Slide {slide_num}")
+                self.narration_state = f"speaking_slide_{slide_num}"
+
+            # Start concatenated HR narration playback
+            logger.info(f"RuntimeCoordinator | Playing HR narration audio: {audio_path}")
+            audio.play_narration(audio_path, manifest.get("duration_ms"))
+
+            # Execute timeline synchronized with audio position
+            await executor.execute(
+                audio_controller=audio,
+                on_goto_slide=handle_goto_slide,
+                get_current_slide=lambda: ppt_ctrl.get_current_slide_index()
+            )
+
+            # Wait for final slide narration audio playback to finish naturally
+            logger.info("RuntimeCoordinator | HR Timeline finished. Waiting for final slide audio to finish naturally...")
+            while audio.playing:
+                await asyncio.sleep(0.3)
+
+            logger.info("RuntimeCoordinator | HR Presentation audio playback completed naturally for all slides.")
+            self.narration_state = "finished_closing"
+
+            # Stop sharing, leave Teams, close resources, mark session COMPLETED
+            await self._finalize_and_leave()
+            logger.info(f"RuntimeCoordinator | SUCCESS _run_hr_presentation_flow for session {self.session_id}")
+
+        except Exception as e:
+            logger.error(f"RuntimeCoordinator | FAILED _run_hr_presentation_flow: {e}")
+            await self._finalize_and_leave()
 
     async def _run_closing_flow(self) -> None:
         """

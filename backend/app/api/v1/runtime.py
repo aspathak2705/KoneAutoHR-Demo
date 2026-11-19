@@ -121,10 +121,15 @@ async def start_induction(
             if readiness.get("presentation_detected"):
                 try:
                     coordinator.induction_started = True
-                    greeting_task = asyncio.create_task(coordinator._run_greeting_flow())
-                    coordinator._greeting_task = greeting_task
+                    if coordinator.is_hr_mode:
+                        hr_task = asyncio.create_task(coordinator._run_hr_presentation_flow())
+                        coordinator._hr_presentation_task = hr_task
+                        coordinator._hr_presentation_dispatched = True
+                    else:
+                        greeting_task = asyncio.create_task(coordinator._run_greeting_flow())
+                        coordinator._greeting_task = greeting_task
                     await coordinator.session_manager.transition_to(RuntimeState.PRESENTING)
-                    logger.info(f"API | Presentation already detected. Induction flow triggered for session {session_id}")
+                    logger.info(f"API | Presentation already detected. Induction flow triggered for session {session_id} (HR Mode: {coordinator.is_hr_mode})")
                     return {
                         "status": "success",
                         "auto_shared": False,
@@ -135,9 +140,9 @@ async def start_induction(
                         "checklist": readiness.get("checklist")
                     }
                 except Exception as start_err:
-                    logger.error(f"API | Failed to dispatch greeting flow: {start_err}")
+                    logger.error(f"API | Failed to dispatch presentation flow: {start_err}")
                     await coordinator.session_manager.transition_to(RuntimeState.CONNECTED)
-                    raise HTTPException(status_code=500, detail=f"Failed to start greeting flow: {start_err}")
+                    raise HTTPException(status_code=500, detail=f"Failed to start presentation flow: {start_err}")
 
             # Case B: Presentation not yet shared. Authorize induction and initiate PowerPoint launch & auto-share
             from app.services.storage_service import storage_service
@@ -253,8 +258,13 @@ async def start_induction(
 
                     if obs and obs.presentation_state in ["POWERPOINT_SHARED", "SCREEN_SHARING"]:
                         try:
-                            greeting_task = asyncio.create_task(coordinator._run_greeting_flow())
-                            coordinator._greeting_task = greeting_task
+                            if coordinator.is_hr_mode:
+                                hr_task = asyncio.create_task(coordinator._run_hr_presentation_flow())
+                                coordinator._hr_presentation_task = hr_task
+                                coordinator._hr_presentation_dispatched = True
+                            else:
+                                greeting_task = asyncio.create_task(coordinator._run_greeting_flow())
+                                coordinator._greeting_task = greeting_task
                             await coordinator.session_manager.transition_to(RuntimeState.PRESENTING)
                             return {
                                 "status": "success",
@@ -265,9 +275,9 @@ async def start_induction(
                                 "session_id": session_id
                             }
                         except Exception as start_err:
-                            logger.error(f"API | Failed to dispatch greeting flow: {start_err}")
+                            logger.error(f"API | Failed to dispatch presentation flow: {start_err}")
                             await coordinator.session_manager.transition_to(RuntimeState.CONNECTED)
-                            raise HTTPException(status_code=500, detail=f"Failed to start greeting flow: {start_err}")
+                            raise HTTPException(status_code=500, detail=f"Failed to start presentation flow: {start_err}")
                 except Exception as obs_err:
                     logger.warning(f"API | Immediate observation cycle notice: {obs_err}")
 

@@ -160,6 +160,7 @@ class RuntimeService:
         runtime_context = {
             "session_id": session_id,
             "session_name": session.name,
+            "creation_mode": getattr(session, "creation_mode", "AI") or "AI",
             "meeting": {
                 "teams_meeting_url": meeting.teams_meeting_url,
                 "meeting_passcode": meeting.meeting_passcode,
