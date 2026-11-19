@@ -64,7 +64,7 @@ class PresentationAnalyzer:
                                 best_dist = dist
                                 best_match = slide_name
                         
-                        if best_match and best_dist <= 28:
+                        if best_match and best_dist <= 30:
                             import re
                             num_match = re.search(r'\d+', best_match)
                             if num_match:
@@ -76,12 +76,16 @@ class PresentationAnalyzer:
                                 details["current_slide"] = current_slide
                                 mode = PresentationMode.POWERPOINT_SHARED
                         else:
-                            # Does not match any presentation slide from the session deck
                             if matched_sel in ["[data-tid='powerpoint-live-view']", "[data-tid='ppt-presentation']", "div.ppt-stage", "iframe[src*='powerpoint' i]"]:
                                 mode = PresentationMode.POWERPOINT_SHARED
+                            elif matched_sel and matched_sel not in ["video"]:
+                                mode = PresentationMode.SCREEN_SHARING
                             else:
                                 mode = PresentationMode.NONE
                                 details["unmatched_distance"] = best_dist
+                    else:
+                        # fingerprints.json not yet generated; stage selector confirmed sharing
+                        mode = PresentationMode.SCREEN_SHARING
             except Exception as e:
                 logger.error(f"PresentationAnalyzer | Failed slide matching: {e}")
         else:
