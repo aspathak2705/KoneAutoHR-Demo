@@ -86,6 +86,7 @@ class RuntimeCoordinator:
         # Lifecycle tracking
         self._browser_manager = None
         self._teams_controller = None
+        self.ppt_controller = None
         
         # Retry policy for transient failures
         self.max_retries = 3
@@ -806,11 +807,157 @@ class RuntimeCoordinator:
             if not audio.validate_audio_route():
                 raise RuntimeError("Audio route validation failed before HR narration playback")
 
-            ppt_ctrl = PowerPointController()
-            current_visible_slide = 1
-            current_visible_slide = ppt_ctrl.get_current_slide_index()
+            # Use existing ppt_controller or attach to active PowerPoint slideshow instance
+            if self.ppt_controller and self.ppt_controller.slide_show:
+                ppt_ctrl = self.ppt_controller
+            else:
+                ppt_ctrl = PowerPointController()
+                ppt_ctrl.attach_active()
+                self.ppt_controller = ppt_ctrl
 
+            # Load slide metadata for media timing coordination if present
+            slides_metadata = []
+            slides_meta_path = session_dir / "slides_metadata.json"
+            if slides_meta_path.exists():
+                try:
+                    with open(slides_meta_path, "r", encoding="utf-8") as smf:
+                        slides_metadata = json.load(smf)
+                except Exception as sm_err:
+                    logger.warning(f"RuntimeCoordinator | Could not read slides_metadata.json: {sm_err}")
+
+            # Map slide number to video info (from slides_metadata.json or dynamic COM scan)
+            slide_videos = {}
+            for s in slides_metadata:
+                s_num = s.get("slide_number")
+                v_meta = s.get("video_metadata", [])
+                if s_num and v_meta:
+                    slide_videos[s_num] = v_meta
+
+            # Fallback dynamic scan of media shapes from presentation COM
+            if not slide_videos and ppt_ctrl.presentation:
+                try:
+                    pres_com = ppt_ctrl.presentation
+                    for s_idx in range(1, pres_com.Slides.Count + 1):
+                        shapes = ppt_ctrl.get_slide_media_shapes(s_idx)
+                        if shapes:
+                            v_list = []
+                            for shp in shapes:
+                                dur = 0.0
+                                try:
+                                    if hasattr(shp, "MediaFormat") and shp.MediaFormat.Length > 0:
+                                        dur = shp.MediaFormat.Length / 1000.0
+                                except Exception:
+                                    pass
+                                v_list.append({
+                                    "shape_id": shp.Id,
+                                    "shape_name": shp.Name,
+                                    "duration": dur,
+                                    "supported": True
+                                })
+                            slide_videos[s_idx] = v_list
+                    if slide_videos:
+                        logger.info(f"RuntimeCoordinator | Dynamically discovered media on slides: {list(slide_videos.keys())}")
+                except Exception as dyn_err:
+                    logger.debug(f"RuntimeCoordinator | Dynamic media scan notice: {dyn_err}")
+
+            current_visible_slide = ppt_ctrl.get_current_slide_index()
+            slide_start_monotonic = {}
+            slide_start_monotonic[current_visible_slide] = asyncio.get_running_loop().time()
+
+            # Map slide number to narration window (start_ms, end_ms) based on timeline / manifest
             executor = TimelineExecutor(str(timeline_path))
+            slide_narration_bounds = {}
+            events_list = sorted(executor.events, key=lambda x: x.get("time_ms", 0))
+            for i, ev in enumerate(events_list):
+                s_num = ev.get("slide")
+                st_ms = float(ev.get("time_ms", 0))
+                s_audio_meta = manifest.get("slide_audio_metadata", {}).get(str(s_num), {})
+                dur_ms = s_audio_meta.get("duration_ms")
+                if dur_ms is not None and dur_ms > 0:
+                    end_ms = st_ms + float(dur_ms)
+                elif i + 1 < len(events_list):
+                    end_ms = float(events_list[i + 1].get("time_ms", 0))
+                else:
+                    end_ms = float(manifest.get("duration_ms", st_ms))
+                slide_narration_bounds[s_num] = (st_ms, end_ms)
+
+            slide_video_started = set()
+            slide_video_finished = set()
+            slide_video_play_count = {}
+
+            def is_slide_media_busy(slide_num: int) -> bool:
+                """
+                Checks if slide_num has an embedded video that is currently playing or has not
+                met its required playback duration.
+                """
+                if not ppt_ctrl:
+                    return False
+                if slide_num not in slide_videos:
+                    return False
+                if slide_num in slide_video_finished:
+                    return False
+
+                if slide_num in slide_video_started:
+                    # 1. Check COM player state
+                    if ppt_ctrl.is_media_playing_on_slide(slide_num):
+                        return True
+
+                    # 2. Check duration elapsed
+                    has_known_duration = False
+                    for v in slide_videos[slide_num]:
+                        dur = v.get("duration")
+                        if dur and dur > 0:
+                            has_known_duration = True
+                            start_t = slide_start_monotonic.get(f"{slide_num}_video")
+                            if start_t:
+                                elapsed = asyncio.get_running_loop().time() - start_t
+                                if elapsed < dur:
+                                    return True
+
+                    # 3. Minimum buffer if duration unknown
+                    if not has_known_duration:
+                        start_t = slide_start_monotonic.get(f"{slide_num}_video")
+                        if start_t:
+                            elapsed = asyncio.get_running_loop().time() - start_t
+                            if elapsed < 2.0:
+                                return True
+
+                    slide_video_finished.add(slide_num)
+                    logger.info(
+                        f"RuntimeCoordinator | [MEDIA_STATE] Session: {self.session_id} | "
+                        f"Slide: {slide_num} | State: COMPLETED | Total Starts: {slide_video_play_count.get(slide_num, 0)}"
+                    )
+                    return False
+
+                # Video hasn't started yet: slide is busy waiting for video to play
+                return True
+
+            async def play_slide_video_now(slide_num: int, trigger_source: str = "orchestrator"):
+                """
+                Starts embedded video on slide_num.
+                Guaranteed to trigger exactly once per slide visit.
+                """
+                if slide_num not in slide_videos or slide_num in slide_video_started:
+                    logger.debug(
+                        f"RuntimeCoordinator | Ignoring duplicate video start request on slide {slide_num} "
+                        f"from {trigger_source}. Already started={slide_num in slide_video_started}"
+                    )
+                    return
+
+                slide_video_started.add(slide_num)
+                slide_video_play_count[slide_num] = slide_video_play_count.get(slide_num, 0) + 1
+                slide_start_monotonic[f"{slide_num}_video"] = asyncio.get_running_loop().time()
+
+                v_list = slide_videos.get(slide_num, [])
+                shape_ids = [v.get("shape_id") for v in v_list]
+                logger.info(
+                    f"RuntimeCoordinator | [MEDIA_TRIGGER] Session: {self.session_id} | "
+                    f"Slide: {slide_num} | Trigger: {trigger_source} | Shapes: {shape_ids} | "
+                    f"Start Count: {slide_video_play_count[slide_num]}"
+                )
+
+                for v in v_list:
+                    ppt_ctrl.play_media_on_slide(slide_num, v.get("shape_id"))
 
             async def handle_goto_slide(slide_num: int):
                 nonlocal current_visible_slide
@@ -818,18 +965,35 @@ class RuntimeCoordinator:
                 if current_visible_slide != slide_num:
                     await ppt_ctrl.goto_slide(slide_num)
                     current_visible_slide = slide_num
+                    slide_start_monotonic[current_visible_slide] = asyncio.get_running_loop().time()
+
                 self.memory.record_slide_reached(slide_num, f"Slide {slide_num}")
                 self.narration_state = f"speaking_slide_{slide_num}"
+
+                # For silent video slides without narration, play video immediately on slide entry
+                if current_visible_slide in slide_videos:
+                    bounds = slide_narration_bounds.get(current_visible_slide)
+                    has_narration = False
+                    if bounds:
+                        st_ms, end_ms = bounds
+                        s_meta = manifest.get("slide_audio_metadata", {}).get(str(current_visible_slide), {})
+                        if s_meta.get("type") != "SILENT" and (end_ms - st_ms) > 100:
+                            has_narration = True
+
+                    if not has_narration:
+                        await play_slide_video_now(current_visible_slide, trigger_source="slide_entry_silent")
 
             # Start concatenated HR narration playback
             logger.info(f"RuntimeCoordinator | Playing HR narration audio: {audio_path}")
             audio.play_narration(audio_path, manifest.get("duration_ms"))
 
-            # Execute timeline synchronized with audio position
+            # Execute timeline synchronized with audio position and video holds
             await executor.execute(
                 audio_controller=audio,
                 on_goto_slide=handle_goto_slide,
-                get_current_slide=lambda: ppt_ctrl.get_current_slide_index()
+                is_slide_busy=is_slide_media_busy,
+                get_current_slide=lambda: ppt_ctrl.get_current_slide_index(),
+                start_slide_media=play_slide_video_now,
             )
 
             # Wait for final slide narration audio playback to finish naturally

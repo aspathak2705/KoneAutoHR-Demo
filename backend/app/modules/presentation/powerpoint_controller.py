@@ -9,6 +9,37 @@ class PowerPointController:
         self.powerpoint = None
         self.presentation = None
         self.slide_show = None
+        self._attached = False
+
+    def attach_active(self) -> bool:
+        """
+        Attaches to an existing running PowerPoint instance and active presentation/slideshow
+        without creating a new PowerPoint process or interrupting the existing one.
+        """
+        try:
+            import pythoncom
+            pythoncom.CoInitialize()
+            import win32com.client
+            self.powerpoint = win32com.client.GetActiveObject("PowerPoint.Application")
+            if self.powerpoint.Presentations.Count > 0:
+                try:
+                    self.presentation = self.powerpoint.ActivePresentation
+                except Exception:
+                    self.presentation = self.powerpoint.Presentations(1)
+            if self.powerpoint.SlideShowWindows.Count > 0:
+                self.slide_show = self.powerpoint.SlideShowWindows(1).View
+                logger.info(f"PowerPointController | Attached to active SlideShowWindow (pos: {self.get_current_slide_index()})")
+            elif self.presentation and hasattr(self.presentation, "SlideShowWindow"):
+                try:
+                    self.slide_show = self.presentation.SlideShowWindow.View
+                    logger.info(f"PowerPointController | Attached to presentation SlideShowWindow (pos: {self.get_current_slide_index()})")
+                except Exception:
+                    pass
+            self._attached = True
+            return True
+        except Exception as e:
+            logger.debug(f"PowerPointController | Could not attach to active PowerPoint: {e}")
+            return False
 
     async def open(self, ppt_path: str, *, start_immediately: bool = False) -> None:
         """Open the presentation in PowerPoint and optionally start a windowed slideshow."""
@@ -174,6 +205,8 @@ class PowerPointController:
 
     def get_current_slide_index(self) -> int:
         """Return the 1-based index of the currently displayed slide in the slideshow."""
+        if not self.slide_show:
+            self.attach_active()
         if self.slide_show:
             try:
                 return int(self.slide_show.CurrentShowPosition)
@@ -291,8 +324,11 @@ class PowerPointController:
 
     async def goto_slide(self, slide_index: int) -> None:
         """
-        Navigate directly to a specific slide in show.
+        Navigate directly to a specific slide in show and confirm arrival.
         """
+        if not self.slide_show:
+            self.attach_active()
+
         if self.slide_show:
             try:
                 # Stop any lingering media on current slide before navigating
@@ -314,8 +350,24 @@ class PowerPointController:
                         await self.prev_slide()
                         cur -= 1
                         await asyncio.sleep(0.1)
+
+                # Authoritative confirmation loop: verify PowerPoint actual position matches slide_index
+                for _ in range(25):
+                    if self.get_current_slide_index() == slide_index:
+                        logger.info(f"PowerPointController | Confirmed active slide index is {slide_index}.")
+                        return
+                    await asyncio.sleep(0.1)
+
+                actual = self.get_current_slide_index()
+                if actual != slide_index:
+                    raise RuntimeError(
+                        f"PowerPointController | Slide navigation confirmation failed: expected {slide_index}, but PowerPoint is on slide {actual}"
+                    )
             except Exception as e:
                 logger.error(f"PowerPointController | goto_slide {slide_index} failed: {e}")
+                raise
+        else:
+            raise RuntimeError(f"PowerPointController | Cannot goto_slide {slide_index}: no active slideshow found")
 
     async def next_slide(self) -> None:
         """

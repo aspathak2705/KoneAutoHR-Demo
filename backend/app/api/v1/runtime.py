@@ -200,6 +200,7 @@ async def start_induction(
                 ppt_ctrl = PowerPointController()
                 await ppt_ctrl.open(str(ppt_path), start_immediately=True)
                 ppt_opened = await ppt_ctrl.wait_for_slideshow_window(timeout=10.0)
+                coordinator.ppt_controller = ppt_ctrl
                 logger.info(f"API | PowerPoint slideshow opened for session {session_id}")
             except Exception as ppt_ex:
                 ppt_error = str(ppt_ex)
