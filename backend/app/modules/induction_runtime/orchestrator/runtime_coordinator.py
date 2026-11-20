@@ -141,20 +141,26 @@ class RuntimeCoordinator:
         MANDATORY 3: Validates all prerequisites before entering READY state.
         
         Checks:
-        - Presentation script loaded
+        - Presentation script loaded (AI Mode) or presentation manifest/audio loaded (HR Mode)
         - Employee list available
-        - Meeting configuration present
-        - Browser installation verified
-        - Presentation audio prepared
+        - Presenter/trainer context configured
         
         Raises exception if any prerequisite missing.
         """
-        logger.info(f"RuntimeCoordinator | START _validate_startup_prerequisites")
+        logger.info(f"RuntimeCoordinator | START _validate_startup_prerequisites (Mode: {'HR' if self.is_hr_mode else 'AI'})")
         
         try:
-            # Check presentation script
-            if not self.script_slides:
-                raise Exception("Presentation script not loaded")
+            # HR Mode validates uploaded presentation package & narration, not AI script
+            if self.is_hr_mode:
+                from app.services.storage_service import storage_service
+                session_dir = storage_service.get_session_dir(self.session_id)
+                manifest_path = session_dir / "manifest.json"
+                if not manifest_path.exists():
+                    raise Exception(f"HR presentation manifest not found at {manifest_path}")
+            else:
+                # Check presentation script for AI Mode
+                if not self.script_slides:
+                    raise Exception("Presentation script not loaded")
             
             # Check employees
             if not self.employee_context.employees_list:
@@ -508,13 +514,14 @@ class RuntimeCoordinator:
                 except Exception as e:
                     logger.error(f"RuntimeCoordinator | Failed to cleanup browser: {e}")
 
-            # 4. Force terminate PowerPoint slideshow instance
-            try:
-                import subprocess
-                subprocess.run(["taskkill", "/f", "/im", "powerpnt.exe"], capture_output=True)
-                logger.info("RuntimeCoordinator | PowerPoint presentation process terminated.")
-            except Exception:
-                pass
+            # 4. Safely close PowerPoint slideshow instance
+            if self.ppt_controller:
+                try:
+                    await self.ppt_controller.close_presentation()
+                    logger.info("RuntimeCoordinator | PowerPoint presentation closed safely via COM.")
+                except Exception as ppt_err:
+                    logger.warning(f"RuntimeCoordinator | PowerPoint cleanup notice: {ppt_err}")
+                self.ppt_controller = None
 
             # 5. Terminate persistent PowerShell audio preloader process
             try:
@@ -606,11 +613,17 @@ class RuntimeCoordinator:
     async def inject_question(self, speaker: str, question_text: str) -> str:
         """
         Simulates chat question injection. Interrupts current narration and answers.
-        Only allowed during PRESENTING state.
+        Only allowed during PRESENTING state in AI Mode.
+        In HR Mode, question injection is explicitly unsupported to prevent narration collision.
         """
         logger.info(f"RuntimeCoordinator | START inject_question from {speaker}")
         
         try:
+            if self.is_hr_mode:
+                msg = "Question injection is not supported during HR Mode presentation playback."
+                logger.warning(f"RuntimeCoordinator | {msg}")
+                raise ValueError(msg)
+
             if self.session_manager.state != RuntimeState.PRESENTING:
                 msg = f"Questions not allowed in {self.session_manager.state.value} state"
                 logger.warning(f"RuntimeCoordinator | {msg}")
@@ -735,7 +748,7 @@ class RuntimeCoordinator:
             slide["narration"] = spoken_text
             self._current_narration_text = spoken_text
             
-            def on_complete():
+            async def on_complete_async():
                 logger.info(f"Finished slide {slide_num} narration.")
                 self.narration_state = f"finished_slide_{slide_num}"
                 
@@ -744,6 +757,26 @@ class RuntimeCoordinator:
                 if len(self._narrated_slides) >= total_slides:
                     logger.info(f"RuntimeCoordinator | Final slide ({slide_num}/{total_slides}) completed narration. Proceeding to closing flow.")
                     asyncio.create_task(self._run_closing_flow())
+                    return
+
+                # AI Mode autonomous progression: advance PowerPoint to slide_num + 1
+                next_slide = slide_num + 1
+                if next_slide <= total_slides:
+                    logger.info(f"RuntimeCoordinator | AI Mode advancing PowerPoint slideshow to slide {next_slide}")
+                    try:
+                        from app.modules.presentation.powerpoint_controller import PowerPointController
+                        if not self.ppt_controller or not self.ppt_controller.slide_show:
+                            self.ppt_controller = PowerPointController()
+                            self.ppt_controller.attach_active()
+                        
+                        await self.ppt_controller.goto_slide(next_slide)
+                        self.memory.record_slide_reached(next_slide, f"Slide {next_slide}")
+                        asyncio.create_task(self._speak_slide_narration(next_slide))
+                    except Exception as adv_err:
+                        logger.error(f"RuntimeCoordinator | AI Mode slide advance to {next_slide} failed: {adv_err}")
+
+            def on_complete():
+                asyncio.create_task(on_complete_async())
 
             self.narration_state = f"speaking_slide_{slide_num}"
             if self.config.voice_enabled:

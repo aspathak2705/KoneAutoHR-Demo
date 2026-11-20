@@ -10,17 +10,21 @@ class PowerPointController:
         self.presentation = None
         self.slide_show = None
         self._attached = False
+        self._owns_app = False
 
     def attach_active(self) -> bool:
         """
         Attaches to an existing running PowerPoint instance and active presentation/slideshow
         without creating a new PowerPoint process or interrupting the existing one.
+        Explicitly marks application ownership as external (self._owns_app = False).
         """
         try:
             import pythoncom
             pythoncom.CoInitialize()
             import win32com.client
             self.powerpoint = win32com.client.GetActiveObject("PowerPoint.Application")
+            self._attached = True
+            self._owns_app = False
             if self.powerpoint.Presentations.Count > 0:
                 try:
                     self.presentation = self.powerpoint.ActivePresentation
@@ -35,7 +39,6 @@ class PowerPointController:
                     logger.info(f"PowerPointController | Attached to presentation SlideShowWindow (pos: {self.get_current_slide_index()})")
                 except Exception:
                     pass
-            self._attached = True
             return True
         except Exception as e:
             logger.debug(f"PowerPointController | Could not attach to active PowerPoint: {e}")
@@ -72,16 +75,17 @@ class PowerPointController:
 
         pythoncom.CoInitialize()
 
-        import subprocess
         import win32com.client
-
-        try:
-            subprocess.run(["taskkill", "/f", "/im", "powerpnt.exe"], capture_output=True)
-        except Exception:
-            pass
 
         self.powerpoint = win32com.client.Dispatch("PowerPoint.Application")
         self.powerpoint.Visible = True
+
+        # In Windows COM, Dispatch("PowerPoint.Application") may attach to a pre-existing PowerPoint
+        # instance in the ROT. Because ownership cannot be positively established, default to externally owned.
+        # AutoHR will only close its own presentation and will NEVER call Quit() on this application instance.
+        self._owns_app = False
+        self._attached = True
+        logger.info("PowerPointController | Acquired PowerPoint application instance. Defaulted to externally owned (AutoHR will not Quit app).")
 
         try:
             self.powerpoint.WindowState = 2  # ppWindowMinimized
@@ -401,17 +405,44 @@ class PowerPointController:
 
     async def close_presentation(self) -> None:
         """
-        Close the presentation and quit the PowerPoint application COM instance.
+        Close the presentation and quit the PowerPoint application COM instance ONLY IF
+        AutoHR explicitly created/owns the application instance and no other presentations remain open.
+        If attached or externally owned, only the presentation opened by AutoHR is closed.
         """
         import pythoncom
         pythoncom.CoInitialize()
         try:
             if self.presentation:
-                self.presentation.Close()
+                try:
+                    self.presentation.Close()
+                except Exception as p_err:
+                    logger.debug(f"PowerPointController | Presentation close notice: {p_err}")
                 self.presentation = None
+
             if self.powerpoint:
-                self.powerpoint.Quit()
+                # Rule: Never quit an externally owned or attached PowerPoint instance
+                if getattr(self, "_owns_app", False):
+                    should_quit = False
+                    try:
+                        should_quit = (self.powerpoint.Presentations.Count == 0)
+                    except Exception:
+                        should_quit = False  # Ambiguous state defaults to NOT quitting
+                    
+                    if should_quit:
+                        try:
+                            self.powerpoint.Quit()
+                            logger.info("PowerPointController | AutoHR-owned PowerPoint application quit cleanly.")
+                        except Exception as q_err:
+                            logger.debug(f"PowerPointController | PowerPoint Quit notice: {q_err}")
+                    else:
+                        logger.info("PowerPointController | Presentations remain open in owned instance; preserving application.")
+                else:
+                    logger.info("PowerPointController | PowerPoint application is externally owned or attached; preserving application instance.")
                 self.powerpoint = None
+
+            self.slide_show = None
+            self._attached = False
+            self._owns_app = False
             logger.info("PowerPointController | PowerPoint presentation closed successfully.")
         except Exception as e:
             logger.warning(f"PowerPointController | PowerPoint close failed: {e}")

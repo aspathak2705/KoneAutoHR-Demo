@@ -117,10 +117,15 @@ async def start_induction(
                     }
                 )
 
-            # Case A: If presentation is ALREADY detected, proceed directly with existing flow
+            # Case A: If presentation is ALREADY detected, transition first, then dispatch flow
             if readiness.get("presentation_detected"):
                 try:
                     coordinator.induction_started = True
+                    # 1. State transition to PRESENTING must succeed first
+                    if not await coordinator.session_manager.transition_to(RuntimeState.PRESENTING):
+                        raise RuntimeError(f"Failed to transition state machine to PRESENTING from {coordinator.session_manager.state.value}")
+
+                    # 2. Acquire flow guard and dispatch flow only after successful transition
                     if coordinator.is_hr_mode:
                         if not getattr(coordinator, "_hr_flow_started", False):
                             coordinator._hr_flow_started = True
@@ -129,7 +134,7 @@ async def start_induction(
                     else:
                         greeting_task = asyncio.create_task(coordinator._run_greeting_flow())
                         coordinator._greeting_task = greeting_task
-                    await coordinator.session_manager.transition_to(RuntimeState.PRESENTING)
+
                     logger.info(f"API | Presentation already detected. Induction flow triggered for session {session_id} (HR Mode: {coordinator.is_hr_mode})")
                     return {
                         "status": "success",
@@ -142,6 +147,7 @@ async def start_induction(
                     }
                 except Exception as start_err:
                     logger.error(f"API | Failed to dispatch presentation flow: {start_err}")
+                    coordinator._hr_flow_started = False
                     await coordinator.session_manager.transition_to(RuntimeState.CONNECTED)
                     raise HTTPException(status_code=500, detail=f"Failed to start presentation flow: {start_err}")
 
@@ -260,6 +266,11 @@ async def start_induction(
 
                     if obs and obs.presentation_state in ["POWERPOINT_SHARED", "SCREEN_SHARING"]:
                         try:
+                            # 1. State transition to PRESENTING must succeed first
+                            if not await coordinator.session_manager.transition_to(RuntimeState.PRESENTING):
+                                raise RuntimeError(f"Failed to transition state machine to PRESENTING from {coordinator.session_manager.state.value}")
+
+                            # 2. Acquire flow guard and dispatch flow only after successful transition
                             if coordinator.is_hr_mode:
                                 if not getattr(coordinator, "_hr_flow_started", False):
                                     coordinator._hr_flow_started = True
@@ -268,7 +279,7 @@ async def start_induction(
                             else:
                                 greeting_task = asyncio.create_task(coordinator._run_greeting_flow())
                                 coordinator._greeting_task = greeting_task
-                            await coordinator.session_manager.transition_to(RuntimeState.PRESENTING)
+
                             return {
                                 "status": "success",
                                 "auto_shared": True,
@@ -279,6 +290,7 @@ async def start_induction(
                             }
                         except Exception as start_err:
                             logger.error(f"API | Failed to dispatch presentation flow: {start_err}")
+                            coordinator._hr_flow_started = False
                             await coordinator.session_manager.transition_to(RuntimeState.CONNECTED)
                             raise HTTPException(status_code=500, detail=f"Failed to start presentation flow: {start_err}")
                 except Exception as obs_err:

@@ -135,19 +135,14 @@ class PowerPointSlideExtractor(SlideExtractor):
             import win32com.client
             import pythoncom
             pythoncom.CoInitialize()
-            import subprocess
-            try:
-                subprocess.run(["taskkill", "/f", "/im", "powerpnt.exe"], capture_output=True)
-            except Exception:
-                pass
             try:
                 powerpoint = win32com.client.Dispatch("PowerPoint.Application")
-                # Open presentation in read-only and without a visible window if possible
+                # In Windows COM, Dispatch may bind to an existing user application instance.
+                # Default to externally owned: never call Quit() from slide extraction.
                 presentation = powerpoint.Presentations.Open(abs_ppt, ReadOnly=True, WithWindow=False)
                 # Export slides to the folder as PNG
                 presentation.Export(abs_out, "PNG")
                 presentation.Close()
-                powerpoint.Quit()
                 del presentation
                 del powerpoint
                 import gc
