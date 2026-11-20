@@ -1748,11 +1748,14 @@ function NewSessionPage() {
           <CardHeader>
             <CardTitle className="text-xl flex items-center justify-between">
               <span className="flex items-center gap-2">
-                <HelpCircle className="h-5 w-5 text-primary" /> Step 4: Review Employee Questions
+                <HelpCircle className="h-5 w-5 text-primary" /> Step 4: Employee Questions (Optional)
               </span>
+              <Badge variant="outline" className="text-xs text-muted-foreground font-normal">
+                Optional Step
+              </Badge>
             </CardTitle>
             <CardDescription>
-              Verify questions employees might ask during safety/operations induction. Customize the default answers.
+              Predict questions employees might ask during induction and customize answers. You can generate questions or skip to the next step.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -1760,11 +1763,18 @@ function NewSessionPage() {
               <div className="p-8 border border-dashed border-border rounded-xl text-center space-y-4">
                 <HelpCircle className="h-10 w-10 text-muted-foreground/60 mx-auto" />
                 <div>
-                  <h3 className="font-semibold text-lg">No Questions Prepared</h3>
+                  <h3 className="font-semibold text-lg">No Questions Prepared (Optional)</h3>
                   <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
-                    There are no saved expected questions for this presentation. Expand Options below to generate defaults.
+                    Question prediction is optional. You can generate questions using AI below or skip directly to the next step.
                   </p>
                 </div>
+                <Button
+                  onClick={handleGenerateQuestions}
+                  disabled={generatingQuestions}
+                  className="gap-2"
+                >
+                  <Sparkles className="h-4 w-4" /> {generatingQuestions ? "Generating Questions..." : "Generate AI Questions"}
+                </Button>
               </div>
             ) : !showQuestionsEditor ? (
               <div className="p-6 border border-green-100 bg-green-50/10 rounded-xl space-y-4 text-center">
@@ -1850,10 +1860,9 @@ function NewSessionPage() {
               </Button>
               <Button
                 onClick={() => setStep(5)}
-                disabled={!questions}
                 className="gap-2"
               >
-                Next Step <ChevronRight className="h-4 w-4" />
+                {!questions ? "Skip / Next Step" : "Next Step"} <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
           </CardContent>

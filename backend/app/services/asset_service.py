@@ -121,7 +121,8 @@ class AssetService:
         meeting = db.query(Meeting).filter(Meeting.session_id == session_id).first()
         has_meeting = meeting is not None and bool(meeting.teams_url) and bool(meeting.date) and bool(meeting.time)
 
-        is_ready = has_presentation and has_employees and has_script and has_faq and has_meeting
+        # Questions/FAQs are optional and do not block is_ready
+        is_ready = has_presentation and has_employees and has_script and has_meeting
 
         return {
             "session_id": session_id,

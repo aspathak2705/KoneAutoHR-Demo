@@ -58,18 +58,18 @@ class RuntimeReadinessService:
             else:
                 script_reason = "No presentation script generated for linked presentation asset"
 
-        # Questions Readiness — skipped for HR Recorded mode
+        # Questions Readiness — optional in AI Mode and skipped for HR Recorded mode
         if is_hr_mode:
             questions_ready = True
             questions_reason = "N/A (HR Recorded mode — no AI FAQs required)"
         else:
-            questions_ready = pres_ready and questions is not None and bool(getattr(questions, "questions_content", None))
-            if questions_ready:
+            has_questions = pres_ready and questions is not None and bool(getattr(questions, "questions_content", None))
+            # Optional: Does not block overall readiness whether generated or omitted
+            questions_ready = True
+            if has_questions:
                 questions_reason = None
-            elif not pres_ready:
-                questions_reason = "No presentation asset linked"
             else:
-                questions_reason = "No expected questions/FAQs generated for linked presentation asset"
+                questions_reason = "Optional: No expected questions/FAQs generated for linked presentation asset (skipped)"
 
         # Package & Audio pre-generation Readiness - manifest.json single entry point
         package_dir = storage_service.get_session_dir(session_id)
@@ -123,6 +123,8 @@ class RuntimeReadinessService:
         else:
             meeting_reason = "Meeting date or time missing"
 
+        has_faq = is_hr_mode or (pres_ready and questions is not None and bool(getattr(questions, "questions_content", None)))
+
         missing = []
         if not pres_ready:
             missing.append("presentation")
@@ -130,14 +132,12 @@ class RuntimeReadinessService:
             missing.append("employees")
         if not script_ready:
             missing.append("script")
-        if not questions_ready:
-            missing.append("questions")
         if not audio_ready:
             missing.append("audio")
         if not meeting_ready:
             missing.append("meeting")
 
-        overall_ready = pres_ready and emp_ready and script_ready and questions_ready and audio_ready and meeting_ready
+        overall_ready = pres_ready and emp_ready and script_ready and audio_ready and meeting_ready
 
         return {
             "overall_ready": overall_ready,
@@ -146,7 +146,7 @@ class RuntimeReadinessService:
             "has_presentation": pres_ready,
             "has_employees": emp_ready,
             "has_script": script_ready,
-            "has_faq": questions_ready,
+            "has_faq": has_faq,
             "has_audio": audio_ready,
             "has_meeting": meeting_ready,
             "is_ready": overall_ready,

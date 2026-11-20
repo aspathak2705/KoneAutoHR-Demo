@@ -666,10 +666,11 @@ def get_runtime_status(session_id: str, db: DBSession = Depends(get_db)):
         "last_heartbeat": last_hb,
         "last_error": db_runtime.last_error if db_runtime else None,
         "questions_asked": len(questions),
-        "presentation_ready": readiness.get("has_presentation") and readiness.get("has_script") and readiness.get("has_faq"),
+        "presentation_ready": readiness.get("has_presentation") and readiness.get("has_script"),
         "employees_ready": readiness.get("has_employees"),
         "meeting_ready": readiness.get("has_meeting"),
-        "ai_ready": readiness.get("has_script") and readiness.get("has_faq"),
+        "ai_ready": readiness.get("has_script"),
+        "has_faq": readiness.get("has_faq", False),
         "readiness_report": readiness,
         "narration_state": narration_state
     }

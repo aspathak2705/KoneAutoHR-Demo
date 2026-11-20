@@ -1199,7 +1199,7 @@ function SessionDetailPage() {
           )}
 
           {/* Expected Employee Questions Editor */}
-          <SectionShell title="Expected Employee Questions" icon={MessageCircleQuestion}>
+          <SectionShell title="Expected Employee Questions (Optional)" icon={MessageCircleQuestion}>
             {questionsRecord ? (
               <Card className="border-border/60">
                 <CardContent className="p-5 space-y-4">
@@ -1284,7 +1284,20 @@ function SessionDetailPage() {
                 </CardContent>
               </Card>
             ) : (
-              <p className="text-sm text-muted-foreground italic px-2">No questions generated yet.</p>
+              <div className="p-6 border border-dashed border-border/60 rounded-xl space-y-3 text-center bg-muted/5">
+                <p className="text-xs text-muted-foreground">
+                  Expected employee questions/FAQs are optional. The session can be prepared and run without them.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGenerateQuestions}
+                  disabled={generatingQuestions || !session?.presentation_id || !session?.employee_list_id}
+                  className="gap-1.5 text-xs"
+                >
+                  <Sparkles className="h-3.5 w-3.5" /> {generatingQuestions ? "Generating..." : "Generate Expected FAQs"}
+                </Button>
+              </div>
             )}
           </SectionShell>
 
@@ -2478,21 +2491,24 @@ function SessionDetailPage() {
                             <div className="flex items-center gap-2">
                               <span className={cn(
                                 "h-2.5 w-2.5 rounded-full shrink-0",
-                                readiness?.has_faq ? "bg-green-500 ring-2 ring-green-100" : "bg-amber-500 ring-2 ring-amber-100"
+                                readiness?.has_faq ? "bg-green-500 ring-2 ring-green-100" : "bg-muted-foreground/40"
                               )} />
                               <span className="font-semibold text-foreground">Expected FAQs</span>
+                              <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5 text-muted-foreground font-normal">
+                                Optional
+                              </Badge>
                             </div>
                             <span className={cn(
                               "text-[10px] px-1.5 py-0.5 rounded border font-medium",
-                              readiness?.has_faq ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200"
+                              readiness?.has_faq ? "bg-green-50 text-green-700 border-green-200" : "bg-muted/50 text-muted-foreground border-border"
                             )}>
-                              {readiness?.has_faq ? "Generated" : "Pending"}
+                              {readiness?.has_faq ? "Generated" : "Skipped / Optional"}
                             </span>
                           </div>
                           {!readiness?.has_faq && (
                             <div className="pl-4 pt-1 space-y-2">
-                              <p className="text-[11px] text-amber-700 leading-snug">
-                                {readiness?.questions?.reason || "Expected attendee FAQs have not been predicted."}
+                              <p className="text-[11px] text-muted-foreground leading-snug">
+                                Expected attendee FAQs are optional. AutoHR can conduct the induction without predefined questions.
                               </p>
                               <Button
                                 type="button"
@@ -2500,9 +2516,9 @@ function SessionDetailPage() {
                                 variant="outline"
                                 onClick={handleGenerateQuestions}
                                 disabled={generatingQuestions || !session?.presentation_id || !session?.employee_list_id}
-                                className="h-7 text-xs gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
+                                className="h-7 text-xs gap-1.5 border-border text-foreground hover:bg-muted"
                               >
-                                <MessageCircleQuestion className="h-3 w-3" /> {generatingQuestions ? "Generating..." : "Generate FAQs"}
+                                <MessageCircleQuestion className="h-3 w-3" /> {generatingQuestions ? "Generating..." : "Generate FAQs (Optional)"}
                               </Button>
                             </div>
                           )}

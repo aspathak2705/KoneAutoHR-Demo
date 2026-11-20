@@ -115,22 +115,19 @@ class RuntimeService:
                 "closing_script": {"summary": "Session completed."}
             }
 
-        # 5. Load FAQ / Questions
+        # 5. Load FAQ / Questions (Optional)
         faq = presentation_question_repository.get_active(db, presentation.id)
-        if not is_hr_mode and (not faq or faq.status not in ["ACTIVE", "COMPLETED"]):
-            raise ValueError("Expected employee FAQs have not been prepared.")
-
         faq_payload = []
-        if faq:
-            faq_payload = faq.questions_content
-            if isinstance(faq_payload, str):
+        if faq and faq.status in ["ACTIVE", "COMPLETED"]:
+            raw_content = faq.questions_content
+            if isinstance(raw_content, str):
                 try:
                     import json
-                    faq_payload = json.loads(faq_payload)
+                    faq_payload = json.loads(raw_content)
                 except Exception:
                     faq_payload = []
-            elif not isinstance(faq_payload, list):
-                faq_payload = []
+            elif isinstance(raw_content, list):
+                faq_payload = raw_content
 
         # 6. Load Employees
         if not session.employee_list:

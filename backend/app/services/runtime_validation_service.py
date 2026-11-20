@@ -67,7 +67,6 @@ class RuntimeValidationService:
             "has_presentation": presentation is not None and bool(getattr(presentation, "original_filename", None) or getattr(presentation, "name", None)),
             "has_employees": employee_list is not None and getattr(employee_list, "employee_count", 0) > 0,
             "has_script": True if is_hr_mode else (script is not None and bool(script.script_content)),
-            "has_faq": True if is_hr_mode else (questions is not None and bool(questions.questions_content)),
             "has_company_config": config is not None and bool(config.company_name),
             "valid_meeting_url_format": valid_url,
             "valid_meeting_date_format": valid_date,
@@ -78,6 +77,9 @@ class RuntimeValidationService:
 
         missing = [key for key, valid in checks.items() if not valid]
         is_ready = len(missing) == 0
+
+        # Include has_faq as diagnostic status flag (optional, non-blocking)
+        checks["has_faq"] = True if is_hr_mode else (questions is not None and bool(questions.questions_content))
 
         return {
             "session_id": session_id,

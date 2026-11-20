@@ -97,15 +97,14 @@ class SessionService:
                     logger = logging.getLogger("app.services.session_service")
                     logger.error(f"SessionService | Failed to extract slide thumbnails for HR session: {parse_err}")
 
-            # If script and questions are already generated, create job and mark as completed immediately
+            # If presentation script is already generated, create job and mark as completed immediately
+            # (Questions/FAQs are optional and do not block preparation job completion)
             if session.presentation_id:
                 from app.repositories.presentation_script_repository import presentation_script_repository
-                from app.repositories.presentation_question_repository import presentation_question_repository
                 from app.core.constants import JobStatus
                 
                 script = presentation_script_repository.get_active(db, session.presentation_id)
-                questions = presentation_question_repository.get_active(db, session.presentation_id)
-                if script and questions:
+                if script:
                     job = presentation_job_service.create_job(db, session.id)
                     presentation_job_service.update_job_status(db, job.id, JobStatus.COMPLETED, progress=1.0)
             
