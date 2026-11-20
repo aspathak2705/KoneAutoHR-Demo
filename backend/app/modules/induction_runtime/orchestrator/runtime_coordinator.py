@@ -163,9 +163,7 @@ class RuntimeCoordinator:
             if not self.presenter_context.profile:
                 raise Exception("Trainer context not configured")
             
-            # Check FAQ
-            if not self.faq_records:
-                raise Exception("FAQ records not loaded")
+            # FAQ records are optional (may be empty if user skipped question generation)
             
             logger.info(f"RuntimeCoordinator | SUCCESS _validate_startup_prerequisites - all checks passed")
         except Exception as e:
