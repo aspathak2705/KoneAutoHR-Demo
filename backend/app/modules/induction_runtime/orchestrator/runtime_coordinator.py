@@ -82,6 +82,10 @@ class RuntimeCoordinator:
         self._hr_flow_lock = asyncio.Lock()
         self._hr_flow_started: bool = False
         self._hr_presentation_task: Optional[asyncio.Task] = None
+        self._greeting_task: Optional[asyncio.Task] = None
+        self._closing_task: Optional[asyncio.Task] = None
+        self._slide_narration_task: Optional[asyncio.Task] = None
+        self._observer_task: Optional[asyncio.Task] = None
         
         # Lifecycle tracking
         self._browser_manager = None
@@ -302,7 +306,7 @@ class RuntimeCoordinator:
                 except Exception as loop_err:
                     logger.error(f"RuntimeCoordinator | Fatal observer loop failure: {loop_err}")
 
-            asyncio.create_task(background_observer())
+            self._observer_task = asyncio.create_task(background_observer())
             
             return True
         except Exception as e:
@@ -482,6 +486,27 @@ class RuntimeCoordinator:
         logger.info(f"RuntimeCoordinator | START _cleanup_resources")
         
         try:
+            # 0. Cancel and safely await any running background tasks owned by this session
+            tasks_to_cancel = [
+                self._observer_task,
+                self._hr_presentation_task,
+                self._greeting_task,
+                self._closing_task,
+                self._slide_narration_task,
+            ]
+            active_tasks = [t for t in tasks_to_cancel if t and not t.done()]
+            for t in active_tasks:
+                t.cancel()
+            if active_tasks:
+                await asyncio.gather(*active_tasks, return_exceptions=True)
+            
+            # Stop voice output / audio tasks for this session
+            if hasattr(self, "voice_output") and self.voice_output:
+                try:
+                    self.voice_output.stop()
+                except Exception as vo_err:
+                    logger.debug(f"RuntimeCoordinator | VoiceOutput stop notice: {vo_err}")
+
             # 1. Stop Teams screen sharing if active
             from app.modules.meeting_bot.services.meeting_bot_service import meeting_bot_service
             bot = meeting_bot_service.get_bot(self.session_id)
@@ -505,11 +530,11 @@ class RuntimeCoordinator:
             if self._teams_controller:
                 self._teams_controller = None
             
-            # 3. Cleanup browser
+            # 3. Cleanup browser for this session
             if self._browser_manager:
                 try:
-                    logger.info(f"RuntimeCoordinator | Cleaning up browser")
-                    await self._browser_manager.close()
+                    logger.info(f"RuntimeCoordinator | Cleaning up browser for session {self.session_id}")
+                    await self._browser_manager.close(self.session_id)
                     self._browser_manager = None
                 except Exception as e:
                     logger.error(f"RuntimeCoordinator | Failed to cleanup browser: {e}")
@@ -579,7 +604,7 @@ class RuntimeCoordinator:
                     logger.info("RuntimeCoordinator | AI Mode presentation active. Launching greeting flow.")
                     if await self.session_manager.transition_to(RuntimeState.PRESENTING):
                         self._greeting_dispatched = True
-                        asyncio.create_task(self._run_greeting_flow())
+                        self._greeting_task = asyncio.create_task(self._run_greeting_flow())
                         return
 
         # Handle slide changes during PRESENTING (AI Mode only)
@@ -593,7 +618,7 @@ class RuntimeCoordinator:
                     if self.config.voice_enabled:
                         self.voice_output.interrupt()
                     
-                    asyncio.create_task(self._speak_slide_narration(slide_num))
+                    self._slide_narration_task = asyncio.create_task(self._speak_slide_narration(slide_num))
 
         # Transition: PRESENTING → CONNECTED (presentation paused/ended)
         if ObservationEvent.PRESENTATION_ENDED in observation.events:
@@ -604,7 +629,7 @@ class RuntimeCoordinator:
                 if not self.is_hr_mode:
                     total_slides = max(len(self.flow_controller.slides_script), len(self.script_slides), 1)
                     if len(self._narrated_slides) >= total_slides:
-                        asyncio.create_task(self._run_closing_flow())
+                        self._closing_task = asyncio.create_task(self._run_closing_flow())
                     else:
                         await self.session_manager.transition_to(RuntimeState.CONNECTED)
                 else:
@@ -702,7 +727,7 @@ class RuntimeCoordinator:
                 logger.info("RuntimeCoordinator | Welcome greeting completed. Ready for slides.")
                 self.narration_state = "finished_greeting"
                 self.memory.record_slide_reached(1, "Slide 1")
-                asyncio.create_task(self._speak_slide_narration(1))
+                self._slide_narration_task = asyncio.create_task(self._speak_slide_narration(1))
 
             self.narration_state = "speaking_greeting"
             if self.config.voice_enabled:
@@ -756,7 +781,7 @@ class RuntimeCoordinator:
                 total_slides = max(len(self.flow_controller.slides_script), len(self.script_slides), 1)
                 if len(self._narrated_slides) >= total_slides:
                     logger.info(f"RuntimeCoordinator | Final slide ({slide_num}/{total_slides}) completed narration. Proceeding to closing flow.")
-                    asyncio.create_task(self._run_closing_flow())
+                    self._closing_task = asyncio.create_task(self._run_closing_flow())
                     return
 
                 # AI Mode autonomous progression: advance PowerPoint to slide_num + 1
@@ -771,7 +796,7 @@ class RuntimeCoordinator:
                         
                         await self.ppt_controller.goto_slide(next_slide)
                         self.memory.record_slide_reached(next_slide, f"Slide {next_slide}")
-                        asyncio.create_task(self._speak_slide_narration(next_slide))
+                        self._slide_narration_task = asyncio.create_task(self._speak_slide_narration(next_slide))
                     except Exception as adv_err:
                         logger.error(f"RuntimeCoordinator | AI Mode slide advance to {next_slide} failed: {adv_err}")
 
@@ -956,6 +981,7 @@ class RuntimeCoordinator:
                                 return True
 
                     slide_video_finished.add(slide_num)
+                    ppt_ctrl.stop_media_on_slide(slide_num)
                     logger.info(
                         f"RuntimeCoordinator | [MEDIA_STATE] Session: {self.session_id} | "
                         f"Slide: {slide_num} | State: COMPLETED | Total Starts: {slide_video_play_count.get(slide_num, 0)}"

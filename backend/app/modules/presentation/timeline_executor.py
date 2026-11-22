@@ -82,10 +82,26 @@ class TimelineExecutor:
 
                             while is_slide_busy(cur_slide):
                                 await asyncio.sleep(0.3)
-                            logger.info(f"TimelineExecutor | Slide {cur_slide} media completed. Resuming narration audio.")
-                            # Resynchronize current_pos after pause/resume cycle
+                            logger.info(f"TimelineExecutor | Slide {cur_slide} media completed. Advancing to slide {slide_num} before resuming narration.")
+
+                            self.executed_event_ids.add(event_id)
+                            if action == "goto_slide":
+                                logger.info(
+                                    f"TimelineExecutor | Triggering event {event_id}: goto_slide {slide_num} "
+                                    f"at position {current_pos:.0f}ms (scheduled {event['time_ms']}ms)"
+                                )
+                                try:
+                                    if asyncio.iscoroutinefunction(on_goto_slide):
+                                        await on_goto_slide(slide_num)
+                                    else:
+                                        on_goto_slide(slide_num)
+                                except Exception as e:
+                                    logger.error(f"TimelineExecutor | Event handler failed: {e}")
+
+                            # Resynchronize current_pos and resume narration ONLY after new slide is confirmed active
                             current_pos = audio_controller.position()
                             audio_controller.resume_audio()
+                            continue
 
                     self.executed_event_ids.add(event_id)
 

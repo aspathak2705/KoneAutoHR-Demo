@@ -8,8 +8,6 @@ from typing import Generator, Optional
 from loguru import logger
 
 from app.core.config import settings
-from app.core.security.encryption_service import encryption_service
-from app.core.security.key_manager import key_manager
 from app.storage.local_storage import get_storage_provider
 
 
@@ -63,14 +61,14 @@ secure_temp_manager = SecureTempManager()
 
 class SecureStorage:
     """
-    Secure Storage Layer providing transparent encrypted asset access.
-    Decrypts encrypted assets on-the-fly into controlled temporary context files for runtime processing.
+    Transparent asset access layer.
+    Directly returns physical plaintext file path without application-level encryption.
     """
     @contextmanager
     def open_decrypted_file(self, entity_model) -> Generator[Path, None, None]:
         """
-        Context manager that decrypts entity storage file and yields temp plaintext Path.
-        If entity is legacy unencrypted (encryption_version == 0), returns physical path directly.
+        Context manager that yields physical plaintext Path directly.
+        All storage is ordinary unencrypted storage.
         """
         provider = get_storage_provider()
         full_path = provider.get_path(entity_model.storage_path)
@@ -83,56 +81,14 @@ class SecureStorage:
                 {"entity_id": getattr(entity_model, "id", None), "storage_path": entity_model.storage_path}
             )
 
-        # Legacy unencrypted fallback
-        if getattr(entity_model, "encryption_version", 0) == 0:
-            yield full_path
-            return
-
-        # Decrypt encrypted asset
-        with open(full_path, "rb") as f:
-            ciphertext = f.read()
-
-        try:
-            master_key = key_manager.get_master_key()
-            dek = encryption_service.unwrap_dek(entity_model.wrapped_dek, master_key)
-            nonce = base64.b64decode(entity_model.nonce.encode('utf-8'))
-            plaintext = encryption_service.decrypt_bytes(ciphertext, dek, nonce)
-        except Exception as crypt_err:
-            from app.core.exceptions import DecryptionException
-            logger.error(
-                f"SecureStorage | Decryption failed for {entity_model.__class__.__name__} "
-                f"id={getattr(entity_model, 'id', 'unknown')}: {crypt_err}"
-            )
-            raise DecryptionException(
-                f"Failed to decrypt {entity_model.__class__.__name__} asset '{getattr(entity_model, 'original_filename', entity_model.storage_path)}': "
-                f"cryptographic integrity check failed or material was encrypted under a different master key.",
-                {"entity_id": getattr(entity_model, "id", None), "error": str(crypt_err)}
-            ) from crypt_err
-        
-        suffix = Path(entity_model.original_filename).suffix or ".tmp"
-        with secure_temp_manager.create_temp_plaintext_file(plaintext, file_suffix=suffix) as temp_path:
-            yield temp_path
+        yield full_path
 
     def verify_decryptability(self, storage_path: str, wrapped_dek: Optional[str] = None, nonce: Optional[str] = None) -> bool:
         if not storage_path:
             return False
         provider = get_storage_provider()
         full_path = provider.get_path(storage_path)
-        if not full_path.exists():
-            return False
-        if not wrapped_dek or not nonce:
-            return True
-        try:
-            master_key = key_manager.get_master_key()
-            dek = encryption_service.unwrap_dek(wrapped_dek, master_key)
-            nonce_bytes = base64.b64decode(nonce.encode('utf-8'))
-            with open(full_path, 'rb') as f:
-                ciphertext = f.read()
-            encryption_service.decrypt_bytes(ciphertext, dek, nonce_bytes)
-            return True
-        except Exception as e:
-            logger.debug(f'SecureStorage | verify_decryptability failed for {storage_path}: {e}')
-            return False
+        return full_path.exists()
 
 secure_storage = SecureStorage()
 SecureTempManager.verify_decryptability = staticmethod(secure_storage.verify_decryptability)

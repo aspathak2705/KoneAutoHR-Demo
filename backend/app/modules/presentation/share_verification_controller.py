@@ -38,14 +38,5 @@ class ShareVerificationController:
                     pass
             await asyncio.sleep(0.5)
 
-        logger.warning("ShareVerificationController | Standard confirmation selector not found within timeout; checking active stream indicators")
-        # Secondary fallback: check if presenting indicator or call toolbar is active
-        try:
-            call_toolbar = page.locator("[data-tid='call-controls'], #call-controls, div[role='toolbar']")
-            if await call_toolbar.count() > 0:
-                logger.info("ShareVerificationController | Call controls active during share handoff; proceeding safely.")
-                return True
-        except Exception:
-            pass
-
-        raise RuntimeError("Teams sharing confirmation was not detected")
+        logger.warning("ShareVerificationController | Standard confirmation selector not found within timeout; sharing not confirmed.")
+        return False

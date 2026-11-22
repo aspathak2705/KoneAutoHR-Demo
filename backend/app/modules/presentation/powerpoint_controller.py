@@ -359,6 +359,8 @@ class PowerPointController:
                 for _ in range(25):
                     if self.get_current_slide_index() == slide_index:
                         logger.info(f"PowerPointController | Confirmed active slide index is {slide_index}.")
+                        # Enforce media pause/stop upon arrival so video does not autoplay over narration
+                        self.stop_media_on_slide(slide_index)
                         return
                     await asyncio.sleep(0.1)
 

@@ -18,23 +18,41 @@ class BrowserManager:
     - Page
 
     RuntimeCoordinator owns lifecycle.
+    Tracks browser sessions and playwright instances indexed by session_id.
     """
 
     def __init__(self):
+        self._sessions: dict[str, BrowserSession] = {}
+        self._playwright_instances: dict[str, any] = {}
+        # Backward compatibility properties pointing to last active session
         self.session: BrowserSession | None = None
         self.playwright_instance = None
+
+    def get_session(self, session_id: str = "default_session") -> BrowserSession | None:
+        """Retrieve browser session for a specific session_id. Returns strictly the requested session or None."""
+        return self._sessions.get(session_id)
+
+    def get_page(self, session_id: str = "default_session"):
+        sess = self.get_session(session_id)
+        return sess.page if sess else None
+
+    def get_context(self, session_id: str = "default_session"):
+        sess = self.get_session(session_id)
+        return sess.context if sess else None
 
     async def launch(self, session_id: str = "default_session") -> BrowserSession:
         """
         Launch Playwright persistent Chromium.
 
-        Stores BrowserSession internally.
+        Stores BrowserSession internally indexed by session_id.
         """
 
         logger.info(f"BrowserManager | START launch | Session: {session_id}")
 
         try:
-            self.playwright_instance = await async_playwright().start()
+            pw_instance = await async_playwright().start()
+            self._playwright_instances[session_id] = pw_instance
+            self.playwright_instance = pw_instance
 
             from app.core.config import settings
             from app.db.database import SessionLocal
@@ -123,24 +141,26 @@ class BrowserManager:
 
             if context.pages:
                 page = context.pages[0]
-                page._playwright_instance = self.playwright_instance
+                page._playwright_instance = pw_instance
                 page._session_id = session_id
             else:
                 page = await context.new_page()
                 page._session_id = session_id
 
-            self.session = BrowserSession(
+            session_obj = BrowserSession(
                 browser=None,
                 context=context,
                 page=page,
             )
+            self._sessions[session_id] = session_obj
+            self.session = session_obj
 
-            logger.info("BrowserManager | SUCCESS launch | Browser ready")
-            return self.session
+            logger.info(f"BrowserManager | SUCCESS launch | Browser ready for session {session_id}")
+            return session_obj
         
         except Exception as e:
             logger.exception(f"BrowserManager | FAILED launch: {e}")
-            await self._cleanup_playwright()
+            await self._cleanup_playwright(session_id)
             raise
 
     @property
@@ -155,33 +175,56 @@ class BrowserManager:
 
         return self.session.context if self.session else None
 
-    async def close(self) -> None:
+    async def close(self, session_id: str | None = None) -> None:
         """
-        Close browser resources.
+        Close browser resources for a specific session_id.
+        If session_id is None, closes all sessions or the default session.
         """
 
-        logger.info("BrowserManager | START close")
+        logger.info(f"BrowserManager | START close | Session: {session_id}")
 
         try:
-            if self.session:
-                await self.session.close()
+            if session_id:
+                sess = self._sessions.pop(session_id, None)
+                if sess:
+                    await sess.close()
+                if self.session == sess:
+                    self.session = next(iter(self._sessions.values()), None)
+                await self._cleanup_playwright(session_id)
+            else:
+                for sid, sess in list(self._sessions.items()):
+                    try:
+                        await sess.close()
+                    except Exception as s_err:
+                        logger.debug(f"BrowserManager | Session {sid} close notice: {s_err}")
+                    await self._cleanup_playwright(sid)
+                self._sessions.clear()
                 self.session = None
 
-            await self._cleanup_playwright()
-
-            logger.info("BrowserManager | SUCCESS close")
+            logger.info(f"BrowserManager | SUCCESS close | Session: {session_id}")
 
         except Exception as e:
             logger.exception(f"BrowserManager | FAILED close: {e}")
 
-    async def _cleanup_playwright(self) -> None:
+    async def _cleanup_playwright(self, session_id: str | None = None) -> None:
         """
-        Stop Playwright.
+        Stop Playwright instance for a specific session_id.
         """
 
         try:
-            if self.playwright_instance:
-                await self.playwright_instance.stop()
+            if session_id:
+                pw = self._playwright_instances.pop(session_id, None)
+                if pw:
+                    await pw.stop()
+                if self.playwright_instance == pw:
+                    self.playwright_instance = next(iter(self._playwright_instances.values()), None)
+            else:
+                for sid, pw in list(self._playwright_instances.items()):
+                    try:
+                        await pw.stop()
+                    except Exception:
+                        pass
+                self._playwright_instances.clear()
                 self.playwright_instance = None
 
         except Exception as e:

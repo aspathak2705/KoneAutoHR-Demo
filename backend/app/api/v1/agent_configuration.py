@@ -78,7 +78,7 @@ async def connect_agent_microsoft(db: DBSession = Depends(get_db)):
             pass
 
         # Close the connection setup session
-        await browser_manager.close()
+        await browser_manager.close("agent_connection")
         
         # Set configuration state
         config_update = AgentConfigurationUpdate(
@@ -91,7 +91,7 @@ async def connect_agent_microsoft(db: DBSession = Depends(get_db)):
         return agent_configuration_service.update_config(db, config_update)
         
     except Exception as e:
-        await browser_manager.close()
+        await browser_manager.close("agent_connection")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Microsoft account connection failed: {str(e)}"

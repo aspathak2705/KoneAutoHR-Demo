@@ -236,13 +236,35 @@ async def start_induction(
                     native_share = NativeShareController()
                     verification = ShareVerificationController()
 
-                    await t_ctrl.open_share_panel(page)
-                    await native_share.activate_picker()
-                    await native_share.click_window_tab()
-                    await native_share.select_window("PowerPoint Slide Show", presentation_name=ppt_path.name)
-                    await native_share.click_share()
+                    # Check if already sharing before initiating share steps
+                    if await verification.wait_for_share_confirmation(page, timeout=1.0):
+                        auto_share_success = True
+                    else:
+                        await t_ctrl.open_share_panel(page)
+                        # Click "Screen, window" option inside Teams share tray if present
+                        for opt_sel in [
+                            "[aria-label*='Screen, window' i]",
+                            "[aria-label*='Screen sharing' i]",
+                            "[aria-label*='Share screen' i]",
+                            "button:has-text('Screen, window')",
+                            "span:has-text('Screen, window')",
+                            "div:has-text('Screen, window')",
+                        ]:
+                            try:
+                                opt = page.locator(opt_sel).first
+                                if await opt.is_visible(timeout=1000):
+                                    await opt.click()
+                                    logger.info(f"API | Clicked Teams share option: {opt_sel}")
+                                    break
+                            except Exception:
+                                pass
 
-                    auto_share_success = await verification.wait_for_share_confirmation(page, timeout=8.0)
+                        await native_share.activate_picker()
+                        await native_share.click_window_tab()
+                        await native_share.select_window("PowerPoint Slide Show", presentation_name=ppt_path.name)
+                        await native_share.click_share()
+
+                        auto_share_success = await verification.wait_for_share_confirmation(page, timeout=8.0)
                     logger.info(f"API | Automatic screen share result: {auto_share_success}")
                 except Exception as share_ex:
                     logger.warning(f"API | Automatic Teams sharing attempt failed or timed out: {share_ex}")

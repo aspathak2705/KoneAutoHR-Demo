@@ -60,7 +60,19 @@ class LLMClient:
             logger.info(f"Sending request to {self.provider} (model: {self.model})")
             response = await client.chat.completions.create(**kwargs)
             logger.info("Response received")
-            content = response.choices[0].message.content
+            
+            # Robust response validation to prevent NoneType attribute crashes
+            if response is None:
+                raise LLMResponseParseError("LLM provider returned None response object.")
+            if not getattr(response, "choices", None) or len(response.choices) == 0:
+                raise LLMResponseParseError("LLM provider returned response with empty choices list.")
+            choice = response.choices[0]
+            if not getattr(choice, "message", None):
+                raise LLMResponseParseError("LLM provider response choice has no message object.")
+            content = getattr(choice.message, "content", None)
+            if content is None:
+                raise LLMResponseParseError("LLM provider message content is None.")
+
             latency = time.perf_counter() - t0
 
             prompt_tokens = 0
