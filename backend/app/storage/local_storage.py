@@ -37,10 +37,14 @@ class LocalStorageProvider(StorageProvider):
         
         target = (self.base_dir / storage_key).resolve()
         if not target.exists():
-            # Check backend-relative storage directory if running from repo root
-            backend_base = (Path(__file__).parent.parent.parent / "storage" / "uploads" / storage_key).resolve()
-            if backend_base.exists():
-                return backend_base
+            # Check candidate storage roots across repo root and backend directory
+            storage_file = Path(__file__).resolve()
+            backend_dir = storage_file.parents[2]
+            repo_dir = backend_dir.parent
+            for alt_root in [repo_dir / "storage" / "uploads", backend_dir / "storage" / "uploads"]:
+                alt_target = (alt_root / storage_key).resolve()
+                if alt_target.exists():
+                    return alt_target
         return target
 
 

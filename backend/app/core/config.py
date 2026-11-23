@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Literal, Optional, List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, model_validator
@@ -110,11 +111,25 @@ class Settings(BaseSettings):
     @model_validator(mode="before")
     @classmethod
     def check_env_fallbacks(cls, data: dict) -> dict:
+        # Determine canonical backend and repo directory roots relative to this config file
+        config_path = Path(__file__).resolve()
+        backend_dir = config_path.parents[2]
+        repo_dir = backend_dir.parent
+
+        # 0. Canonicalize storage root path so it stays consistent regardless of working directory
+        if "AUTOHR_STORAGE_PATH" not in data or data["AUTOHR_STORAGE_PATH"] == "storage":
+            # If repo root storage exists, prefer repo root storage; otherwise anchor to backend directory
+            if (repo_dir / "storage").exists():
+                data["AUTOHR_STORAGE_PATH"] = str((repo_dir / "storage").resolve())
+            elif (backend_dir / "storage").exists():
+                data["AUTOHR_STORAGE_PATH"] = str((backend_dir / "storage").resolve())
+            else:
+                data["AUTOHR_STORAGE_PATH"] = str((repo_dir / "storage").resolve())
+
         # 1. Parse .env file if it exists, loading project-level configuration
-        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         env_candidates = [
             os.path.join(backend_dir, ".env"),
-            os.path.join(os.path.dirname(backend_dir), ".env")
+            os.path.join(repo_dir, ".env")
         ]
         file_env = {}
         for env_file in env_candidates:

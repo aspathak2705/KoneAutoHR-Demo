@@ -125,10 +125,14 @@ class PowerPointSlideExtractor(SlideExtractor):
     def extract_slides(self, ppt_path: str, output_dir: Path) -> int:
         """
         Automates Microsoft PowerPoint on Windows via win32com to export slide images.
-        Falls back to generating dummy slide images with PIL if win32com is unavailable.
+        Falls back to generating slide placeholder images if win32com is unavailable.
         """
+        ppt_file = Path(ppt_path)
+        if not ppt_file.exists():
+            raise FileNotFoundError(f"PowerPoint presentation file does not exist: {ppt_path}")
+
         output_dir.mkdir(parents=True, exist_ok=True)
-        abs_ppt = str(Path(ppt_path).resolve())
+        abs_ppt = str(ppt_file.resolve())
         abs_out = str(Path(output_dir).resolve())
         
         try:
@@ -153,7 +157,7 @@ class PowerPointSlideExtractor(SlideExtractor):
         except Exception as e:
             logger.warning(f"PowerPointSlideExtractor | win32com failure: {e}. Generating placeholders...")
             from pptx import Presentation as PptxPresentation
-            prs = PptxPresentation(ppt_path)
+            prs = PptxPresentation(str(ppt_file.resolve()))
             for idx in range(len(prs.slides)):
                 slide_img = output_dir / f"slide_{idx+1}.png"
                 try:
