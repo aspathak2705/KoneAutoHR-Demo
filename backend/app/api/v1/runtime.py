@@ -329,8 +329,8 @@ async def start_induction(
 
             # 5. Fallback: PPT is open, but auto Teams sharing was unavailable or timed out
             msg = (
-                "PowerPoint is open in slideshow mode. Automatic Teams screen sharing was unavailable. "
-                "Please share the PowerPoint Slide Show window or your screen manually."
+                "PowerPoint is open in slideshow mode. Automatic Teams screen sharing could not be confirmed. "
+                "Please share the presentation slideshow window or your screen manually in Teams."
             )
 
             return {

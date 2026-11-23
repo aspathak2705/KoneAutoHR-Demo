@@ -135,11 +135,11 @@ class InductionUpdateService:
                     pres.Close()
                 except Exception:
                     pass
-            if ppt:
-                try:
-                    ppt.Quit()
-                except Exception:
-                    pass
+            # Default to externally owned: never call ppt.Quit() as Dispatch binds to shared PowerPoint instance
+            del pres
+            del ppt
+            import gc
+            gc.collect()
             pythoncom.CoUninitialize()
 
         return signatures
@@ -329,11 +329,13 @@ class InductionUpdateService:
                         p.Close()
                     except Exception:
                         pass
-            if ppt:
-                try:
-                    ppt.Quit()
-                except Exception:
-                    pass
+            # Default to externally owned: never call ppt.Quit() as Dispatch binds to shared PowerPoint instance
+            del pres_out
+            del pres_single
+            del pres_src
+            del ppt
+            import gc
+            gc.collect()
             pythoncom.CoUninitialize()
             if temp_out.exists():
                 try:
@@ -640,11 +642,11 @@ class InductionUpdateService:
                     pres_new.Close()
                 except Exception:
                     pass
-            if ppt:
-                try:
-                    ppt.Quit()
-                except Exception:
-                    pass
+            # Default to externally owned: never call ppt.Quit() as Dispatch binds to shared PowerPoint instance
+            del pres_new
+            del ppt
+            import gc
+            gc.collect()
             pythoncom.CoUninitialize()
 
     def _concatenate_wavs(self, input_wav_paths: List[Path], output_wav_path: Path) -> None:

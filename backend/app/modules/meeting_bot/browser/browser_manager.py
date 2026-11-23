@@ -24,6 +24,8 @@ class BrowserManager:
     def __init__(self):
         self._sessions: dict[str, BrowserSession] = {}
         self._playwright_instances: dict[str, any] = {}
+        # Tracks active profile directory ownership: canonical_path_str -> session_id
+        self._profile_owners: dict[str, str] = {}
         # Backward compatibility properties pointing to last active session
         self.session: BrowserSession | None = None
         self.playwright_instance = None
@@ -70,6 +72,17 @@ class BrowserManager:
                 temp_dir = Path(settings.BROWSER_PROFILE_DIR) / "msedge"
                 logger.info(f"BrowserManager | Launching with default Edge profile: {temp_dir}")
             temp_dir.mkdir(parents=True, exist_ok=True)
+
+            # Check profile ownership to prevent Windows file locking contention (EBUSY)
+            canonical_profile = str(temp_dir.resolve()).lower()
+            current_owner = self._profile_owners.get(canonical_profile)
+            if current_owner and current_owner != session_id:
+                msg = (
+                    f"Edge profile directory '{temp_dir}' is currently in use by active session '{current_owner}'. "
+                    f"Concurrent sessions sharing the same Windows browser profile are locked."
+                )
+                logger.warning(f"BrowserManager | Profile contention: {msg}")
+                raise RuntimeError(msg)
 
             default_profile_dir = temp_dir / "Default"
             default_profile_dir.mkdir(parents=True, exist_ok=True)
@@ -153,6 +166,7 @@ class BrowserManager:
                 page=page,
             )
             self._sessions[session_id] = session_obj
+            self._profile_owners[canonical_profile] = session_id
             self.session = session_obj
 
             logger.info(f"BrowserManager | SUCCESS launch | Browser ready for session {session_id}")
@@ -190,6 +204,8 @@ class BrowserManager:
                     await sess.close()
                 if self.session == sess:
                     self.session = next(iter(self._sessions.values()), None)
+                # Release profile ownership for this session
+                self._profile_owners = {p: s for p, s in self._profile_owners.items() if s != session_id}
                 await self._cleanup_playwright(session_id)
             else:
                 for sid, sess in list(self._sessions.items()):
@@ -199,6 +215,7 @@ class BrowserManager:
                         logger.debug(f"BrowserManager | Session {sid} close notice: {s_err}")
                     await self._cleanup_playwright(sid)
                 self._sessions.clear()
+                self._profile_owners.clear()
                 self.session = None
 
             logger.info(f"BrowserManager | SUCCESS close | Session: {session_id}")
