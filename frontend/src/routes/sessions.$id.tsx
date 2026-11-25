@@ -1737,7 +1737,7 @@ function SessionDetailPage() {
                       liveMeetingStatus?.meeting_connected
                     );
                     const isPresenting =
-                      runtimeStatus?.state === "PRESENTING" ||
+                      Boolean((runtimeStatus?.state as string) === "PRESENTING") ||
                       Boolean(liveMeetingStatus?.narration_state && !["idle", "finished_closing"].includes(liveMeetingStatus.narration_state));
 
                     return (
