@@ -818,8 +818,13 @@ function SessionDetailPage() {
 
   const handleStartInduction = async () => {
     if (!session) return;
-    if (runtimeStatus?.state === "CONNECTED" && liveMeetingStatus && !liveMeetingStatus.overall_ready && !liveMeetingStatus.bot_ready) {
-      const missing = liveMeetingStatus.blocked_reasons?.join("; ") || "Prerequisites not met";
+    const isBotJoined = Boolean(
+      runtimeStatus?.state === "CONNECTED" ||
+      liveMeetingStatus?.meeting_connected ||
+      liveMeetingStatus?.bot_ready
+    );
+    if (!isBotJoined) {
+      const missing = liveMeetingStatus?.blocked_reasons?.join("; ") || "Bot must be connected to Microsoft Teams meeting first";
       toast.warning(`Cannot start induction: ${missing}`);
       return;
     }
@@ -1717,28 +1722,38 @@ function SessionDetailPage() {
                       </div>
                     </div>
 
-                    {!liveMeetingStatus?.overall_ready && !liveMeetingStatus?.bot_ready && (
+                    {!liveMeetingStatus?.overall_ready && !liveMeetingStatus?.bot_ready && runtimeStatus?.state !== "CONNECTED" && (
                       <div className="p-2 bg-amber-500/10 border border-amber-500/30 rounded text-[11px] text-amber-800 leading-tight">
-                        {liveMeetingStatus?.reason || "Please share PowerPoint in Microsoft Teams to begin."}
+                        {liveMeetingStatus?.reason || "Waiting for bot to connect to Microsoft Teams meeting."}
                       </div>
                     )}
                   </div>
 
-                  <Button
-                    onClick={handleStartInduction}
-                    disabled={
-                      Boolean(liveMeetingStatus &&
-                      !liveMeetingStatus.overall_ready &&
-                      !liveMeetingStatus.bot_ready)
-                    }
-                    className={`w-full font-semibold gap-2 text-xs h-9 shadow-sm ${
-                      liveMeetingStatus?.overall_ready || liveMeetingStatus?.bot_ready
-                        ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                        : "bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    <PlayCircle className="h-4 w-4" /> Start Induction Narration
-                  </Button>
+                  {(() => {
+                    const isJoined = Boolean(
+                      runtimeStatus?.state === "CONNECTED" ||
+                      liveMeetingStatus?.overall_ready ||
+                      liveMeetingStatus?.bot_ready ||
+                      liveMeetingStatus?.meeting_connected
+                    );
+                    const isPresenting =
+                      runtimeStatus?.state === "PRESENTING" ||
+                      Boolean(liveMeetingStatus?.narration_state && !["idle", "finished_closing"].includes(liveMeetingStatus.narration_state));
+
+                    return (
+                      <Button
+                        onClick={handleStartInduction}
+                        disabled={!isJoined || isPresenting}
+                        className={`w-full font-semibold gap-2 text-xs h-9 shadow-sm ${
+                          isJoined && !isPresenting
+                            ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        <PlayCircle className="h-4 w-4" /> Start Induction Narration
+                      </Button>
+                    );
+                  })()}
 
                   {/* Narration box */}
                   <div className="p-3.5 bg-background border border-border/80 rounded-xl space-y-2">

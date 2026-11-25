@@ -215,17 +215,12 @@ class MeetingStatusService:
         # 6. Authoritative Readiness Computation & Checklist Construction
         # --------------------------------------------------------------------
         ready_to_initiate = bool(meeting_connected)
-        overall_ready = bool(
-            meeting_connected and
-            presentation_detected
-        )
+        overall_ready = bool(meeting_connected)
         bot_ready = ready_to_initiate
 
         blocked_reasons: List[str] = []
         if not meeting_connected:
             blocked_reasons.append("Waiting for bot to connect to Microsoft Teams meeting.")
-        if not presentation_detected:
-            blocked_reasons.append("PowerPoint presentation not yet shared in Teams (will attempt auto-open on Start).")
 
         reason = blocked_reasons[0] if blocked_reasons else None
 

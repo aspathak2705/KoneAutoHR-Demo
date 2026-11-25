@@ -23,8 +23,8 @@ class MeetingLifecycle:
         # 1b. Wait for prejoin controls to render
         context.page = await teams_controller.wait_for_prejoin(context.page)
         
-        # 2. Toggle mic / camera toggles (Milestone 03 captured inside teams_controller)
-        device_result = await teams_controller.configure_devices(context.page, mute_mic=True, turn_off_cam=True)
+        # 2. Toggle mic / camera toggles (keep mic unmuted so bot narration feeds into Teams via VB-Cable)
+        device_result = await teams_controller.configure_devices(context.page, mute_mic=False, turn_off_cam=True)
         context.metadata = getattr(context, "metadata", {}) or {}
         context.metadata["device_configuration"] = device_result
 
