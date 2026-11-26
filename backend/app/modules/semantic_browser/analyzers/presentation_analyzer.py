@@ -106,18 +106,22 @@ class PresentationAnalyzer:
                                 details["current_slide"] = current_slide
                                 mode = PresentationMode.POWERPOINT_SHARED
                         else:
+                            # Not a match against slide fingerprints
                             if matched_sel in ["[data-tid='powerpoint-live-view']", "[data-tid='ppt-presentation']", "div.ppt-stage", "iframe[src*='powerpoint' i]"]:
                                 mode = PresentationMode.POWERPOINT_SHARED
-                            elif matched_sel and matched_sel not in ["video"]:
-                                mode = PresentationMode.SCREEN_SHARING
                             elif is_actively_sharing:
                                 mode = PresentationMode.SCREEN_SHARING
                             else:
                                 mode = PresentationMode.NONE
                                 details["unmatched_distance"] = best_dist
                     else:
-                        # fingerprints.json not yet generated; stage selector confirmed sharing
-                        mode = PresentationMode.SCREEN_SHARING
+                        # fingerprints.json not yet generated; only explicit PowerPoint stage or active share controls count
+                        if matched_sel in ["[data-tid='powerpoint-live-view']", "[data-tid='ppt-presentation']", "div.ppt-stage", "iframe[src*='powerpoint' i]"]:
+                            mode = PresentationMode.POWERPOINT_SHARED
+                        elif is_actively_sharing:
+                            mode = PresentationMode.SCREEN_SHARING
+                        else:
+                            mode = PresentationMode.NONE
             except Exception as e:
                 logger.error(f"PresentationAnalyzer | Failed slide matching: {e}")
         elif is_actively_sharing:
@@ -126,20 +130,8 @@ class PresentationAnalyzer:
             details["direct_share_active"] = True
             logger.info("PresentationAnalyzer | Stage viewport absent but Teams active sharing controls confirmed.")
         else:
-            # 3. Check Active Video Streams (Multiple video feeds = Video playback/grid active)
-            video_count = 0
-            try:
-                video_count = await page.locator("video").count()
-            except Exception:
-                pass
-                
-            if video_count > 0:
-                mode = PresentationMode.VIDEO_PLAYBACK
-                details["video_elements_count"] = video_count
-                logger.debug(f"PresentationAnalyzer | {video_count} active video feeds detected.")
-            else:
-                # 4. Check for Loading / Ended / Waiting Screen
-                ended_selectors = ["text=Presentation ended", "text=stopped sharing", "text=Sharing has ended"]
+            # Check for Loading / Ended / Waiting Screen (generic videos/webcams are NOT presentations)
+            ended_selectors = ["text=Presentation ended", "text=stopped sharing", "text=Sharing has ended"]
                 ended_found = False
                 for sel in ended_selectors:
                     try:

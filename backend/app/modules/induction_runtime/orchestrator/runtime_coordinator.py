@@ -862,8 +862,13 @@ class RuntimeCoordinator:
                 raise FileNotFoundError(f"HR narration audio not found: {audio_path}")
 
             audio = get_audio_controller(self.session_id)
-            if not audio.validate_audio_route():
-                raise RuntimeError("Audio route validation failed before HR narration playback")
+            try:
+                audio.validate_audio_route()
+            except Exception as route_err:
+                logger.warning(
+                    f"RuntimeCoordinator | Audio route validation warning: {route_err}. "
+                    "Proceeding with default system audio output."
+                )
 
             # Use existing ppt_controller or attach to active PowerPoint slideshow instance
             if self.ppt_controller and self.ppt_controller.slide_show:

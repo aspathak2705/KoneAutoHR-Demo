@@ -43,31 +43,6 @@ class PresentationViewportProvider:
             except Exception:
                 pass
 
-        # Robust Fallback: Scan for the largest visible video element (likely screen sharing)
-        try:
-            videos = await page.locator("video").all()
-            largest_video = None
-            largest_area = 0
-            
-            for v in videos:
-                try:
-                    if await v.is_visible(timeout=100):
-                        box = await v.bounding_box()
-                        if box:
-                            area = box["width"] * box["height"]
-                            if area > largest_area and box["width"] > 200 and box["height"] > 150:
-                                largest_area = area
-                                largest_video = v
-                except Exception:
-                    pass
-            
-            if largest_video:
-                screenshot_bytes = await largest_video.screenshot(type="png", timeout=3000)
-                logger.info(f"PresentationViewportProvider | Found sharing video by surface area size fallback ({largest_area}px).")
-                return screenshot_bytes, "video"
-        except Exception as e:
-            logger.error(f"PresentationViewportProvider | Fallback video scan failed: {e}")
-                
         return None, None
 
 presentation_viewport_provider = PresentationViewportProvider()

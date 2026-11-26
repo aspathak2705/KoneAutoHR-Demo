@@ -228,15 +228,15 @@ class AudioController:
         if not candidates:
             available_names = [f"[{idx}] {d.get('name')} ({api})" for idx, d, api in output_devices]
             candidate_list_str = "\n".join(available_names) if available_names else "None"
-            logger.error(
+            logger.warning(
                 f"[Audio] VB-CABLE playback device not found. Target search pattern: '{target_name}'.\n"
-                f"Available playback devices:\n{candidate_list_str}"
+                f"Available playback devices:\n{candidate_list_str}\n"
+                f"Falling back to default system audio output device."
             )
-            raise RuntimeError(
-                f"VB-CABLE playback device not found (target: '{target_name}'). "
-                f"Discovered playback devices:\n{candidate_list_str}\n"
-                f"Please ensure VB-Audio Virtual Cable (CABLE Input) is installed and enabled."
-            )
+            self._cached_device_idx = None
+            self._cached_device_name = "Default System Audio"
+            self._cached_host_api = "Default"
+            return True
 
         # Sort candidates deterministically: highest name rank, highest API priority, highest channels, lowest index
         candidates.sort(key=lambda c: (c[0], c[1], c[2], -c[3]), reverse=True)
@@ -282,8 +282,14 @@ class AudioController:
 
         if not selected:
             err_msg = "; ".join(validation_errors) or "No compatible channels or sample rate supported."
-            logger.error(f"[Audio] All matched VB-CABLE candidate endpoints failed validation: {err_msg}")
-            raise RuntimeError(f"VB-CABLE playback candidate validation failed: {err_msg}")
+            logger.warning(
+                f"[Audio] All matched VB-CABLE candidate endpoints failed validation: {err_msg}. "
+                "Falling back to default system audio output device."
+            )
+            self._cached_device_idx = None
+            self._cached_device_name = "Default System Audio"
+            self._cached_host_api = "Default"
+            return True
 
         idx, d, api_name, tested_sr, tested_ch = selected
         self._cached_device_idx = idx

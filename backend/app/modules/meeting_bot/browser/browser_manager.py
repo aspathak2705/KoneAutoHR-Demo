@@ -77,12 +77,20 @@ class BrowserManager:
             canonical_profile = str(temp_dir.resolve()).lower()
             current_owner = self._profile_owners.get(canonical_profile)
             if current_owner and current_owner != session_id:
-                msg = (
-                    f"Edge profile directory '{temp_dir}' is currently in use by active session '{current_owner}'. "
-                    f"Concurrent sessions sharing the same Windows browser profile are locked."
-                )
-                logger.warning(f"BrowserManager | Profile contention: {msg}")
-                raise RuntimeError(msg)
+                # Check if current owner session is still genuinely active
+                owner_session = self._sessions.get(current_owner)
+                if owner_session and owner_session.page and not owner_session.page.is_closed():
+                    msg = (
+                        f"Edge profile directory '{temp_dir}' is currently in use by active session '{current_owner}'. "
+                        f"Concurrent sessions sharing the same Windows browser profile are locked."
+                    )
+                    logger.warning(f"BrowserManager | Profile contention: {msg}")
+                    raise RuntimeError(msg)
+                else:
+                    logger.info(
+                        f"BrowserManager | Clearing stale profile ownership for '{current_owner}' on '{temp_dir}'."
+                    )
+                    self._profile_owners.pop(canonical_profile, None)
 
             default_profile_dir = temp_dir / "Default"
             default_profile_dir.mkdir(parents=True, exist_ok=True)

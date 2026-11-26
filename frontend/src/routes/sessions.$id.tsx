@@ -1674,7 +1674,7 @@ function SessionDetailPage() {
                             : "bg-amber-100 text-amber-800 border-amber-300"
                         }
                       >
-                        {liveMeetingStatus?.overall_ready || liveMeetingStatus?.bot_ready ? "READY" : "WAITING FOR PPT"}
+                        {liveMeetingStatus?.overall_ready || liveMeetingStatus?.bot_ready ? "READY" : "WAITING FOR BOT"}
                       </Badge>
                     </div>
 

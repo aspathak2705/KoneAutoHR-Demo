@@ -206,10 +206,10 @@ class MeetingStatusService:
         # Slide index and confidence from PresentationObserver
         current_slide = 0
         confidence = 0.0
-        from app.modules.presentation_observer.observer.presentation_observer import presentation_observer
-        if presentation_observer.context.prev_snapshot:
-            current_slide = presentation_observer.current_slide()
-            confidence = presentation_observer.confidence()
+        session_observer = presentation_observer_service.get_observer(session_id)
+        if session_observer and session_observer.context.prev_snapshot:
+            current_slide = session_observer.current_slide()
+            confidence = session_observer.confidence()
 
         # --------------------------------------------------------------------
         # 6. Authoritative Readiness Computation & Checklist Construction

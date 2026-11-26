@@ -1,0 +1,6 @@
+{
+  "provider": "windows_dpapi",
+  "master_key_id": "win-dpapi-v1",
+  "algorithm": "AES-256-GCM",
+  "created_at": 1795661006.8091457
+}
