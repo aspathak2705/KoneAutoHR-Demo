@@ -507,6 +507,13 @@ class RuntimeCoordinator:
                 except Exception as vo_err:
                     logger.debug(f"RuntimeCoordinator | VoiceOutput stop notice: {vo_err}")
 
+            # Clean up temporary audio slices older than 1 hour for this session
+            try:
+                from app.services.storage_service import storage_service
+                storage_service.cleanup_expired_generated_audio(self.session_id, max_age_seconds=3600.0)
+            except Exception as clean_err:
+                logger.debug(f"RuntimeCoordinator | Temporary audio cleanup notice: {clean_err}")
+
             # 1. Stop Teams screen sharing if active
             from app.modules.meeting_bot.services.meeting_bot_service import meeting_bot_service
             bot = meeting_bot_service.get_bot(self.session_id)
@@ -563,7 +570,14 @@ class RuntimeCoordinator:
                 presentation_observer_service.remove_observer(self.session_id)
             except Exception as e:
                 logger.warning(f"RuntimeCoordinator | Observer cleanup notice: {e}")
-            
+
+            # 7. Disassociate coordinator from RuntimeService cache upon execution completion
+            try:
+                from app.services.runtime_service import runtime_service
+                runtime_service.remove_coordinator(self.session_id)
+            except Exception as e:
+                logger.debug(f"RuntimeCoordinator | Coordinator cache removal notice: {e}")
+
             logger.info(f"RuntimeCoordinator | SUCCESS _cleanup_resources")
         except Exception as e:
             logger.error(f"RuntimeCoordinator | FAILED _cleanup_resources: {e}")
@@ -862,13 +876,8 @@ class RuntimeCoordinator:
                 raise FileNotFoundError(f"HR narration audio not found: {audio_path}")
 
             audio = get_audio_controller(self.session_id)
-            try:
-                audio.validate_audio_route()
-            except Exception as route_err:
-                logger.warning(
-                    f"RuntimeCoordinator | Audio route validation warning: {route_err}. "
-                    "Proceeding with default system audio output."
-                )
+            if not audio.validate_audio_route():
+                raise RuntimeError("Audio route validation failed before HR narration playback")
 
             # Use existing ppt_controller or attach to active PowerPoint slideshow instance
             if self.ppt_controller and self.ppt_controller.slide_show:

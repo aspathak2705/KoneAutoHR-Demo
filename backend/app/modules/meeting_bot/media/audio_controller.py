@@ -228,15 +228,13 @@ class AudioController:
         if not candidates:
             available_names = [f"[{idx}] {d.get('name')} ({api})" for idx, d, api in output_devices]
             candidate_list_str = "\n".join(available_names) if available_names else "None"
-            logger.warning(
+            err = (
                 f"[Audio] VB-CABLE playback device not found. Target search pattern: '{target_name}'.\n"
                 f"Available playback devices:\n{candidate_list_str}\n"
-                f"Falling back to default system audio output device."
+                "Please configure and enable VB-Audio Virtual Cable (CABLE Input)."
             )
-            self._cached_device_idx = None
-            self._cached_device_name = "Default System Audio"
-            self._cached_host_api = "Default"
-            return True
+            logger.error(err)
+            raise RuntimeError(err)
 
         # Sort candidates deterministically: highest name rank, highest API priority, highest channels, lowest index
         candidates.sort(key=lambda c: (c[0], c[1], c[2], -c[3]), reverse=True)
@@ -282,14 +280,9 @@ class AudioController:
 
         if not selected:
             err_msg = "; ".join(validation_errors) or "No compatible channels or sample rate supported."
-            logger.warning(
-                f"[Audio] All matched VB-CABLE candidate endpoints failed validation: {err_msg}. "
-                "Falling back to default system audio output device."
-            )
-            self._cached_device_idx = None
-            self._cached_device_name = "Default System Audio"
-            self._cached_host_api = "Default"
-            return True
+            err = f"[Audio] All matched VB-CABLE candidate endpoints failed validation: {err_msg}"
+            logger.error(err)
+            raise RuntimeError(err)
 
         idx, d, api_name, tested_sr, tested_ch = selected
         self._cached_device_idx = idx

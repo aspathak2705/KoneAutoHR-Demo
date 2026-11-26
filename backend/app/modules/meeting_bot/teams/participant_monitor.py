@@ -23,7 +23,21 @@ class ParticipantMonitor:
             if not hasattr(context, 'active_pane') or context.active_pane is None:
                 context.active_pane = "chat"
 
-            if current_time - context.last_pane_toggle_time > 180.0:
+            # Suppress periodic pane toggling while actively presenting to prevent stage viewport jitter
+            is_presenting = False
+            session_id = getattr(context, "session_id", None)
+            if session_id:
+                try:
+                    from app.services.runtime_service import runtime_service
+                    from app.modules.induction_runtime.orchestrator.session_manager import RuntimeState
+                    if session_id in runtime_service._coordinators:
+                        coord = runtime_service._coordinators[session_id]
+                        if getattr(coord.session_manager, "state", None) == RuntimeState.PRESENTING:
+                            is_presenting = True
+                except Exception:
+                    pass
+
+            if not is_presenting and current_time - context.last_pane_toggle_time > 180.0:
                 context.active_pane = "roster" if context.active_pane == "chat" else "chat"
                 context.last_pane_toggle_time = current_time
                 logger.info(f"ParticipantMonitor | Toggling active pane state to: {context.active_pane}")

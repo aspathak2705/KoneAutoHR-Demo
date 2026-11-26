@@ -9,6 +9,7 @@ class PowerPointController:
         self.powerpoint = None
         self.presentation = None
         self.slide_show = None
+        self.ppt_path = None
         self._attached = False
         self._owns_app = False
 
@@ -93,6 +94,7 @@ class PowerPointController:
             logger.warning(f"PowerPointController | Could not minimize PowerPoint window: {e}")
 
         abs_ppt = str(Path(ppt_path).resolve())
+        self.ppt_path = abs_ppt
         self.presentation = self.powerpoint.Presentations.Open(
             abs_ppt,
             ReadOnly=True,
@@ -169,21 +171,34 @@ class PowerPointController:
 
     def _find_slideshow_hwnd(self):
         import win32gui
+        from pathlib import Path
 
-        hwnd = win32gui.FindWindow("screenClass", None)
-        if hwnd:
-            return hwnd
+        target_stem = Path(self.ppt_path).stem.lower() if self.ppt_path else ""
 
         hwnds = []
 
         def enum_cb(h, extra):
             title = win32gui.GetWindowText(h)
             if "PowerPoint Slide Show" in title:
-                extra.append(h)
+                # If specific presentation is bound, only match windows carrying its filename/stem
+                if target_stem:
+                    if target_stem in title.lower():
+                        extra.append(h)
+                else:
+                    extra.append(h)
             return True
 
         win32gui.EnumWindows(enum_cb, hwnds)
-        return hwnds[0] if hwnds else None
+        if hwnds:
+            return hwnds[0]
+
+        # Fallback to screenClass only if no specific window found and no target stem required
+        if not target_stem:
+            hwnd = win32gui.FindWindow("screenClass", None)
+            if hwnd:
+                return hwnd
+
+        return None
 
     async def focus_slideshow_window(self) -> None:
         """

@@ -47,6 +47,29 @@ class StorageService:
         p.mkdir(parents=True, exist_ok=True)
         return p
 
+    def cleanup_expired_generated_audio(self, session_id: str, max_age_seconds: float = 3600.0) -> int:
+        """
+        Cleans up temporary sliced audio files in the generated audio directory.
+        Only removes files matching pattern '*.wav.wav' or slide/greeting/closing slices older than max_age_seconds.
+        Preserves base 'narration.wav' and all persistent presentation/session assets.
+        """
+        import time
+        count = 0
+        p = Path(settings.GENERATED_AUDIO_DIR) / f"session_{session_id}"
+        if not p.exists() or not p.is_dir():
+            return 0
+        now = time.time()
+        for f in p.glob("*.wav"):
+            if f.name.lower() == "narration.wav":
+                continue  # Never delete base source narration
+            try:
+                if (now - f.stat().st_mtime) > max_age_seconds:
+                    f.unlink(missing_ok=True)
+                    count += 1
+            except Exception as e:
+                logger.debug(f"StorageService | Failed to unlink temporary slice {f}: {e}")
+        return count
+
     def get_generated_audio_dir(self, session_id: str) -> Path:
         p = Path(settings.GENERATED_AUDIO_DIR) / f"session_{session_id}"
         p.mkdir(parents=True, exist_ok=True)

@@ -102,6 +102,11 @@ async def start_induction(
                 await coordinator.session_manager.transition_to(RuntimeState.CONNECTED)
 
         # Check current state to determine action
+        if coordinator.session_manager.state == RuntimeState.STOPPED:
+            # Re-running an existing persistent induction session: reset state machine to READY for fresh execution
+            logger.info(f"API | Session {session_id} is in STOPPED state from previous run. Re-initializing coordinator state to READY.")
+            await coordinator.session_manager.transition_to(RuntimeState.READY)
+
         if coordinator.session_manager.state == RuntimeState.CONNECTED:
             # The only business prerequisite for enabling Start Induction is that the bot is genuinely joined to Teams
             readiness = await meeting_status_service.evaluate_status(db, session_id)
