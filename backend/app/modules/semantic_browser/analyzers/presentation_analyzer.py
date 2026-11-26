@@ -132,43 +132,43 @@ class PresentationAnalyzer:
         else:
             # Check for Loading / Ended / Waiting Screen (generic videos/webcams are NOT presentations)
             ended_selectors = ["text=Presentation ended", "text=stopped sharing", "text=Sharing has ended"]
-                ended_found = False
-                for sel in ended_selectors:
-                    try:
-                        if await page.locator(sel).is_visible(timeout=200):
-                            ended_found = True
-                            break
-                    except Exception:
-                        pass
+            ended_found = False
+            for sel in ended_selectors:
+                try:
+                    if await page.locator(sel).is_visible(timeout=200):
+                        ended_found = True
+                        break
+                except Exception:
+                    pass
 
-                loading_selectors = ["text=Loading presentation", "text=Starting share", "[data-tid='loader-spinner']"]
-                loading_found = False
-                for sel in loading_selectors:
-                    try:
-                        if await page.locator(sel).is_visible(timeout=200):
-                            loading_found = True
-                            break
-                    except Exception:
-                        pass
+            loading_selectors = ["text=Loading presentation", "text=Starting share", "[data-tid='loader-spinner']"]
+            loading_found = False
+            for sel in loading_selectors:
+                try:
+                    if await page.locator(sel).is_visible(timeout=200):
+                        loading_found = True
+                        break
+                except Exception:
+                    pass
 
-                waiting_selectors = ["text=Waiting for others to join", "text=Waiting to start", "[data-tid='meeting-waiting-screen']"]
-                waiting_found = False
-                for sel in waiting_selectors:
-                    try:
-                        if await page.locator(sel).is_visible(timeout=200):
-                            waiting_found = True
-                            break
-                    except Exception:
-                        pass
-                        
-                if ended_found:
-                    mode = PresentationMode.ENDED
-                elif loading_found:
-                    mode = PresentationMode.LOADING
-                elif waiting_found:
-                    mode = PresentationMode.WAITING_SCREEN
-                else:
-                    mode = PresentationMode.NONE
+            waiting_selectors = ["text=Waiting for others to join", "text=Waiting to start", "[data-tid='meeting-waiting-screen']"]
+            waiting_found = False
+            for sel in waiting_selectors:
+                try:
+                    if await page.locator(sel).is_visible(timeout=200):
+                        waiting_found = True
+                        break
+                except Exception:
+                    pass
+                    
+            if ended_found:
+                mode = PresentationMode.ENDED
+            elif loading_found:
+                mode = PresentationMode.LOADING
+            elif waiting_found:
+                mode = PresentationMode.WAITING_SCREEN
+            else:
+                mode = PresentationMode.NONE
 
         return {
             "mode": mode,
