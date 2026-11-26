@@ -77,11 +77,14 @@ class RuntimeSessionManager:
             RuntimeState.PRESENTING: [RuntimeState.CONNECTED, RuntimeState.FINISHED, RuntimeState.FAILED],
             RuntimeState.FINISHED: [RuntimeState.STOPPING, RuntimeState.FAILED],
             RuntimeState.STOPPING: [RuntimeState.STOPPED, RuntimeState.FAILED],
-            RuntimeState.STOPPED: [],  # Terminal state
-            RuntimeState.FAILED: [RuntimeState.STOPPING],  # Recovery path
+            RuntimeState.STOPPED: [RuntimeState.READY, RuntimeState.PREPARING],  # Re-run path for persistent template
+            RuntimeState.FAILED: [RuntimeState.STOPPING, RuntimeState.READY],  # Recovery / retry path
         }
         
-        if current in [RuntimeState.STOPPED, RuntimeState.FAILED] and target_state != RuntimeState.STOPPING:
+        if current in [RuntimeState.STOPPED] and target_state not in [RuntimeState.READY, RuntimeState.PREPARING]:
+            return False
+
+        if current == RuntimeState.FAILED and target_state not in [RuntimeState.STOPPING, RuntimeState.READY]:
             return False
 
         if current not in valid_transitions:
